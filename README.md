@@ -7,13 +7,18 @@ It is an original implementation inspired by iStat-style capabilities, with no c
 
 Implemented in this repo:
 - Menu bar summary (CPU, Memory, Network, optional Disk)
-- Popover dashboard tabs: CPU, Memory, Network, Disk, Settings
+- Popover dashboard tabs: CPU, Memory, Network, Temperature, Disk, Settings
 - 5m / 15m / 1h history graphs with dynamic y-scaling
 - Providers: CPU (Mach), Memory (Mach VM stats), Network (`getifaddrs`), Disk (free space + combined throughput from `iostat`)
-- Settings persistence via `UserDefaults`
+- Temperature monitoring:
+  - standard mode via `ProcessInfo.thermalState` (no privileges)
+  - optional privileged mode via `powermetrics` (opt-in)
+- Profiles: Quiet / Balanced / Performance / Custom
+- Power-source auto-switch rules (AC and Battery profile mapping)
+- Settings persistence via `UserDefaults` + `settings.v2` migration model
 - Launch-at-login toggle using `SMAppService`
-- Basic CPU alert rule (`CPU > threshold for duration`) with local notifications
-- Powermetrics provider scaffold (no active privileged sampling in MVP)
+- Multi-rule alerts (CPU and optional temperature threshold alerts)
+- Powermetrics provider with parser, retry backoff, and status reporting
 
 ## Requirements
 
@@ -47,14 +52,19 @@ PulseBar uses `SMAppService.mainApp`.
 - In debug and unsigned contexts, registration may fail depending on launch location and signing.
 - The Settings screen surfaces success/failure status text.
 
-## Privileged Metrics (Scaffold in MVP)
-
-`PowermetricsProvider` is intentionally scaffold-only in MVP.
-Future privileged mode will be opt-in and transparent about command usage (`/usr/bin/powermetrics`).
+## Privileged Metrics (Optional Mode)
+Privileged temperature sampling is optional and off by default.
+- Command path: `/usr/bin/powermetrics --samplers smc -n 1 -i 1000`
+- If privileges are unavailable or parsing fails, PulseBar remains operational and continues standard thermal-state monitoring.
 
 ## Disk Throughput Note
 
 Current macOS `iostat` output is used for **combined throughput** only in MVP. Read/write split is deferred to V1.
+
+## Fan Control Status
+
+Fan write/control is not implemented.
+Current roadmap status is a safety-gated feasibility track only; no fan control write path ships without explicit go/no-go criteria being met.
 
 ## Packaging for Local Usage
 
@@ -77,3 +87,4 @@ swift test
 ```
 
 Covers ring buffer behavior, downsampling logic, units formatting, and alert-rule evaluation.
+Additional tests cover thermal-state mapping, powermetrics parsing, and profile-settings migration.

@@ -31,6 +31,12 @@ struct MetricChartView: View {
                         y: .value("Value", sample.value)
                     )
                     .interpolationMethod(.catmullRom)
+
+                    if let hoveredSample {
+                        RuleMark(x: .value("Hover Time", hoveredSample.timestamp))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .chartYScale(domain: yDomain)
                 .chartYAxis {
@@ -118,7 +124,12 @@ struct MetricChartView: View {
             return UnitsFormatter.format(value, unit: .bytesPerSecond, throughputUnit: throughputUnit)
         case .percent:
             return String(format: "%.0f%%", value)
+        case .celsius:
+            return String(format: "%.0f C", value)
         case .scalar:
+            if samples.first?.metricID == .thermalStateLevel {
+                return ThermalStateLevel.from(metricValue: value).shortLabel
+            }
             return String(format: "%.1f", value)
         }
     }

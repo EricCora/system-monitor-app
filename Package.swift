@@ -52,7 +52,8 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("Charts"),
                 .linkedFramework("ServiceManagement"),
-                .linkedFramework("UserNotifications")
+                .linkedFramework("UserNotifications"),
+                .linkedFramework("IOKit")
             ]
         ),
         .testTarget(
