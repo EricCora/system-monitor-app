@@ -1,0 +1,270 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0A0000000000000000000001 /* PulseBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PulseBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A0000000000000000000002 /* CoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0A0000000000000000000101 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A0000000000000000000102 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0A0000000000000000000201 = {
+			isa = PBXGroup;
+			children = (
+				0A0000000000000000000202 /* PulseBar */,
+				0A0000000000000000000203 /* Tests */,
+				0A0000000000000000000204 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000202 /* PulseBar */ = {
+			isa = PBXGroup;
+			path = PulseBar;
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000203 /* Tests */ = {
+			isa = PBXGroup;
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000204 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0A0000000000000000000001 /* PulseBar.app */,
+				0A0000000000000000000002 /* CoreTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0A0000000000000000000301 /* PulseBar */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A0000000000000000000401 /* Build configuration list for PBXNativeTarget "PulseBar" */;
+			buildPhases = (
+				0A0000000000000000000501 /* Sources */,
+				0A0000000000000000000101 /* Frameworks */,
+				0A0000000000000000000601 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PulseBar;
+			productName = PulseBar;
+			productReference = 0A0000000000000000000001 /* PulseBar.app */;
+			productType = "com.apple.product-type.application";
+		};
+		0A0000000000000000000302 /* CoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A0000000000000000000402 /* Build configuration list for PBXNativeTarget "CoreTests" */;
+			buildPhases = (
+				0A0000000000000000000502 /* Sources */,
+				0A0000000000000000000102 /* Frameworks */,
+				0A0000000000000000000602 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CoreTests;
+			productName = CoreTests;
+			productReference = 0A0000000000000000000002 /* CoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0A0000000000000000000701 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 0A0000000000000000000403 /* Build configuration list for PBXProject "PulseBar" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 0A0000000000000000000201;
+			productRefGroup = 0A0000000000000000000204 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0A0000000000000000000301 /* PulseBar */,
+				0A0000000000000000000302 /* CoreTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0A0000000000000000000601 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A0000000000000000000602 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0A0000000000000000000501 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A0000000000000000000502 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0A0000000000000000000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.local.pulsebar;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0A0000000000000000000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.local.pulsebar;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		0A0000000000000000000803 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.local.pulsebar.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PulseBar.app/Contents/MacOS/PulseBar";
+			};
+			name = Debug;
+		};
+		0A0000000000000000000804 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.local.pulsebar.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PulseBar.app/Contents/MacOS/PulseBar";
+			};
+			name = Release;
+		};
+		0A0000000000000000000805 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0A0000000000000000000806 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0A0000000000000000000401 /* Build configuration list for PBXNativeTarget "PulseBar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A0000000000000000000801 /* Debug */,
+				0A0000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A0000000000000000000402 /* Build configuration list for PBXNativeTarget "CoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A0000000000000000000803 /* Debug */,
+				0A0000000000000000000804 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A0000000000000000000403 /* Build configuration list for PBXProject "PulseBar" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A0000000000000000000805 /* Debug */,
+				0A0000000000000000000806 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 0A0000000000000000000701 /* Project object */;
+}
