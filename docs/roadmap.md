@@ -4,9 +4,10 @@
 
 - Temperature tracking:
   - standard mode thermal-state metric (non-privileged)
-  - optional privileged Celsius sampling via `powermetrics`
+  - optional privileged Celsius sampling via root helper + `powermetrics`
   - temperature dashboard tab and menu-bar temperature surface
   - privileged status/error visibility and safe fallback behavior
+  - privileged helper IPC contract and helper executable target
 
 - Profiles:
   - built-in profiles: Quiet / Balanced / Performance
@@ -28,6 +29,7 @@
 - Sensor and thermal depth:
   - richer privileged sensor inventory display/filtering
   - source confidence/caveat annotations per sensor family
+  - signed distribution hardening for privileged helper lifecycle
 
 - History persistence:
   - in-memory base interval for real-time

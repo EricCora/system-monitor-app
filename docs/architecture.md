@@ -15,9 +15,11 @@
   - `AppCoordinator.swift`: runtime orchestration, settings, profiles, launch-at-login, alerts
   - `TemperatureCoordinator.swift`: privileged temperature mode state/status bridge
   - `PowerSourceMonitor.swift`: AC/Battery change monitor for auto profile switching
+  - `PrivilegedHelperTemperatureDataSource.swift`: app-side privileged helper launcher + IPC client
 
 - `Core/`
   - `Models/`: `MetricID`, `MetricSample`, units, `TimeWindow`, thermal/profile models (`ThermalStateLevel`, `ProfileSettings`, `AppSettingsV2`)
+  - `Privileged/`: shared privileged IPC contract (`PrivilegedTemperatureRequest`, `PrivilegedTemperatureResponse`)
   - `Storage/`: `RingBuffer`, `TimeSeriesStore`
   - `Sampling/`: scheduler engine + downsampling
 
@@ -27,7 +29,10 @@
   - `MemoryProvider`: Mach `host_statistics64`
   - `NetworkProvider`: `getifaddrs` byte counters
   - `DiskProvider`: free bytes + combined throughput via `iostat`
-  - `PowermetricsProvider`: optional privileged Celsius sampling (`powermetrics`) with cache + retry backoff
+  - `PowermetricsProvider`: optional privileged Celsius sampling via helper transport with cache + retry backoff
+
+- `PulseBarHelper/`
+  - `PulseBarPrivilegedHelper`: root-required helper executable that runs `powermetrics` and responds over local unix socket IPC
 
 - `Alerts/`
   - `AlertRule`
@@ -43,12 +48,15 @@
 
 1. `SamplingEngine` ticks at configured interval (`1s...10s`, default `2s`).
 2. Providers sample concurrently.
-3. Standard thermal-state samples are always available; privileged Celsius samples are emitted only when opt-in mode is enabled and healthy.
-4. Batch is appended to `TimeSeriesStore`.
-5. Batch is sent to `AlertEngine` for multi-rule evaluation.
-6. Latest values and privileged status are published to UI via `AppCoordinator`.
-7. Tabs request windowed series (`5m/15m/1h`) and downsample for chart efficiency.
-8. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
+3. Standard thermal-state samples are always available.
+4. If privileged mode is enabled, app-side data source ensures helper availability and requests privileged samples over unix socket IPC.
+5. Helper performs root-required `powermetrics` sampling and returns structured response payload.
+6. Privileged Celsius samples are emitted only when helper transport is healthy.
+7. Batch is appended to `TimeSeriesStore`.
+8. Batch is sent to `AlertEngine` for multi-rule evaluation.
+9. Latest values and privileged status are published to UI via `AppCoordinator`.
+10. Tabs request windowed series (`5m/15m/1h`) and downsample for chart efficiency.
+11. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
 
 ## Thread Model
 
@@ -77,3 +85,9 @@ To add a new metric category:
 
 - No fan write/control path exists in this architecture.
 - Fan-related work is currently limited to feasibility and safety-gate planning only.
+
+## Privileged Boundary
+
+- Root-required telemetry does not run in the main app process.
+- App remains functional in unprivileged mode when helper is unavailable.
+- Helper remains read-only (temperature/power telemetry collection only, no control writes).

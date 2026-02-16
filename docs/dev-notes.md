@@ -6,7 +6,10 @@
 - `DiskProvider` currently parses `/usr/sbin/iostat -d -K -c 2`.
 - On this macOS flavor, iostat exposes combined throughput columns, not explicit read/write split.
 - Standard temperature mode is `ProcessInfo.thermalState` (qualitative and coarse, not direct Celsius).
-- Optional privileged temperature mode executes `/usr/bin/powermetrics --samplers smc -n 1 -i 1000`.
+- Privileged temperature sampling executes in `PulseBarPrivilegedHelper`, not the app process.
+- Helper runs `/usr/bin/powermetrics` and selects compatible sampler flags (`smc`, then `thermal`, then `--show-all` fallback).
+- App and helper communicate via local unix socket IPC (`/tmp/pulsebar-temp.sock` by default).
+- Privileged helper launch is requested via macOS admin prompt (`osascript ... with administrator privileges`).
 - Privileged temperature parser is best-effort and can drift with OS/hardware output changes.
 - Launch-at-login via `SMAppService` can fail in unsigned/debug contexts.
 - Notification delivery requires user authorization.
@@ -33,8 +36,10 @@
 
 ## Privileged Temperature Failure Modes
 
-- Permission denied / unavailable command
-- Timeout or non-zero command exit
+- Helper binary missing
+- Admin authorization cancelled/denied
+- Helper socket unavailable/unreachable
+- Helper command timeout or non-zero exit
 - Parser unable to extract valid Celsius values
 - Empty sensor set from command output
 
