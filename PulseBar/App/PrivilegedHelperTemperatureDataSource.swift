@@ -70,7 +70,7 @@ actor PrivilegedHelperLauncher {
     }
 
     private func launchPrivilegedHelper(helperPath: String, socketPath: String) throws {
-        let shellCommand = "\(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >/tmp/pulsebar_priv_helper.log 2>&1 &"
+        let shellCommand = "nohup \(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >/tmp/pulsebar_priv_helper.log 2>&1 &"
         let appleScript = "do shell script \"\(shellCommand.appleScriptEscaped())\" with administrator privileges"
 
         let process = Process()
@@ -173,6 +173,7 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
         }
         defer { close(fd) }
         disableSigPipe(on: fd)
+        setSocketTimeout(fd: fd, seconds: 8)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -213,6 +214,16 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
         var one: Int32 = 1
         _ = withUnsafePointer(to: &one) { pointer in
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
+    }
+
+    private func setSocketTimeout(fd: Int32, seconds: Int) {
+        var timeout = timeval(tv_sec: seconds, tv_usec: 0)
+        _ = withUnsafePointer(to: &timeout) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
+        }
+        _ = withUnsafePointer(to: &timeout) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
         }
     }
 

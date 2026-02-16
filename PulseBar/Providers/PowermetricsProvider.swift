@@ -103,34 +103,43 @@ public struct PowermetricsTemperatureDataSource: TemperatureDataSource {
     }
 
     public func readTemperatures() async throws -> PowermetricsTemperatureReading {
-        let commandSets: [[String]] = [
-            ["--samplers", "smc", "-n", "1", "-i", "1000"],
-            ["--samplers", "thermal", "-n", "1", "-i", "1000"],
-            ["--show-all", "-n", "1", "-i", "1000"]
-        ]
-
-        var lastError: Error?
-
-        for arguments in commandSets {
-            do {
-                let output = try await runner.run(
+        let primaryArgs = try await preferredSamplerArguments()
+        do {
+            let output = try await runner.run(
+                command: "/usr/bin/powermetrics",
+                arguments: primaryArgs,
+                timeoutSeconds: 6
+            )
+            return try parser.parse(output)
+        } catch {
+            // One controlled fallback to avoid long multi-attempt stalls.
+            if primaryArgs != ["--show-all", "-n", "1", "-i", "1000"] {
+                let fallbackOutput = try await runner.run(
                     command: "/usr/bin/powermetrics",
-                    arguments: arguments,
-                    timeoutSeconds: 5
+                    arguments: ["--show-all", "-n", "1", "-i", "1000"],
+                    timeoutSeconds: 6
                 )
-                do {
-                    return try parser.parse(output)
-                } catch {
-                    lastError = error
-                    continue
-                }
-            } catch {
-                lastError = error
-                continue
+                return try parser.parse(fallbackOutput)
             }
+            throw error
         }
+    }
 
-        throw lastError ?? ProviderError.unavailable("powermetrics temperature sampling unavailable")
+    private func preferredSamplerArguments() async throws -> [String] {
+        let helpOutput = (try? await runner.run(
+            command: "/usr/bin/powermetrics",
+            arguments: ["--help"],
+            timeoutSeconds: 2
+        ))?.lowercased()
+
+        if let helpOutput, helpOutput.contains("\n    thermal") {
+            return ["--samplers", "thermal", "-n", "1", "-i", "1000"]
+        }
+        if let helpOutput, helpOutput.contains("\n    smc") {
+            return ["--samplers", "smc", "-n", "1", "-i", "1000"]
+        }
+        // Safe compatibility fallback for unknown tool variants.
+        return ["--show-all", "-n", "1", "-i", "1000"]
     }
 }
 
