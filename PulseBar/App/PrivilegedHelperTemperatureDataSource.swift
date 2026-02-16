@@ -105,6 +105,7 @@ actor PrivilegedHelperLauncher {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }
+        disableSigPipeOnSocket(fd)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -125,6 +126,13 @@ actor PrivilegedHelperLauncher {
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, addressLength) }
         }
         return result == 0
+    }
+
+    private func disableSigPipeOnSocket(_ fd: Int32) {
+        var one: Int32 = 1
+        _ = withUnsafePointer(to: &one) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
     }
 }
 
@@ -164,6 +172,7 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
             throw ProviderError.unavailable("Unable to create helper client socket")
         }
         defer { close(fd) }
+        disableSigPipe(on: fd)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -198,6 +207,13 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(PrivilegedTemperatureResponse.self, from: responseData)
+    }
+
+    private func disableSigPipe(on fd: Int32) {
+        var one: Int32 = 1
+        _ = withUnsafePointer(to: &one) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
     }
 
     private func writeAll(_ data: Data, to fd: Int32) throws {

@@ -501,6 +501,8 @@ final class AppCoordinator: ObservableObject {
                 privilegedTemperatureStatusMessage = "Privileged mode blocked: administrator authorization was cancelled. PulseBar is using standard thermal state."
             } else if error.localizedCaseInsensitiveContains("binary not found") {
                 privilegedTemperatureStatusMessage = "Privileged mode blocked: helper binary not found. Build PulseBarPrivilegedHelper and retry."
+            } else if error.localizedCaseInsensitiveContains("empty response") {
+                privilegedTemperatureStatusMessage = "Privileged mode degraded: helper started but no data was returned. Retrying automatically."
             } else if error.localizedCaseInsensitiveContains("superuser")
                 || error.localizedCaseInsensitiveContains("authorization")
                 || error.localizedCaseInsensitiveContains("permission") {

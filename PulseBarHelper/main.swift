@@ -71,10 +71,12 @@ private final class PrivilegedTemperatureServer {
     }
 
     private func handle(clientFD: Int32) async {
+        disableSigPipe(on: clientFD)
         defer { close(clientFD) }
 
         guard let line = readLine(from: clientFD, maxBytes: 16 * 1024) else {
-            write(response: .failure("Invalid request payload"), to: clientFD)
+            // Connectivity probes may connect and close without sending payload.
+            // Treat this as a no-op to avoid writing to a closed socket.
             return
         }
 
@@ -192,6 +194,13 @@ private final class PrivilegedTemperatureServer {
                 }
                 sent += result
             }
+        }
+    }
+
+    private func disableSigPipe(on fd: Int32) {
+        var one: Int32 = 1
+        _ = withUnsafePointer(to: &one) { pointer in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
         }
     }
 }
