@@ -46,6 +46,7 @@ final class AppCoordinator: ObservableObject {
     @Published var launchAtLoginStatusMessage: String?
     @Published var privilegedTemperatureStatusMessage: String?
     @Published var privilegedTemperatureLastSuccessMessage: String?
+    @Published var privilegedTemperatureHealthy: Bool = false
     @Published var currentPowerSourceDescription: String = "Unknown"
 
     @Published var sampleInterval: Double {
@@ -281,7 +282,8 @@ final class AppCoordinator: ObservableObject {
             await NotificationDispatcher.send(title: title, body: body)
         }
 
-        let powermetricsProvider = PowermetricsProvider()
+        let privilegedSource = PrivilegedHelperTemperatureDataSource()
+        let powermetricsProvider = PowermetricsProvider(dataSource: privilegedSource)
         self.temperatureCoordinator = TemperatureCoordinator(provider: powermetricsProvider)
 
         let providers: [any MetricProvider] = [
@@ -351,6 +353,13 @@ final class AppCoordinator: ObservableObject {
     func latestThermalState() -> ThermalStateLevel {
         let value = latestSamples[.thermalStateLevel]?.value ?? ThermalStateLevel.nominal.metricValue
         return ThermalStateLevel.from(metricValue: value)
+    }
+
+    func retryPrivilegedTemperatureNow() {
+        Task {
+            await temperatureCoordinator.requestImmediateRetry()
+            await refreshPrivilegedTemperatureStatus()
+        }
     }
 
     private func handle(batch: [MetricSample]) async {
@@ -482,17 +491,37 @@ final class AppCoordinator: ObservableObject {
         if !status.isEnabled {
             privilegedTemperatureStatusMessage = "Privileged mode off (standard thermal state only)."
             privilegedTemperatureLastSuccessMessage = nil
+            privilegedTemperatureHealthy = false
             return
         }
 
         if let error = status.lastErrorMessage {
-            if let retryDate = status.nextRetryAt {
-                privilegedTemperatureStatusMessage = "Privileged mode degraded: \(error). Next retry \(retryDate.formatted(date: .omitted, time: .standard))."
+            if error.localizedCaseInsensitiveContains("cancelled")
+                || error.localizedCaseInsensitiveContains("canceled") {
+                privilegedTemperatureStatusMessage = "Privileged mode blocked: administrator authorization was cancelled. PulseBar is using standard thermal state."
+            } else if error.localizedCaseInsensitiveContains("binary not found") {
+                privilegedTemperatureStatusMessage = "Privileged mode blocked: helper binary not found. Build PulseBarPrivilegedHelper and retry."
+            } else if error.localizedCaseInsensitiveContains("superuser")
+                || error.localizedCaseInsensitiveContains("authorization")
+                || error.localizedCaseInsensitiveContains("permission") {
+                privilegedTemperatureStatusMessage = "Privileged mode blocked: admin authorization is required for privileged temperature sampling."
             } else {
-                privilegedTemperatureStatusMessage = "Privileged mode degraded: \(error)."
+                if let retryDate = status.nextRetryAt {
+                    privilegedTemperatureStatusMessage = "Privileged mode degraded: \(error). Next retry \(retryDate.formatted(date: .omitted, time: .standard))."
+                } else {
+                    privilegedTemperatureStatusMessage = "Privileged mode degraded: \(error)."
+                }
             }
+
+            privilegedTemperatureHealthy = false
         } else {
-            privilegedTemperatureStatusMessage = "Privileged mode active via \(status.sourceDescription)."
+            if status.lastSuccessAt != nil {
+                privilegedTemperatureStatusMessage = "Privileged mode active via \(status.sourceDescription)."
+                privilegedTemperatureHealthy = true
+            } else {
+                privilegedTemperatureStatusMessage = "Privileged mode is starting. You may be prompted for administrator access."
+                privilegedTemperatureHealthy = false
+            }
         }
 
         if let lastSuccess = status.lastSuccessAt {

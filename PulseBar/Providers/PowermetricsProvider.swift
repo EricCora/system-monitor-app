@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PowermetricsTemperatureReading: Sendable, Equatable {
+public struct PowermetricsTemperatureReading: Sendable, Equatable, Codable {
     public let primaryCelsius: Double
     public let maxCelsius: Double
     public let sensorCount: Int
@@ -218,21 +218,26 @@ public actor PowermetricsProvider: MetricProvider {
 
     public func updateEnabled(_ enabled: Bool) {
         isEnabled = enabled
-        if !enabled {
-            lastErrorMessage = nil
-            nextRetryAt = nil
-        }
+        lastErrorMessage = nil
+        nextRetryAt = nil
+        lastSuccessAt = nil
+        consecutiveFailures = 0
     }
 
     public func currentStatus() -> PrivilegedTemperatureStatus {
         PrivilegedTemperatureStatus(
             isEnabled: isEnabled,
-            sourceDescription: "powermetrics",
+            sourceDescription: "privileged helper",
             lastSuccessAt: lastSuccessAt,
             lastErrorMessage: lastErrorMessage,
             nextRetryAt: nextRetryAt,
-            healthy: isEnabled && lastErrorMessage == nil
+            healthy: isEnabled && lastSuccessAt != nil && lastErrorMessage == nil
         )
+    }
+
+    public func requestImmediateRetry() {
+        nextRetryAt = nil
+        nextAllowedCollectionAt = Date.distantPast
     }
 
     public func sample(at date: Date) async throws -> [MetricSample] {

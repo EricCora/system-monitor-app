@@ -15,4 +15,8 @@ actor TemperatureCoordinator {
     func currentStatus() async -> PrivilegedTemperatureStatus {
         await provider.currentStatus()
     }
+
+    func requestImmediateRetry() async {
+        await provider.requestImmediateRetry()
+    }
 }

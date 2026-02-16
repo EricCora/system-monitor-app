@@ -14,6 +14,10 @@ let package = Package(
         .executable(
             name: "PulseBarApp",
             targets: ["PulseBarApp"]
+        ),
+        .executable(
+            name: "PulseBarPrivilegedHelper",
+            targets: ["PulseBarPrivilegedHelper"]
         )
     ],
     targets: [
@@ -55,6 +59,11 @@ let package = Package(
                 .linkedFramework("UserNotifications"),
                 .linkedFramework("IOKit")
             ]
+        ),
+        .executableTarget(
+            name: "PulseBarPrivilegedHelper",
+            dependencies: ["PulseBarCore"],
+            path: "PulseBarHelper"
         ),
         .testTarget(
             name: "CoreTests",

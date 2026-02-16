@@ -39,7 +39,7 @@ struct TemperatureTabView: View {
                     Text("Source")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(coordinator.privilegedTemperatureEnabled ? "powermetrics" : "Standard")
+                    Text(sourceLabel)
                         .font(.title3.monospacedDigit())
                 }
             }
@@ -57,7 +57,7 @@ struct TemperatureTabView: View {
                     throughputUnit: coordinator.throughputUnit
                 )
             } else {
-                Text("Enable privileged mode to collect Celsius readings.")
+                Text(emptyStateText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -73,5 +73,19 @@ struct TemperatureTabView: View {
     private func refresh() async {
         thermalStateSamples = await coordinator.series(for: .thermalStateLevel)
         maxTemperatureSamples = await coordinator.series(for: .temperatureMaxCelsius)
+    }
+
+    private var sourceLabel: String {
+        if coordinator.privilegedTemperatureEnabled && coordinator.privilegedTemperatureHealthy {
+            return "Privileged"
+        }
+        return "Standard"
+    }
+
+    private var emptyStateText: String {
+        if coordinator.privilegedTemperatureEnabled && !coordinator.privilegedTemperatureHealthy {
+            return "Privileged mode is unavailable right now. Falling back to standard thermal state."
+        }
+        return "Enable privileged mode to collect Celsius readings."
     }
 }

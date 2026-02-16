@@ -63,9 +63,17 @@ struct SettingsView: View {
 
             Section("Temperature") {
                 Toggle("Enable privileged temperature sampling", isOn: $coordinator.privilegedTemperatureEnabled)
-                Text("Standard mode uses macOS thermal state (qualitative). Privileged mode uses powermetrics for Celsius values.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let modeDescription = temperatureModeDescription {
+                    Text(modeDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if coordinator.privilegedTemperatureEnabled && !coordinator.privilegedTemperatureHealthy {
+                    Button("Retry Privileged Sampling") {
+                        coordinator.retryPrivilegedTemperatureNow()
+                    }
+                }
 
                 if let status = coordinator.privilegedTemperatureStatusMessage {
                     Text(status)
@@ -139,5 +147,16 @@ struct SettingsView: View {
         case .custom:
             return "Custom: your personalized settings. Edit controls below to tune behavior."
         }
+    }
+
+    private var temperatureModeDescription: String? {
+        if coordinator.privilegedTemperatureEnabled {
+            if coordinator.privilegedTemperatureHealthy {
+                return "Privileged mode is enabled and active. Celsius readings come from powermetrics."
+            }
+            // Avoid duplicate/conflicting text when a specific status/error message is already shown below.
+            return nil
+        }
+        return "Standard mode uses macOS thermal state (qualitative). Enable privileged mode for Celsius readings."
     }
 }
