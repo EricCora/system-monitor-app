@@ -162,18 +162,22 @@ public struct SystemPrivilegedCommandRunner: PrivilegedCommandRunner {
             throw ProviderError.unavailable("Failed to launch privileged command: \(error.localizedDescription)")
         }
 
-        let timeoutNs = UInt64(max(1, timeoutSeconds) * 1_000_000_000)
-        let deadlineTask = Task {
-            try? await Task.sleep(nanoseconds: timeoutNs)
-            if process.isRunning {
-                process.terminate()
-            }
-        }
-        defer { deadlineTask.cancel() }
-
-        while process.isRunning {
+        let deadline = Date().addingTimeInterval(max(1, timeoutSeconds))
+        while process.isRunning, Date() < deadline {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
+
+        if process.isRunning {
+            process.interrupt()
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+
+        if process.isRunning, process.processIdentifier > 0 {
+            kill(process.processIdentifier, SIGKILL)
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        process.waitUntilExit()
 
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
@@ -187,8 +191,14 @@ public struct SystemPrivilegedCommandRunner: PrivilegedCommandRunner {
                 || lowerErr.contains("superuser") {
                 throw ProviderError.unavailable("powermetrics requires superuser privileges")
             }
+            if lowerErr.contains("timed out") || lowerErr.contains("timeout") {
+                throw ProviderError.unavailable("powermetrics timed out")
+            }
             if lowerErr.contains("unrecognized sampler") {
                 throw ProviderError.unavailable("powermetrics sampler unsupported on this macOS version")
+            }
+            if process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGKILL {
+                throw ProviderError.unavailable("powermetrics timed out")
             }
             if stdErr.isEmpty {
                 throw ProviderError.unavailable("powermetrics exited with status \(process.terminationStatus)")
