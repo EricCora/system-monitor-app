@@ -19,4 +19,8 @@ actor TemperatureCoordinator {
     func requestImmediateRetry() async {
         await provider.requestImmediateRetry()
     }
+
+    func probeNow() async -> [MetricSample] {
+        await provider.probeNow()
+    }
 }

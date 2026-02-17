@@ -91,4 +91,38 @@ final class PowermetricsProviderTests: XCTestCase {
         XCTAssertNotNil(status.lastErrorMessage)
         XCTAssertNotNil(status.nextRetryAt)
     }
+
+    func testProbeNowUpdatesStateImmediatelyOnSuccess() async {
+        let reading = PowermetricsTemperatureReading(primaryCelsius: 47.5, maxCelsius: 55.1, sensorCount: 5)
+        let state = MockState([.success(reading)])
+        let provider = PowermetricsProvider(
+            dataSource: MockDataSource(state: state),
+            minCollectionInterval: 5
+        )
+
+        await provider.updateEnabled(true)
+        let samples = await provider.probeNow(at: Date())
+        let status = await provider.currentStatus()
+
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertTrue(status.healthy)
+        XCTAssertNil(status.lastErrorMessage)
+    }
+
+    func testProbeNowSetsErrorAndRetryOnFailure() async {
+        let state = MockState([.failure(FixtureError.unavailable)])
+        let provider = PowermetricsProvider(
+            dataSource: MockDataSource(state: state),
+            minCollectionInterval: 5
+        )
+
+        await provider.updateEnabled(true)
+        let samples = await provider.probeNow(at: Date())
+        let status = await provider.currentStatus()
+
+        XCTAssertEqual(samples.count, 0)
+        XCTAssertFalse(status.healthy)
+        XCTAssertNotNil(status.lastErrorMessage)
+        XCTAssertNotNil(status.nextRetryAt)
+    }
 }

@@ -52,11 +52,12 @@
 4. If privileged mode is enabled, app-side data source ensures helper availability and requests privileged samples over unix socket IPC.
 5. Helper performs root-required `powermetrics` sampling and returns structured response payload.
 6. Privileged Celsius samples are emitted only when helper transport is healthy.
-7. Batch is appended to `TimeSeriesStore`.
-8. Batch is sent to `AlertEngine` for multi-rule evaluation.
-9. Latest values and privileged status are published to UI via `AppCoordinator`.
-10. Tabs request windowed series (`5m/15m/1h`) and downsample for chart efficiency.
-11. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
+7. Privileged enable/retry actions trigger an immediate probe attempt to reduce status latency.
+8. Batch is appended to `TimeSeriesStore`.
+9. Batch is sent to `AlertEngine` for multi-rule evaluation.
+10. Latest values and privileged status are published to UI via `AppCoordinator`.
+11. Tabs request windowed series (`5m/15m/1h`) and downsample for chart efficiency.
+12. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
 
 ## Thread Model
 

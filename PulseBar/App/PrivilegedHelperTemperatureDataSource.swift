@@ -7,6 +7,7 @@ actor PrivilegedHelperLauncher {
     private let launchCooldownSeconds: TimeInterval
     private let socketReadyTimeoutSeconds: TimeInterval
     private let helperLogPath = "/tmp/pulsebar_priv_helper.log"
+    private let helperPIDPath = "/tmp/pulsebar-helper.pid"
 
     init(
         launchCooldownSeconds: TimeInterval = 20,
@@ -73,9 +74,9 @@ actor PrivilegedHelperLauncher {
 
     private func launchPrivilegedHelper(helperPath: String, socketPath: String) throws {
         let cleanupAndLaunch = [
-            "pkill -f \(("PulseBarPrivilegedHelper --socket \(socketPath)").shellEscaped()) >/dev/null 2>&1 || true",
+            "if [ -f \(helperPIDPath.shellEscaped()) ]; then OLD_PID=$(cat \(helperPIDPath.shellEscaped()) 2>/dev/null || true); if [ -n \"$OLD_PID\" ]; then kill \"$OLD_PID\" >/dev/null 2>&1 || true; fi; fi",
             "rm -f \(socketPath.shellEscaped())",
-            "nohup \(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >\(helperLogPath.shellEscaped()) 2>&1 &"
+            "\(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >\(helperLogPath.shellEscaped()) 2>&1 & echo $! >\(helperPIDPath.shellEscaped())"
         ].joined(separator: "; ")
         let shellCommand = cleanupAndLaunch
         let appleScript = "do shell script \"\(shellCommand.appleScriptEscaped())\" with administrator privileges"
@@ -84,7 +85,9 @@ actor PrivilegedHelperLauncher {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", appleScript]
 
+        let outputPipe = Pipe()
         let errorPipe = Pipe()
+        process.standardOutput = outputPipe
         process.standardError = errorPipe
 
         do {
@@ -95,16 +98,26 @@ actor PrivilegedHelperLauncher {
         }
 
         guard process.terminationStatus == 0 else {
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let stdOut = String(data: outputData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let stdErr = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if stdErr.lowercased().contains("user canceled") {
+
+            let combined = "\(stdOut) \(stdErr)".trimmingCharacters(in: .whitespacesAndNewlines)
+            let combinedLower = combined.lowercased()
+            if combinedLower.contains("user canceled")
+                || combinedLower.contains("user cancelled")
+                || combinedLower.contains("cancelled")
+                || combinedLower.contains("canceled")
+                || combinedLower.contains("error -128") {
                 throw ProviderError.unavailable("Administrator authorization was cancelled")
             }
-            if stdErr.isEmpty {
-                throw ProviderError.unavailable("Privileged helper launch failed")
+            if combined.isEmpty {
+                throw ProviderError.unavailable("Privileged helper launch failed (osascript exit \(process.terminationStatus))")
             }
-            throw ProviderError.unavailable(stdErr)
+            throw ProviderError.unavailable("Privileged helper launch failed (osascript exit \(process.terminationStatus)): \(combined)")
         }
     }
 
@@ -140,6 +153,7 @@ actor PrivilegedHelperLauncher {
         let socketExists = fileManager.fileExists(atPath: socketPath)
         var details: [String] = []
         details.append(socketExists ? "socket exists" : "socket missing")
+        details.append(helperProcessState())
 
         if let logTail = readLogTail(path: helperLogPath), !logTail.isEmpty {
             details.append("helper log: \(logTail)")
@@ -148,6 +162,22 @@ actor PrivilegedHelperLauncher {
         }
 
         return details.joined(separator: "; ")
+    }
+
+    private func helperProcessState() -> String {
+        guard let data = FileManager.default.contents(atPath: helperPIDPath),
+              let pidString = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = Int32(pidString),
+              pid > 0 else {
+            return "pid missing"
+        }
+
+        let result = kill(pid, 0)
+        if result == 0 || errno == EPERM {
+            return "pid \(pid) active"
+        }
+        return "pid \(pid) not running"
     }
 
     private func readLogTail(path: String, maxLength: Int = 200) -> String? {

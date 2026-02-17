@@ -124,6 +124,10 @@ final class AppCoordinator: ObservableObject {
             persistAppSettingsV2()
             Task {
                 await temperatureCoordinator.setPrivilegedEnabled(privilegedTemperatureEnabled)
+                if privilegedTemperatureEnabled {
+                    let samples = await temperatureCoordinator.probeNow()
+                    await applyImmediatePrivilegedSamples(samples)
+                }
                 await refreshPrivilegedTemperatureStatus()
             }
         }
@@ -358,6 +362,8 @@ final class AppCoordinator: ObservableObject {
     func retryPrivilegedTemperatureNow() {
         Task {
             await temperatureCoordinator.requestImmediateRetry()
+            let samples = await temperatureCoordinator.probeNow()
+            await applyImmediatePrivilegedSamples(samples)
             await refreshPrivilegedTemperatureStatus()
         }
     }
@@ -372,6 +378,11 @@ final class AppCoordinator: ObservableObject {
         }
 
         await refreshPrivilegedTemperatureStatus()
+    }
+
+    private func applyImmediatePrivilegedSamples(_ samples: [MetricSample]) async {
+        guard !samples.isEmpty else { return }
+        await handle(batch: samples)
     }
 
     private func refreshAlertRules() async {
@@ -499,8 +510,12 @@ final class AppCoordinator: ObservableObject {
             if error.localizedCaseInsensitiveContains("cancelled")
                 || error.localizedCaseInsensitiveContains("canceled") {
                 privilegedTemperatureStatusMessage = "Privileged mode blocked: administrator authorization was cancelled. PulseBar is using standard thermal state."
+            } else if error.localizedCaseInsensitiveContains("launch failed") {
+                privilegedTemperatureStatusMessage = "Privileged mode blocked: helper launch failed. Retry and confirm administrator approval."
             } else if error.localizedCaseInsensitiveContains("binary not found") {
                 privilegedTemperatureStatusMessage = "Privileged mode blocked: helper binary not found. Build PulseBarPrivilegedHelper and retry."
+            } else if error.localizedCaseInsensitiveContains("not available yet") {
+                privilegedTemperatureStatusMessage = "Privileged mode is starting. Waiting for helper readiness."
             } else if error.localizedCaseInsensitiveContains("empty response") {
                 privilegedTemperatureStatusMessage = "Privileged mode degraded: helper started but no data was returned. Retrying automatically."
             } else if error.localizedCaseInsensitiveContains("did not expose celsius temperature sensors") {

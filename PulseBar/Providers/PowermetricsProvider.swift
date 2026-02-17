@@ -326,6 +326,30 @@ public actor PowermetricsProvider: MetricProvider {
         nextAllowedCollectionAt = Date.distantPast
     }
 
+    public func probeNow(at date: Date = Date()) async -> [MetricSample] {
+        guard isEnabled else {
+            return []
+        }
+
+        do {
+            let reading = try await dataSource.readTemperatures()
+            cachedReading = reading
+            lastSuccessAt = date
+            lastErrorMessage = nil
+            nextRetryAt = nil
+            consecutiveFailures = 0
+            nextAllowedCollectionAt = date.addingTimeInterval(minCollectionInterval)
+            return samples(from: reading, at: date)
+        } catch {
+            consecutiveFailures += 1
+            let retryDelay = retryDelaySeconds(forFailureCount: consecutiveFailures)
+            nextRetryAt = date.addingTimeInterval(retryDelay)
+            nextAllowedCollectionAt = nextRetryAt ?? date.addingTimeInterval(minCollectionInterval)
+            lastErrorMessage = error.localizedDescription
+            return []
+        }
+    }
+
     public func sample(at date: Date) async throws -> [MetricSample] {
         guard isEnabled else {
             return []
