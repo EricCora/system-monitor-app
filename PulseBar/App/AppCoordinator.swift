@@ -503,6 +503,10 @@ final class AppCoordinator: ObservableObject {
                 privilegedTemperatureStatusMessage = "Privileged mode blocked: helper binary not found. Build PulseBarPrivilegedHelper and retry."
             } else if error.localizedCaseInsensitiveContains("empty response") {
                 privilegedTemperatureStatusMessage = "Privileged mode degraded: helper started but no data was returned. Retrying automatically."
+            } else if error.localizedCaseInsensitiveContains("did not expose celsius temperature sensors") {
+                privilegedTemperatureStatusMessage = "Privileged mode unavailable: this macOS powermetrics output has no Celsius sensors. PulseBar is using standard thermal state."
+            } else if error.localizedCaseInsensitiveContains("did not become reachable") {
+                privilegedTemperatureStatusMessage = "Privileged mode blocked: helper launch did not complete. Retry privileged sampling after confirming admin prompt approval."
             } else if error.localizedCaseInsensitiveContains("superuser")
                 || error.localizedCaseInsensitiveContains("authorization")
                 || error.localizedCaseInsensitiveContains("permission") {

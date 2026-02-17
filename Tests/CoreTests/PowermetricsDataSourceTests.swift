@@ -120,4 +120,33 @@ final class PowermetricsDataSourceTests: XCTestCase {
         XCTAssertEqual(calls[0], ["--help"])
         XCTAssertEqual(calls[1], ["--samplers", "cpu_power", "-n", "1", "-i", "1000"])
     }
+
+    func testReportsUnsupportedWhenSamplersProvideNoCelsius() async {
+        let help = """
+        The following samplers are supported by --samplers:
+
+            cpu_power
+            thermal
+        """
+
+        let state = RunnerState(repliesByArguments: [
+            "--help": .init(output: help, error: nil),
+            "--samplers cpu_power -n 1 -i 1000": .init(output: "CPU Power: 300 mW", error: nil),
+            "--samplers thermal -n 1 -i 1000": .init(output: "Thermal pressure level: Nominal", error: nil)
+        ])
+
+        let dataSource = PowermetricsTemperatureDataSource(
+            runner: MockRunner(state: state)
+        )
+
+        do {
+            _ = try await dataSource.readTemperatures()
+            XCTFail("Expected unsupported-celsius error")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains("did not expose celsius"),
+                "Unexpected error: \(error.localizedDescription)"
+            )
+        }
+    }
 }

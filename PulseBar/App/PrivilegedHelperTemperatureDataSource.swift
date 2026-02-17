@@ -6,10 +6,11 @@ actor PrivilegedHelperLauncher {
     private var lastLaunchAttempt = Date.distantPast
     private let launchCooldownSeconds: TimeInterval
     private let socketReadyTimeoutSeconds: TimeInterval
+    private let helperLogPath = "/tmp/pulsebar_priv_helper.log"
 
     init(
         launchCooldownSeconds: TimeInterval = 20,
-        socketReadyTimeoutSeconds: TimeInterval = 8
+        socketReadyTimeoutSeconds: TimeInterval = 15
     ) {
         self.launchCooldownSeconds = launchCooldownSeconds
         self.socketReadyTimeoutSeconds = socketReadyTimeoutSeconds
@@ -41,7 +42,8 @@ actor PrivilegedHelperLauncher {
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
 
-        throw ProviderError.unavailable("Privileged helper did not become reachable")
+        let diagnostics = helperStartupDiagnostics(socketPath: socketPath)
+        throw ProviderError.unavailable("Privileged helper did not become reachable (\(diagnostics))")
     }
 
     private func resolveHelperPath() throws -> String {
@@ -70,7 +72,12 @@ actor PrivilegedHelperLauncher {
     }
 
     private func launchPrivilegedHelper(helperPath: String, socketPath: String) throws {
-        let shellCommand = "nohup \(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >/tmp/pulsebar_priv_helper.log 2>&1 &"
+        let cleanupAndLaunch = [
+            "pkill -f \(("PulseBarPrivilegedHelper --socket \(socketPath)").shellEscaped()) >/dev/null 2>&1 || true",
+            "rm -f \(socketPath.shellEscaped())",
+            "nohup \(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >\(helperLogPath.shellEscaped()) 2>&1 &"
+        ].joined(separator: "; ")
+        let shellCommand = cleanupAndLaunch
         let appleScript = "do shell script \"\(shellCommand.appleScriptEscaped())\" with administrator privileges"
 
         let process = Process()
@@ -126,6 +133,36 @@ actor PrivilegedHelperLauncher {
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, addressLength) }
         }
         return result == 0
+    }
+
+    private func helperStartupDiagnostics(socketPath: String) -> String {
+        let fileManager = FileManager.default
+        let socketExists = fileManager.fileExists(atPath: socketPath)
+        var details: [String] = []
+        details.append(socketExists ? "socket exists" : "socket missing")
+
+        if let logTail = readLogTail(path: helperLogPath), !logTail.isEmpty {
+            details.append("helper log: \(logTail)")
+        } else {
+            details.append("no helper log output")
+        }
+
+        return details.joined(separator: "; ")
+    }
+
+    private func readLogTail(path: String, maxLength: Int = 200) -> String? {
+        guard let data = FileManager.default.contents(atPath: path),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " | ")
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count <= maxLength {
+            return trimmed
+        }
+        return String(trimmed.suffix(maxLength))
     }
 
     private func disableSigPipeOnSocket(_ fd: Int32) {

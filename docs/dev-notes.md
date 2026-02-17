@@ -11,6 +11,7 @@
 - App and helper communicate via local unix socket IPC (`/tmp/pulsebar-temp.sock` by default).
 - Privileged helper launch is requested via macOS admin prompt (`osascript ... with administrator privileges`).
 - Privileged temperature parser is best-effort and can drift with OS/hardware output changes.
+- On some modern macOS builds, `powermetrics` may expose power/thermal-pressure only and no Celsius sensor values.
 - Launch-at-login via `SMAppService` can fail in unsigned/debug contexts.
 - Notification delivery requires user authorization.
 
@@ -43,6 +44,7 @@
 - Helper command timeout or non-zero exit
 - Helper command output deadlock/timeout from heavy sampler output (mitigated by file-backed command capture)
 - Parser unable to extract valid Celsius values
+- Command output supports no Celsius sensors on current macOS/tool variant
 - Empty sensor set from command output
 
 All failures degrade to standard thermal-state tracking while the app remains operational.

@@ -105,6 +105,7 @@ public struct PowermetricsTemperatureDataSource: TemperatureDataSource {
     public func readTemperatures() async throws -> PowermetricsTemperatureReading {
         let candidateArguments = try await preferredSamplerArguments()
         var failures: [String] = []
+        var observedNoCelsiusOutput = false
 
         for args in candidateArguments {
             do {
@@ -123,6 +124,9 @@ public struct PowermetricsTemperatureDataSource: TemperatureDataSource {
                     }
                     failures.append(message)
                 case .parsingFailed(let message):
+                    if message.localizedCaseInsensitiveContains("No valid Celsius temperatures found") {
+                        observedNoCelsiusOutput = true
+                    }
                     failures.append(message)
                 }
             } catch {
@@ -130,8 +134,14 @@ public struct PowermetricsTemperatureDataSource: TemperatureDataSource {
             }
         }
 
+        if observedNoCelsiusOutput {
+            throw ProviderError.unavailable(
+                "powermetrics on this macOS did not expose Celsius temperature sensors"
+            )
+        }
+
         let joinedFailures = failures.isEmpty ? "unknown error" : failures.joined(separator: "; ")
-        throw ProviderError.unavailable("powermetrics did not yield Celsius output (\(joinedFailures))")
+        throw ProviderError.unavailable("powermetrics failed to produce temperature data (\(joinedFailures))")
     }
 
     private func preferredSamplerArguments() async throws -> [[String]] {
