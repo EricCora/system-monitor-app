@@ -173,7 +173,7 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
         }
         defer { close(fd) }
         disableSigPipe(on: fd)
-        setSocketTimeout(fd: fd, seconds: 8)
+        setSocketTimeout(fd: fd, seconds: 25)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -252,6 +252,9 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
                 break
             }
             if count < 0 {
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw ProviderError.unavailable("Privileged helper request timed out")
+                }
                 throw ProviderError.unavailable("Failed reading from privileged helper socket")
             }
             if byte == 10 {

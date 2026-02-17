@@ -32,7 +32,7 @@
   - `PowermetricsProvider`: optional privileged Celsius sampling via helper transport with cache + retry backoff
 
 - `PulseBarHelper/`
-  - `PulseBarPrivilegedHelper`: root-required helper executable that runs `powermetrics` and responds over local unix socket IPC
+  - `PulseBarPrivilegedHelper`: root-required helper executable that runs `powermetrics` (sampler capability detection + fallback chain) and responds over local unix socket IPC
 
 - `Alerts/`
   - `AlertRule`

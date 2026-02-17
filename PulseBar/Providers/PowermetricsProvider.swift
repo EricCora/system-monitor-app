@@ -103,43 +103,80 @@ public struct PowermetricsTemperatureDataSource: TemperatureDataSource {
     }
 
     public func readTemperatures() async throws -> PowermetricsTemperatureReading {
-        let primaryArgs = try await preferredSamplerArguments()
-        do {
-            let output = try await runner.run(
-                command: "/usr/bin/powermetrics",
-                arguments: primaryArgs,
-                timeoutSeconds: 6
-            )
-            return try parser.parse(output)
-        } catch {
-            // One controlled fallback to avoid long multi-attempt stalls.
-            if primaryArgs != ["--show-all", "-n", "1", "-i", "1000"] {
-                let fallbackOutput = try await runner.run(
+        let candidateArguments = try await preferredSamplerArguments()
+        var failures: [String] = []
+
+        for args in candidateArguments {
+            do {
+                let output = try await runner.run(
                     command: "/usr/bin/powermetrics",
-                    arguments: ["--show-all", "-n", "1", "-i", "1000"],
-                    timeoutSeconds: 6
+                    arguments: args,
+                    timeoutSeconds: 15
                 )
-                return try parser.parse(fallbackOutput)
+                return try parser.parse(output)
+            } catch let error as ProviderError {
+                switch error {
+                case .unavailable(let message):
+                    let lower = message.lowercased()
+                    if lower.contains("superuser") || lower.contains("permission") {
+                        throw error
+                    }
+                    failures.append(message)
+                case .parsingFailed(let message):
+                    failures.append(message)
+                }
+            } catch {
+                failures.append(error.localizedDescription)
             }
-            throw error
         }
+
+        let joinedFailures = failures.isEmpty ? "unknown error" : failures.joined(separator: "; ")
+        throw ProviderError.unavailable("powermetrics did not yield Celsius output (\(joinedFailures))")
     }
 
-    private func preferredSamplerArguments() async throws -> [String] {
+    private func preferredSamplerArguments() async throws -> [[String]] {
         let helpOutput = (try? await runner.run(
             command: "/usr/bin/powermetrics",
             arguments: ["--help"],
             timeoutSeconds: 2
         ))?.lowercased()
 
-        if let helpOutput, helpOutput.contains("\n    thermal") {
-            return ["--samplers", "thermal", "-n", "1", "-i", "1000"]
+        func supports(_ sampler: String) -> Bool {
+            guard let helpOutput else { return false }
+            return helpOutput.contains("\n    \(sampler)")
         }
-        if let helpOutput, helpOutput.contains("\n    smc") {
-            return ["--samplers", "smc", "-n", "1", "-i", "1000"]
+
+        func args(for samplers: [String]) -> [String] {
+            ["--samplers", samplers.joined(separator: ","), "-n", "1", "-i", "1000"]
         }
-        // Safe compatibility fallback for unknown tool variants.
-        return ["--show-all", "-n", "1", "-i", "1000"]
+
+        var candidates: [[String]] = []
+
+        let hasCPUPower = supports("cpu_power")
+        let hasGPUPower = supports("gpu_power")
+        let hasANEPower = supports("ane_power")
+        let hasThermal = supports("thermal")
+
+        if hasCPUPower && hasGPUPower && hasANEPower {
+            candidates.append(args(for: ["cpu_power", "gpu_power", "ane_power"]))
+        }
+        if hasCPUPower && hasGPUPower {
+            candidates.append(args(for: ["cpu_power", "gpu_power"]))
+        }
+        if hasCPUPower {
+            candidates.append(args(for: ["cpu_power"]))
+        }
+        if hasThermal {
+            candidates.append(args(for: ["thermal"]))
+        }
+
+        if candidates.isEmpty {
+            // Last compatibility fallback when sampler listing is unavailable.
+            candidates.append(args(for: ["cpu_power"]))
+            candidates.append(args(for: ["thermal"]))
+        }
+
+        return candidates
     }
 }
 
@@ -151,10 +188,25 @@ public struct SystemPrivilegedCommandRunner: PrivilegedCommandRunner {
         process.executableURL = URL(fileURLWithPath: command)
         process.arguments = arguments
 
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsebar-powermetrics-stdout-\(UUID().uuidString).log")
+        let errorURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulsebar-powermetrics-stderr-\(UUID().uuidString).log")
+
+        FileManager.default.createFile(atPath: outputURL.path, contents: Data())
+        FileManager.default.createFile(atPath: errorURL.path, contents: Data())
+
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        let errorHandle = try FileHandle(forWritingTo: errorURL)
+        defer {
+            try? outputHandle.close()
+            try? errorHandle.close()
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: errorURL)
+        }
+
+        process.standardOutput = outputHandle
+        process.standardError = errorHandle
 
         do {
             try process.run()
@@ -163,11 +215,13 @@ public struct SystemPrivilegedCommandRunner: PrivilegedCommandRunner {
         }
 
         let deadline = Date().addingTimeInterval(max(1, timeoutSeconds))
+        var didTimeout = false
         while process.isRunning, Date() < deadline {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
         if process.isRunning {
+            didTimeout = true
             process.interrupt()
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
@@ -179,12 +233,15 @@ public struct SystemPrivilegedCommandRunner: PrivilegedCommandRunner {
 
         process.waitUntilExit()
 
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let outputData = (try? Data(contentsOf: outputURL)) ?? Data()
+        let errorData = (try? Data(contentsOf: errorURL)) ?? Data()
         let stdErr = String(data: errorData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if process.terminationStatus != 0 {
+            if didTimeout {
+                throw ProviderError.unavailable("powermetrics timed out")
+            }
             let lowerErr = stdErr.lowercased()
             if lowerErr.contains("operation not permitted")
                 || lowerErr.contains("permission")

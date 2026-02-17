@@ -7,7 +7,7 @@
 - On this macOS flavor, iostat exposes combined throughput columns, not explicit read/write split.
 - Standard temperature mode is `ProcessInfo.thermalState` (qualitative and coarse, not direct Celsius).
 - Privileged temperature sampling executes in `PulseBarPrivilegedHelper`, not the app process.
-- Helper runs `/usr/bin/powermetrics` and selects compatible sampler flags from `powermetrics --help` capability detection (with `--show-all` fallback).
+- Helper runs `/usr/bin/powermetrics` and selects compatible sampler flags from `powermetrics --help` capability detection (`cpu_power` family first, `thermal` fallback).
 - App and helper communicate via local unix socket IPC (`/tmp/pulsebar-temp.sock` by default).
 - Privileged helper launch is requested via macOS admin prompt (`osascript ... with administrator privileges`).
 - Privileged temperature parser is best-effort and can drift with OS/hardware output changes.
@@ -21,7 +21,7 @@
 - Windowed retrieval is bounded by ring-buffer capacity.
 - Dashboard navigation uses a segmented control instead of `TabView` to avoid popover tab focus/interaction glitches on some macOS menu-bar runtimes.
 - Privileged temperature collection is throttled with cache (`5s`) and retry backoff (`5s`, `15s`, `30s`, `60s`) after failures.
-- App-helper socket client uses bounded send/receive timeouts (`8s`) to avoid indefinite hangs.
+- App-helper socket client uses bounded send/receive timeouts (`25s`) to avoid indefinite hangs during slower privileged reads.
 
 ## Implementation Defaults
 
@@ -41,6 +41,7 @@
 - Admin authorization cancelled/denied
 - Helper socket unavailable/unreachable
 - Helper command timeout or non-zero exit
+- Helper command output deadlock/timeout from heavy sampler output (mitigated by file-backed command capture)
 - Parser unable to extract valid Celsius values
 - Empty sensor set from command output
 

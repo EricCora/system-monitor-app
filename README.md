@@ -56,7 +56,7 @@ PulseBar uses `SMAppService.mainApp`.
 ## Privileged Metrics (Optional Mode)
 Privileged temperature sampling is optional and off by default.
 - App process remains unprivileged; privileged sampling runs through `PulseBarPrivilegedHelper`.
-- Helper command path: `/usr/bin/powermetrics` (sampler flags are selected by compatibility fallback logic).
+- Helper command path: `/usr/bin/powermetrics` (sampler selection prefers `cpu_power` family and falls back to `thermal`).
 - Enabling privileged mode may trigger a macOS admin authentication prompt.
 - If helper binary is missing, build it once:
   ```bash
