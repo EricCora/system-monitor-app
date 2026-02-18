@@ -17,6 +17,8 @@ public struct PrivilegedTemperatureResponse: Codable, Sendable, Equatable {
     public let reading: PowermetricsTemperatureReading?
     public let error: String?
     public let source: String
+    public let activeSourceChain: [String]
+    public let sourceDiagnostics: [SensorSourceDiagnostic]
     public let timestamp: Date
 
     public init(
@@ -24,12 +26,16 @@ public struct PrivilegedTemperatureResponse: Codable, Sendable, Equatable {
         reading: PowermetricsTemperatureReading?,
         error: String?,
         source: String,
+        activeSourceChain: [String] = [],
+        sourceDiagnostics: [SensorSourceDiagnostic] = [],
         timestamp: Date = Date()
     ) {
         self.ok = ok
         self.reading = reading
         self.error = error
         self.source = source
+        self.activeSourceChain = activeSourceChain
+        self.sourceDiagnostics = sourceDiagnostics
         self.timestamp = timestamp
     }
 
@@ -38,7 +44,9 @@ public struct PrivilegedTemperatureResponse: Codable, Sendable, Equatable {
             ok: true,
             reading: reading,
             error: nil,
-            source: source
+            source: source,
+            activeSourceChain: reading.sourceChain,
+            sourceDiagnostics: reading.sourceDiagnostics
         )
     }
 
@@ -49,5 +57,37 @@ public struct PrivilegedTemperatureResponse: Codable, Sendable, Equatable {
             error: error,
             source: source
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case reading
+        case error
+        case source
+        case activeSourceChain
+        case sourceDiagnostics
+        case timestamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decode(Bool.self, forKey: .ok)
+        reading = try container.decodeIfPresent(PowermetricsTemperatureReading.self, forKey: .reading)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "powermetrics"
+        activeSourceChain = try container.decodeIfPresent([String].self, forKey: .activeSourceChain) ?? []
+        sourceDiagnostics = try container.decodeIfPresent([SensorSourceDiagnostic].self, forKey: .sourceDiagnostics) ?? []
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ok, forKey: .ok)
+        try container.encodeIfPresent(reading, forKey: .reading)
+        try container.encodeIfPresent(error, forKey: .error)
+        try container.encode(source, forKey: .source)
+        try container.encode(activeSourceChain, forKey: .activeSourceChain)
+        try container.encode(sourceDiagnostics, forKey: .sourceDiagnostics)
+        try container.encode(timestamp, forKey: .timestamp)
     }
 }

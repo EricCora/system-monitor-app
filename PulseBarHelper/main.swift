@@ -1,21 +1,21 @@
 import Foundation
 import Darwin
 import PulseBarCore
+import Dispatch
 
-@main
-struct PulseBarPrivilegedHelperMain {
-    static func main() async {
-        let config = Configuration.parse(arguments: CommandLine.arguments)
-        let server = PrivilegedTemperatureServer(socketPath: config.socketPath)
+private let config = Configuration.parse(arguments: CommandLine.arguments)
+private let server = PrivilegedTemperatureServer(socketPath: config.socketPath)
 
-        do {
-            try await server.run()
-        } catch {
-            fputs("PulseBarPrivilegedHelper fatal error: \(error.localizedDescription)\n", stderr)
-            exit(1)
-        }
+Task.detached {
+    do {
+        try await server.run()
+    } catch {
+        fputs("PulseBarPrivilegedHelper fatal error: \(error.localizedDescription)\n", stderr)
+        exit(1)
     }
 }
+
+dispatchMain()
 
 private struct Configuration {
     let socketPath: String
@@ -45,10 +45,7 @@ private struct Configuration {
 
 private final class PrivilegedTemperatureServer {
     private let socketPath: String
-    private let dataSource = CompositeTemperatureDataSource(
-        primary: IOHIDTemperatureDataSource(),
-        fallback: PowermetricsTemperatureDataSource()
-    )
+    private let orchestrator = PrivilegedTelemetryOrchestrator()
     private var listenFD: Int32 = -1
 
     init(socketPath: String) {
@@ -92,7 +89,7 @@ private final class PrivilegedTemperatureServer {
         switch request.command {
         case .sample:
             do {
-                let reading = try await dataSource.readTemperatures()
+                let reading = try await orchestrator.sample()
                 write(response: .success(reading, source: reading.source ?? "unknown"), to: clientFD)
             } catch {
                 write(response: .failure(error.localizedDescription), to: clientFD)

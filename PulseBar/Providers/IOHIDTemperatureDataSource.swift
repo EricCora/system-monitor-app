@@ -34,7 +34,7 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
         }
 
         var sensors: [HIDSensorTemperature] = []
-        sensors.reserveCapacity(32)
+        sensors.reserveCapacity(64)
 
         let serviceCount = CFArrayGetCount(services)
         for index in 0..<serviceCount {
@@ -44,9 +44,6 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
             let service = UnsafeMutableRawPointer(mutating: unmanaged)
 
             let name = readServiceName(service: service, api: api)
-            guard includeSensor(named: name) else {
-                continue
-            }
 
             guard let event = api.copyEvent(service, kIOHIDEventTypeTemperature, 0, 0) else {
                 continue
@@ -69,14 +66,31 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
             throw ProviderError.parsingFailed("No valid Celsius temperatures found in IOHID sensor output")
         }
 
+        let timestamp = Date()
         let sortedReadings = sensors
-            .map { TemperatureSensorReading(name: $0.name, celsius: $0.celsius) }
             .sorted { lhs, rhs in
                 if lhs.celsius != rhs.celsius {
                     return lhs.celsius > rhs.celsius
                 }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
+        let channelReadings = sortedReadings.map { sensor in
+            SensorReading(
+                id: PowermetricsTemperatureReading.makeStableID(
+                    from: sensor.name,
+                    source: "iohid",
+                    channelType: .temperatureCelsius
+                ),
+                rawName: sensor.name,
+                displayName: sensor.name,
+                category: categorizeSensor(named: sensor.name),
+                channelType: .temperatureCelsius,
+                value: sensor.celsius,
+                source: "iohid",
+                timestamp: timestamp
+            )
+        }
+        let legacyReadings = sortedReadings.map { TemperatureSensorReading(name: $0.name, celsius: $0.celsius) }
         let primary = preferredPrimarySensor(from: sensors)?.celsius ?? sensors[0].celsius
         let maximum = sortedReadings.first?.celsius ?? primary
 
@@ -84,7 +98,8 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
             primaryCelsius: primary,
             maxCelsius: maximum,
             sensorCount: sortedReadings.count,
-            sensors: sortedReadings,
+            sensors: legacyReadings,
+            channels: channelReadings,
             source: "iohid"
         )
     }
@@ -96,14 +111,6 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
             return "unknown"
         }
         return string
-    }
-
-    private func includeSensor(named name: String) -> Bool {
-        let lower = name.lowercased()
-        if lower.contains("gas gauge") {
-            return false
-        }
-        return true
     }
 
     private func preferredPrimarySensor(from sensors: [HIDSensorTemperature]) -> HIDSensorTemperature? {
@@ -138,6 +145,29 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
             return 5
         }
         return 10
+    }
+
+    private func categorizeSensor(named name: String) -> SensorCategory {
+        let lower = name.lowercased()
+        if lower.contains("gpu") {
+            return .gpu
+        }
+        if lower.contains("ane") {
+            return .ane
+        }
+        if lower.contains("soc") || lower.contains("pmgr") {
+            return .soc
+        }
+        if lower.contains("nand") || lower.contains("ssd") {
+            return .storage
+        }
+        if lower.contains("battery") || lower.contains("gas gauge") {
+            return .battery
+        }
+        if lower.contains("cpu") || lower.contains("pacc") || lower.contains("eacc") || lower.contains("pmu") {
+            return .cpu
+        }
+        return .other
     }
 }
 

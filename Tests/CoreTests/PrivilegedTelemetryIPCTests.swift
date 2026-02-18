@@ -60,4 +60,28 @@ final class PrivilegedTelemetryIPCTests: XCTestCase {
         XCTAssertNil(response.reading)
         XCTAssertEqual(response.error, "No data")
     }
+
+    func testLegacyResponseWithoutNewDiagnosticFieldsDecodes() throws {
+        let payload = """
+        {
+          "ok": true,
+          "source": "iohid",
+          "timestamp": "2026-02-18T00:00:00Z",
+          "reading": {
+            "primaryCelsius": 44.5,
+            "maxCelsius": 48.0,
+            "sensorCount": 2,
+            "source": "iohid"
+          }
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(PrivilegedTemperatureResponse.self, from: Data(payload.utf8))
+
+        XCTAssertTrue(decoded.ok)
+        XCTAssertEqual(decoded.source, "iohid")
+        XCTAssertTrue(decoded.activeSourceChain.isEmpty)
+        XCTAssertTrue(decoded.sourceDiagnostics.isEmpty)
+    }
 }

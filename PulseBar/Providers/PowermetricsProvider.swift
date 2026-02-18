@@ -1,5 +1,90 @@
 import Foundation
 
+public enum SensorChannelType: String, Sendable, Equatable, Codable, CaseIterable {
+    case temperatureCelsius
+    case fanRPM
+}
+
+public enum SensorCategory: String, Sendable, Equatable, Codable, CaseIterable {
+    case cpu
+    case gpu
+    case ane
+    case soc
+    case battery
+    case storage
+    case fan
+    case other
+
+    public var label: String {
+        switch self {
+        case .cpu:
+            return "CPU"
+        case .gpu:
+            return "GPU"
+        case .ane:
+            return "ANE"
+        case .soc:
+            return "SoC"
+        case .battery:
+            return "Battery"
+        case .storage:
+            return "Storage"
+        case .fan:
+            return "Fan"
+        case .other:
+            return "Other"
+        }
+    }
+}
+
+public struct SensorReading: Sendable, Equatable, Codable {
+    public let id: String
+    public let rawName: String
+    public let displayName: String
+    public let category: SensorCategory
+    public let channelType: SensorChannelType
+    public let value: Double
+    public let source: String
+    public let timestamp: Date
+    public let reliabilityFlags: [String]
+
+    public init(
+        id: String,
+        rawName: String,
+        displayName: String,
+        category: SensorCategory,
+        channelType: SensorChannelType,
+        value: Double,
+        source: String,
+        timestamp: Date,
+        reliabilityFlags: [String] = []
+    ) {
+        self.id = id
+        self.rawName = rawName
+        self.displayName = displayName
+        self.category = category
+        self.channelType = channelType
+        self.value = value
+        self.source = source
+        self.timestamp = timestamp
+        self.reliabilityFlags = reliabilityFlags
+    }
+}
+
+public struct SensorSourceDiagnostic: Sendable, Equatable, Codable {
+    public let source: String
+    public let healthy: Bool
+    public let message: String?
+    public let collectedAt: Date
+
+    public init(source: String, healthy: Bool, message: String?, collectedAt: Date = Date()) {
+        self.source = source
+        self.healthy = healthy
+        self.message = message
+        self.collectedAt = collectedAt
+    }
+}
+
 public struct TemperatureSensorReading: Sendable, Equatable, Codable {
     public let name: String
     public let celsius: Double
@@ -15,20 +100,81 @@ public struct PowermetricsTemperatureReading: Sendable, Equatable, Codable {
     public let maxCelsius: Double
     public let sensorCount: Int
     public let sensors: [TemperatureSensorReading]
+    public let channels: [SensorReading]
     public let source: String?
+    public let sourceChain: [String]
+    public let sourceDiagnostics: [SensorSourceDiagnostic]
+    public let fanTelemetryAvailable: Bool
+    public let fanCount: Int?
 
     public init(
         primaryCelsius: Double,
         maxCelsius: Double,
         sensorCount: Int,
         sensors: [TemperatureSensorReading] = [],
-        source: String? = nil
+        channels: [SensorReading] = [],
+        source: String? = nil,
+        sourceChain: [String] = [],
+        sourceDiagnostics: [SensorSourceDiagnostic] = [],
+        fanTelemetryAvailable: Bool? = nil,
+        fanCount: Int? = nil
     ) {
         self.primaryCelsius = primaryCelsius
         self.maxCelsius = maxCelsius
         self.sensorCount = sensorCount
         self.sensors = sensors
+
+        if channels.isEmpty {
+            let fallbackChannels = sensors.map { sensor in
+                SensorReading(
+                    id: PowermetricsTemperatureReading.makeStableID(from: sensor.name, source: source ?? "unknown", channelType: .temperatureCelsius),
+                    rawName: sensor.name,
+                    displayName: sensor.name,
+                    category: .other,
+                    channelType: .temperatureCelsius,
+                    value: sensor.celsius,
+                    source: source ?? "unknown",
+                    timestamp: PowermetricsTemperatureReading.legacyFallbackTimestamp
+                )
+            }
+            self.channels = fallbackChannels
+        } else {
+            self.channels = channels
+        }
+
         self.source = source
+
+        if sourceChain.isEmpty {
+            if let source, !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.sourceChain = [source]
+            } else {
+                self.sourceChain = []
+            }
+        } else {
+            self.sourceChain = sourceChain
+        }
+
+        self.sourceDiagnostics = sourceDiagnostics
+
+        if let fanTelemetryAvailable {
+            self.fanTelemetryAvailable = fanTelemetryAvailable
+        } else {
+            self.fanTelemetryAvailable = self.channels.contains(where: { $0.channelType == .fanRPM })
+        }
+
+        if let fanCount {
+            self.fanCount = fanCount
+        } else {
+            self.fanCount = self.channels.filter { $0.channelType == .fanRPM }.count
+        }
+    }
+
+    public var temperatureChannels: [SensorReading] {
+        channels.filter { $0.channelType == .temperatureCelsius }
+    }
+
+    public var fanChannels: [SensorReading] {
+        channels.filter { $0.channelType == .fanRPM }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -36,16 +182,71 @@ public struct PowermetricsTemperatureReading: Sendable, Equatable, Codable {
         case maxCelsius
         case sensorCount
         case sensors
+        case channels
         case source
+        case sourceChain
+        case sourceDiagnostics
+        case fanTelemetryAvailable
+        case fanCount
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        primaryCelsius = try container.decode(Double.self, forKey: .primaryCelsius)
-        maxCelsius = try container.decode(Double.self, forKey: .maxCelsius)
-        sensorCount = try container.decode(Int.self, forKey: .sensorCount)
-        sensors = try container.decodeIfPresent([TemperatureSensorReading].self, forKey: .sensors) ?? []
-        source = try container.decodeIfPresent(String.self, forKey: .source)
+        let decodedSensors = try container.decodeIfPresent([TemperatureSensorReading].self, forKey: .sensors) ?? []
+        let decodedSource = try container.decodeIfPresent(String.self, forKey: .source)
+        let decodedChannels = try container.decodeIfPresent([SensorReading].self, forKey: .channels) ?? []
+
+        let channels: [SensorReading]
+        if decodedChannels.isEmpty {
+            channels = decodedSensors.map { sensor in
+                SensorReading(
+                    id: PowermetricsTemperatureReading.makeStableID(
+                        from: sensor.name,
+                        source: decodedSource ?? "unknown",
+                        channelType: .temperatureCelsius
+                    ),
+                    rawName: sensor.name,
+                    displayName: sensor.name,
+                    category: .other,
+                    channelType: .temperatureCelsius,
+                    value: sensor.celsius,
+                    source: decodedSource ?? "unknown",
+                    timestamp: PowermetricsTemperatureReading.legacyFallbackTimestamp
+                )
+            }
+        } else {
+            channels = decodedChannels
+        }
+
+        let tempValues = channels
+            .filter { $0.channelType == .temperatureCelsius }
+            .map(\.value)
+
+        let fallbackPrimary = tempValues.first ?? 0
+        let fallbackMax = tempValues.max() ?? fallbackPrimary
+        let fallbackSensorCount = tempValues.count
+
+        primaryCelsius = try container.decodeIfPresent(Double.self, forKey: .primaryCelsius) ?? fallbackPrimary
+        maxCelsius = try container.decodeIfPresent(Double.self, forKey: .maxCelsius) ?? fallbackMax
+        sensorCount = try container.decodeIfPresent(Int.self, forKey: .sensorCount) ?? fallbackSensorCount
+        sensors = decodedSensors
+        self.channels = channels
+        source = decodedSource
+
+        let chain = try container.decodeIfPresent([String].self, forKey: .sourceChain) ?? []
+        if !chain.isEmpty {
+            sourceChain = chain
+        } else if let decodedSource, !decodedSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sourceChain = [decodedSource]
+        } else {
+            sourceChain = []
+        }
+
+        sourceDiagnostics = try container.decodeIfPresent([SensorSourceDiagnostic].self, forKey: .sourceDiagnostics) ?? []
+        fanTelemetryAvailable = try container.decodeIfPresent(Bool.self, forKey: .fanTelemetryAvailable)
+            ?? channels.contains(where: { $0.channelType == .fanRPM })
+        fanCount = try container.decodeIfPresent(Int.self, forKey: .fanCount)
+            ?? channels.filter { $0.channelType == .fanRPM }.count
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -54,8 +255,27 @@ public struct PowermetricsTemperatureReading: Sendable, Equatable, Codable {
         try container.encode(maxCelsius, forKey: .maxCelsius)
         try container.encode(sensorCount, forKey: .sensorCount)
         try container.encode(sensors, forKey: .sensors)
+        try container.encode(channels, forKey: .channels)
         try container.encodeIfPresent(source, forKey: .source)
+        try container.encode(sourceChain, forKey: .sourceChain)
+        try container.encode(sourceDiagnostics, forKey: .sourceDiagnostics)
+        try container.encode(fanTelemetryAvailable, forKey: .fanTelemetryAvailable)
+        try container.encodeIfPresent(fanCount, forKey: .fanCount)
     }
+
+    public static func makeStableID(from rawName: String, source: String, channelType: SensorChannelType) -> String {
+        let normalizedName = rawName
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let normalizedSource = source
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return "\(normalizedSource):\(channelType.rawValue):\(normalizedName)"
+    }
+
+    private static let legacyFallbackTimestamp = Date(timeIntervalSince1970: 0)
 }
 
 public struct PrivilegedTemperatureStatus: Sendable, Equatable {
@@ -66,6 +286,10 @@ public struct PrivilegedTemperatureStatus: Sendable, Equatable {
     public let lastErrorMessage: String?
     public let nextRetryAt: Date?
     public let healthy: Bool
+    public let fanTelemetryHealthy: Bool
+    public let channelsAvailable: [SensorChannelType]
+    public let activeSourceChain: [String]
+    public let sourceDiagnostics: [SensorSourceDiagnostic]
 
     public init(
         isEnabled: Bool,
@@ -74,7 +298,11 @@ public struct PrivilegedTemperatureStatus: Sendable, Equatable {
         lastSuccessAt: Date?,
         lastErrorMessage: String?,
         nextRetryAt: Date?,
-        healthy: Bool
+        healthy: Bool,
+        fanTelemetryHealthy: Bool,
+        channelsAvailable: [SensorChannelType],
+        activeSourceChain: [String],
+        sourceDiagnostics: [SensorSourceDiagnostic]
     ) {
         self.isEnabled = isEnabled
         self.sourceDescription = sourceDescription
@@ -83,6 +311,10 @@ public struct PrivilegedTemperatureStatus: Sendable, Equatable {
         self.lastErrorMessage = lastErrorMessage
         self.nextRetryAt = nextRetryAt
         self.healthy = healthy
+        self.fanTelemetryHealthy = fanTelemetryHealthy
+        self.channelsAvailable = channelsAvailable
+        self.activeSourceChain = activeSourceChain
+        self.sourceDiagnostics = sourceDiagnostics
     }
 }
 
@@ -131,11 +363,43 @@ public struct PowermetricsTemperatureParser: Sendable {
             throw ProviderError.parsingFailed("No valid Celsius temperatures found in powermetrics output")
         }
 
+        let now = Date()
+        let channels = allTemps.enumerated().map { index, value in
+            let rawName = "Temperature Sensor \(index + 1)"
+            return SensorReading(
+                id: PowermetricsTemperatureReading.makeStableID(
+                    from: rawName,
+                    source: "powermetrics",
+                    channelType: .temperatureCelsius
+                ),
+                rawName: rawName,
+                displayName: rawName,
+                category: .other,
+                channelType: .temperatureCelsius,
+                value: value,
+                source: "powermetrics",
+                timestamp: now
+            )
+        }
+        let sensors = channels.map { TemperatureSensorReading(name: $0.displayName, celsius: $0.value) }
+
         return PowermetricsTemperatureReading(
             primaryCelsius: primary,
             maxCelsius: maximum,
             sensorCount: allTemps.count,
-            source: "powermetrics"
+            sensors: sensors,
+            channels: channels,
+            source: "powermetrics",
+            sourceChain: ["powermetrics"],
+            sourceDiagnostics: [
+                SensorSourceDiagnostic(
+                    source: "powermetrics",
+                    healthy: true,
+                    message: "Fallback sampler succeeded"
+                )
+            ],
+            fanTelemetryAvailable: false,
+            fanCount: 0
         )
     }
 }
@@ -363,20 +627,29 @@ public actor PowermetricsProvider: MetricProvider {
     }
 
     public func currentStatus() -> PrivilegedTemperatureStatus {
-        PrivilegedTemperatureStatus(
+        let channelTypes = Set(cachedReading?.channels.map(\.channelType) ?? [])
+        return PrivilegedTemperatureStatus(
             isEnabled: isEnabled,
             sourceDescription: sourceDescription,
             latestReading: cachedReading,
             lastSuccessAt: lastSuccessAt,
             lastErrorMessage: lastErrorMessage,
             nextRetryAt: nextRetryAt,
-            healthy: isEnabled && lastSuccessAt != nil && lastErrorMessage == nil
+            healthy: isEnabled && lastSuccessAt != nil && lastErrorMessage == nil,
+            fanTelemetryHealthy: (cachedReading?.fanTelemetryAvailable ?? false),
+            channelsAvailable: SensorChannelType.allCases.filter { channelTypes.contains($0) },
+            activeSourceChain: cachedReading?.sourceChain ?? [],
+            sourceDiagnostics: cachedReading?.sourceDiagnostics ?? []
         )
     }
 
     public func requestImmediateRetry() {
         nextRetryAt = nil
         nextAllowedCollectionAt = Date.distantPast
+    }
+
+    public func latestReading() -> PowermetricsTemperatureReading? {
+        cachedReading
     }
 
     public func probeNow(at date: Date = Date()) async -> [MetricSample] {
@@ -468,6 +741,11 @@ public actor PowermetricsProvider: MetricProvider {
     }
 
     private func statusSourceDescription(from reading: PowermetricsTemperatureReading) -> String {
+        let trimmedChain = reading.sourceChain.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !trimmedChain.isEmpty {
+            return "privileged helper (\(trimmedChain.joined(separator: " -> ")))"
+        }
+
         guard let source = reading.source?.trimmingCharacters(in: .whitespacesAndNewlines),
               !source.isEmpty else {
             return "privileged helper"

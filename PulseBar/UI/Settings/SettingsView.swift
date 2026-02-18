@@ -86,6 +86,18 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if let fanGate = coordinator.fanParityGateMessage {
+                    Text("Fan parity: \(fanGate)")
+                        .font(.caption)
+                        .foregroundStyle(coordinator.fanParityGateBlocked ? .red : .secondary)
+                }
+
+                if !coordinator.privilegedActiveSourceChain.isEmpty {
+                    Text("Active source chain: \(coordinator.privilegedActiveSourceChain.joined(separator: " -> "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Units") {

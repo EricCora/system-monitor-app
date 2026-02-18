@@ -131,4 +131,58 @@ final class PowermetricsProviderTests: XCTestCase {
         XCTAssertNotNil(status.lastErrorMessage)
         XCTAssertNotNil(status.nextRetryAt)
     }
+
+    func testStatusIncludesChannelAndSourceChainMetadata() async {
+        let now = Date(timeIntervalSince1970: 1_700_000_100)
+        let reading = PowermetricsTemperatureReading(
+            primaryCelsius: 48,
+            maxCelsius: 60,
+            sensorCount: 3,
+            channels: [
+                SensorReading(
+                    id: "iohid:temperatureCelsius:cpu",
+                    rawName: "CPU",
+                    displayName: "CPU",
+                    category: .cpu,
+                    channelType: .temperatureCelsius,
+                    value: 48,
+                    source: "iohid",
+                    timestamp: now
+                ),
+                SensorReading(
+                    id: "smc:fanRPM:fan0",
+                    rawName: "F0Ac",
+                    displayName: "System Fan 1",
+                    category: .fan,
+                    channelType: .fanRPM,
+                    value: 1120,
+                    source: "smc",
+                    timestamp: now
+                )
+            ],
+            source: "iohid",
+            sourceChain: ["iohid", "smc"],
+            sourceDiagnostics: [
+                SensorSourceDiagnostic(source: "iohid", healthy: true, message: nil),
+                SensorSourceDiagnostic(source: "smc", healthy: true, message: nil)
+            ],
+            fanTelemetryAvailable: true,
+            fanCount: 1
+        )
+        let state = MockState([.success(reading)])
+        let provider = PowermetricsProvider(
+            dataSource: MockDataSource(state: state),
+            minCollectionInterval: 5
+        )
+
+        await provider.updateEnabled(true)
+        _ = await provider.probeNow(at: now)
+        let status = await provider.currentStatus()
+
+        XCTAssertTrue(status.fanTelemetryHealthy)
+        XCTAssertEqual(status.activeSourceChain, ["iohid", "smc"])
+        XCTAssertTrue(status.channelsAvailable.contains(.temperatureCelsius))
+        XCTAssertTrue(status.channelsAvailable.contains(.fanRPM))
+        XCTAssertEqual(status.sourceDiagnostics.count, 2)
+    }
 }

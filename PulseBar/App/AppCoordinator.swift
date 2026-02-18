@@ -27,6 +27,8 @@ final class AppCoordinator: ObservableObject {
         static let autoSwitchACProfile = "settings.autoSwitchACProfile"
         static let autoSwitchBatteryProfile = "settings.autoSwitchBatteryProfile"
         static let privilegedTemperatureEnabled = "settings.privilegedTemperatureEnabled"
+        static let selectedTemperatureSensorID = "settings.selectedTemperatureSensorID"
+        static let selectedTemperatureHistoryWindow = "settings.selectedTemperatureHistoryWindow"
         static let appSettingsV2 = "settings.v2.data"
     }
 
@@ -36,6 +38,7 @@ final class AppCoordinator: ObservableObject {
     private let samplingEngine: SamplingEngine
     private let isAppBundleRuntime: Bool
     private let temperatureCoordinator: TemperatureCoordinator
+    private let temperatureHistoryStore: TemperatureHistoryStore
     private let powerSourceMonitor = PowerSourceMonitor()
 
     private var bootstrapping = true
@@ -48,7 +51,27 @@ final class AppCoordinator: ObservableObject {
     @Published var privilegedTemperatureLastSuccessMessage: String?
     @Published var privilegedTemperatureHealthy: Bool = false
     @Published var latestTemperatureSensors: [TemperatureSensorReading] = []
+    @Published var latestSensorChannels: [SensorReading] = []
+    @Published var privilegedFanTelemetryHealthy: Bool = false
+    @Published var privilegedChannelsAvailable: [SensorChannelType] = []
+    @Published var privilegedActiveSourceChain: [String] = []
+    @Published var privilegedSourceDiagnostics: [SensorSourceDiagnostic] = []
+    @Published var fanParityGateBlocked: Bool = false
+    @Published var fanParityGateMessage: String?
+    @Published var temperatureHistoryStoreStatusMessage: String?
     @Published var currentPowerSourceDescription: String = "Unknown"
+
+    @Published var selectedTemperatureSensorID: String {
+        didSet {
+            persist(selectedTemperatureSensorID, key: DefaultsKey.selectedTemperatureSensorID)
+        }
+    }
+
+    @Published var selectedTemperatureHistoryWindow: TemperatureHistoryWindow {
+        didSet {
+            persist(selectedTemperatureHistoryWindow.rawValue, key: DefaultsKey.selectedTemperatureHistoryWindow)
+        }
+    }
 
     @Published var sampleInterval: Double {
         didSet {
@@ -237,6 +260,10 @@ final class AppCoordinator: ObservableObject {
         let legacy = AppCoordinator.loadLegacySnapshot(defaults: defaults)
         let loadedV2 = AppCoordinator.loadSettingsV2(defaults: defaults)
         let launchAtLogin = defaults.object(forKey: DefaultsKey.launchAtLogin) as? Bool ?? false
+        let selectedTemperatureSensorID = defaults.string(forKey: DefaultsKey.selectedTemperatureSensorID) ?? ""
+        let selectedTemperatureHistoryWindow = TemperatureHistoryWindow(
+            rawValue: defaults.string(forKey: DefaultsKey.selectedTemperatureHistoryWindow) ?? ""
+        ) ?? .oneHour
 
         let activeProfile: ProfileID
         let customProfile: ProfileSettings
@@ -280,8 +307,11 @@ final class AppCoordinator: ObservableObject {
         self.temperatureAlertEnabled = profileSettings.temperatureAlertEnabled
         self.temperatureAlertThreshold = profileSettings.temperatureAlertThreshold
         self.temperatureAlertDuration = profileSettings.temperatureAlertDuration
+        self.selectedTemperatureSensorID = selectedTemperatureSensorID
+        self.selectedTemperatureHistoryWindow = selectedTemperatureHistoryWindow
 
         self.store = TimeSeriesStore(defaultCapacity: 7200)
+        self.temperatureHistoryStore = TemperatureHistoryStore()
 
         self.alertEngine = AlertEngine { title, body in
             await NotificationDispatcher.send(title: title, body: body)
@@ -315,6 +345,11 @@ final class AppCoordinator: ObservableObject {
             await samplingEngine.setOnBatch { [weak self] batch in
                 await self?.handle(batch: batch)
             }
+            if let historyStartupError = await temperatureHistoryStore.startupError() {
+                temperatureHistoryStoreStatusMessage = "Temperature history database unavailable: \(historyStartupError)"
+            } else {
+                temperatureHistoryStoreStatusMessage = nil
+            }
             await NotificationDispatcher.requestAuthorizationIfNeeded(isAppBundleRuntime: isAppBundleRuntime)
             await temperatureCoordinator.setPrivilegedEnabled(privilegedTemperatureEnabled)
             await refreshAlertRules()
@@ -331,6 +366,24 @@ final class AppCoordinator: ObservableObject {
         let selected = window ?? selectedWindow
         let raw = await store.series(for: metricID, window: selected)
         return Downsampler.downsample(raw, maxPoints: maxPoints)
+    }
+
+    func temperatureHistorySeries(
+        sensorID: String,
+        channelType: SensorChannelType,
+        window: TemperatureHistoryWindow,
+        maxPoints: Int = 900
+    ) async -> [TemperatureHistoryPoint] {
+        await temperatureHistoryStore.series(
+            sensorID: sensorID,
+            channelType: channelType,
+            window: window,
+            maxPoints: maxPoints
+        )
+    }
+
+    func selectedSensorReading() -> SensorReading? {
+        latestSensorChannels.first { $0.id == selectedTemperatureSensorID }
     }
 
     func latestValue(for metricID: MetricID) -> MetricSample? {
@@ -505,6 +558,13 @@ final class AppCoordinator: ObservableObject {
             privilegedTemperatureLastSuccessMessage = nil
             privilegedTemperatureHealthy = false
             latestTemperatureSensors = []
+            latestSensorChannels = []
+            privilegedFanTelemetryHealthy = false
+            privilegedChannelsAvailable = []
+            privilegedActiveSourceChain = []
+            privilegedSourceDiagnostics = []
+            fanParityGateBlocked = false
+            fanParityGateMessage = nil
             return
         }
 
@@ -553,7 +613,50 @@ final class AppCoordinator: ObservableObject {
             privilegedTemperatureLastSuccessMessage = nil
         }
 
-        latestTemperatureSensors = status.latestReading?.sensors ?? []
+        let mappedChannels = (status.latestReading?.channels ?? [])
+            .map { SensorDisplayNameMapper.present($0) }
+            .sorted { lhs, rhs in
+                if lhs.category != rhs.category {
+                    return lhs.category.rawValue < rhs.category.rawValue
+                }
+                if lhs.channelType != rhs.channelType {
+                    return lhs.channelType.rawValue < rhs.channelType.rawValue
+                }
+                if lhs.value != rhs.value {
+                    return lhs.value > rhs.value
+                }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+
+        latestSensorChannels = mappedChannels
+        latestTemperatureSensors = mappedChannels
+            .filter { $0.channelType == .temperatureCelsius }
+            .map { TemperatureSensorReading(name: $0.displayName, celsius: $0.value) }
+        privilegedFanTelemetryHealthy = status.fanTelemetryHealthy
+        privilegedChannelsAvailable = status.channelsAvailable
+        privilegedActiveSourceChain = status.activeSourceChain
+        privilegedSourceDiagnostics = status.sourceDiagnostics
+
+        if selectedTemperatureSensorID.isEmpty || !mappedChannels.contains(where: { $0.id == selectedTemperatureSensorID }) {
+            selectedTemperatureSensorID = mappedChannels.first?.id ?? ""
+        }
+
+        let fanChannelCount = mappedChannels.filter { $0.channelType == .fanRPM }.count
+        let reportedFanCount = status.latestReading?.fanCount ?? 0
+        if reportedFanCount > 0 && fanChannelCount == 0 {
+            fanParityGateBlocked = true
+            fanParityGateMessage = "Fan hardware detected but no RPM telemetry is available from current privileged probes."
+        } else if reportedFanCount <= 0 {
+            fanParityGateBlocked = false
+            fanParityGateMessage = "No fan hardware reported by current sources."
+        } else {
+            fanParityGateBlocked = false
+            fanParityGateMessage = nil
+        }
+
+        Task {
+            await temperatureHistoryStore.append(channels: mappedChannels)
+        }
     }
 
     private func handlePowerSourceChange(_ source: PowerSourceState) async {
