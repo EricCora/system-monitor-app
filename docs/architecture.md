@@ -5,6 +5,7 @@
 - Low-overhead periodic sampling
 - Clear provider abstraction per metric category
 - In-memory time-series optimized for rolling windows
+- Persistent temperature-channel history for long windows
 - UI decoupled from collection logic
 - Local-only data model (no telemetry upload)
 
@@ -18,9 +19,9 @@
   - `PrivilegedHelperTemperatureDataSource.swift`: app-side privileged helper launcher + IPC client
 
 - `Core/`
-  - `Models/`: `MetricID`, `MetricSample`, units, `TimeWindow`, thermal/profile models (`ThermalStateLevel`, `ProfileSettings`, `AppSettingsV2`)
+  - `Models/`: `MetricID`, `MetricSample`, units, `TimeWindow`, `TemperatureHistoryWindow`, temperature channel telemetry models, thermal/profile models (`ThermalStateLevel`, `ProfileSettings`, `AppSettingsV2`)
   - `Privileged/`: shared privileged IPC contract (`PrivilegedTemperatureRequest`, `PrivilegedTemperatureResponse`)
-  - `Storage/`: `RingBuffer`, `TimeSeriesStore`
+  - `Storage/`: `RingBuffer`, `TimeSeriesStore`, `TemperatureHistoryStore` (SQLite-backed)
   - `Sampling/`: scheduler engine + downsampling
 
 - `Providers/`
@@ -30,11 +31,12 @@
   - `NetworkProvider`: `getifaddrs` byte counters
   - `DiskProvider`: free bytes + combined throughput via `iostat`
   - `IOHIDTemperatureDataSource`: Apple Silicon HID-event Celsius sensor reader (privileged helper side)
-  - `CompositeTemperatureDataSource`: IOHID-first fallback chain to `powermetrics`
+  - `CompositeTemperatureDataSource`: compatibility fallback chain for privileged temperature reads
   - `PowermetricsProvider`: privileged Celsius sampling provider with cache + retry backoff
 
 - `PulseBarHelper/`
-  - `PulseBarPrivilegedHelper`: root-required helper executable that samples IOHID Celsius sensors and falls back to `powermetrics`, responding over local unix socket IPC
+  - `PulseBarPrivilegedHelper`: helper executable that samples IOHID Celsius sensors, probes AppleSMC fan telemetry, falls back to `powermetrics`, and responds over local unix socket IPC
+  - `PulseBarSMCBridge`: native C bridge for AppleSMC fan RPM keys
 
 - `Alerts/`
   - `AlertRule`
@@ -43,7 +45,7 @@
 - `UI/`
   - Menu label summary
   - Popover dashboard tabs (CPU/Memory/Network/Temperature/Disk/Settings)
-  - Temperature tab sensor panel for named privileged Celsius sensors
+  - Temperature tab sensor dashboard with grouped channels, source diagnostics, and selected-channel history (`1h/24h/7d/30d`)
   - Shared chart rendering
   - Settings form (profiles, privileged mode, alerts)
 
@@ -53,19 +55,22 @@
 2. Providers sample concurrently.
 3. Standard thermal-state samples are always available.
 4. If privileged mode is enabled, app-side data source ensures helper availability and requests privileged samples over unix socket IPC.
-5. Helper samples IOHID temperature services first, then falls back to `powermetrics` when needed.
-6. Privileged Celsius samples are emitted only when helper transport is healthy.
-7. Privileged enable/retry actions trigger an immediate probe attempt to reduce status latency.
-8. Batch is appended to `TimeSeriesStore`.
-9. Batch is sent to `AlertEngine` for multi-rule evaluation.
-10. Latest values, privileged status, and latest privileged sensor list are published to UI via `AppCoordinator`.
-11. Tabs request windowed series (`5m/15m/1h`) and downsample for chart efficiency.
-12. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
+5. Helper samples IOHID temperature services, probes AppleSMC fan channels, and falls back to `powermetrics` when temperature channels are still missing.
+6. Helper returns rich channel payloads plus source diagnostics and active source chain metadata.
+7. Privileged Celsius samples are emitted only when helper transport is healthy.
+8. Privileged enable/retry actions trigger an immediate probe attempt to reduce status latency.
+9. Batch is appended to `TimeSeriesStore`.
+10. Latest privileged channels are persisted into `TemperatureHistoryStore` (SQLite) for long-window chart queries.
+11. Batch is sent to `AlertEngine` for multi-rule evaluation.
+12. Latest values, privileged status, channel diagnostics, and fan parity gate state are published to UI via `AppCoordinator`.
+13. Tabs request windowed series and downsample for chart efficiency; temperature tab also queries persisted history windows (`1h/24h/7d/30d`).
+14. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
 
 ## Thread Model
 
 - Providers run off the UI thread in async sampling tasks.
 - Time-series store is isolated as an actor.
+- Temperature history persistence is isolated as an actor.
 - UI updates happen on `MainActor`.
 - Alert evaluation is actor-isolated.
 
@@ -88,7 +93,7 @@ To add a new metric category:
 ## Fan Control Boundary
 
 - No fan write/control path exists in this architecture.
-- Fan-related work is currently limited to feasibility and safety-gate planning only.
+- Fan telemetry is read-only via AppleSMC probing; no control writes are implemented.
 
 ## Privileged Boundary
 

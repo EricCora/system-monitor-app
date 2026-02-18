@@ -7,12 +7,13 @@
 - On this macOS flavor, iostat exposes combined throughput columns, not explicit read/write split.
 - Standard temperature mode is `ProcessInfo.thermalState` (qualitative and coarse, not direct Celsius).
 - Privileged temperature sampling executes in `PulseBarPrivilegedHelper`, not the app process.
-- Helper samples IOHID temperature services first and falls back to `/usr/bin/powermetrics` when IOHID data is unavailable.
+- Helper source chain: IOHID temperature services -> AppleSMC fan probe -> `/usr/bin/powermetrics` fallback.
 - App and helper communicate via local unix socket IPC (`/tmp/pulsebar-temp.sock` by default).
 - Privileged helper launch is requested via macOS admin prompt (`osascript ... with administrator privileges`).
 - Privileged helper launch writes PID/log diagnostics to `/tmp/pulsebar-helper.pid` and `/tmp/pulsebar_priv_helper.log`.
 - Privileged temperature parser is best-effort and can drift with OS/hardware output changes.
 - On some modern macOS builds, `powermetrics` may expose power/thermal-pressure only and no Celsius sensor values; IOHID remains the primary Celsius source.
+- AppleSMC fan keys can vary by model; helper emits diagnostics and parity-blocked state when fan hardware is expected but RPM channels are missing.
 - Launch-at-login via `SMAppService` can fail in unsigned/debug contexts.
 - Notification delivery requires user authorization.
 
@@ -25,16 +26,19 @@
 - Privileged temperature collection is throttled with cache (`5s`) and retry backoff (`5s`, `15s`, `30s`, `60s`) after failures.
 - App-helper socket client uses bounded send/receive timeouts (`25s`) to avoid indefinite hangs during slower privileged reads.
 - Enabling privileged mode and tapping retry both trigger an immediate privileged probe attempt.
+- Temperature channel history is persisted in SQLite (`Application Support/PulseBar/temperature-history.sqlite3`) and queried via rollups (`1m`, `5m`, `30m`) for long windows.
 
 ## Implementation Defaults
 
 - Sample interval default: `2s`
 - Sample interval range: `1...10s`
 - Windows: `5m`, `15m`, `1h`
+- Temperature history windows: `1h`, `24h`, `7d`, `30d`
 - Profiles: Quiet / Balanced / Performance / Custom
 - Auto-switch rules default: disabled; AC -> Balanced, Battery -> Quiet
 - Privileged temperature mode default: enabled
-- In-memory history only
+- CPU/memory/network/disk history: in-memory
+- Temperature channel history: persistent SQLite + bounded retention
 - Throughput display default: `Bytes/s`
 - Temperature alert default: disabled, threshold `92 C`, duration `20s`
 
@@ -47,6 +51,7 @@
 - Helper command output deadlock/timeout from heavy sampler output (mitigated by file-backed command capture)
 - IOHID symbols unavailable on current macOS build
 - IOHID sensor events unavailable or invalid
+- AppleSMC fan key decoding unavailable or model-specific mismatch
 - Parser unable to extract valid Celsius values
 - Command output supports no Celsius sensors on current macOS/tool variant
 - Empty sensor set from command output

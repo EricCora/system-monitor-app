@@ -50,7 +50,8 @@ final class TemperatureHistoryStoreTests: XCTestCase {
         XCTAssertNil(startupError)
 
         let sensorID = "iohid:temperatureCelsius:bucket-sensor"
-        let base = Date()
+        let roundedMinute = floor(Date().timeIntervalSince1970 / 60) * 60
+        let base = Date(timeIntervalSince1970: roundedMinute)
 
         let channels = [
             SensorReading(
