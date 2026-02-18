@@ -41,7 +41,7 @@ struct DashboardView: View {
             .layoutPriority(2)
 
             ScrollView {
-                Group {
+                VStack(alignment: .leading, spacing: 0) {
                     switch selectedTab {
                     case .cpu:
                         CPUTabView(coordinator: coordinator)

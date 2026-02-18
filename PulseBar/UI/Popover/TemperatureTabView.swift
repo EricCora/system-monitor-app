@@ -11,7 +11,10 @@ struct TemperatureTabView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            headerSection
+            ViewThatFits(in: .horizontal) {
+                headerSection(compact: false)
+                headerSection(compact: true)
+            }
 
             if let gateMessage = coordinator.fanParityGateMessage {
                 Text(gateMessage)
@@ -25,15 +28,24 @@ struct TemperatureTabView: View {
                     )
             }
 
-            HStack(alignment: .top, spacing: 14) {
-                sensorListPanel
-                    .frame(minWidth: 280, maxWidth: 340)
-                selectedHistoryPanel
-                    .frame(maxWidth: .infinity)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    sensorListPanel(maxHeight: 430)
+                        .frame(width: 320)
+                    selectedHistoryPanel(compact: false)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    sensorListPanel(maxHeight: 280)
+                    selectedHistoryPanel(compact: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
 
             diagnosticsPanel
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .task {
             await refreshSelectedHistory()
         }
@@ -48,8 +60,9 @@ struct TemperatureTabView: View {
         }
     }
 
-    private var headerSection: some View {
-        HStack {
+    private func headerSection(compact: Bool) -> some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: compact ? 2 : 4)
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
             metricCard(
                 title: "Primary Temp",
                 value: coordinator.latestValue(for: .temperaturePrimaryCelsius).map {
@@ -76,7 +89,7 @@ struct TemperatureTabView: View {
         }
     }
 
-    private var sensorListPanel: some View {
+    private func sensorListPanel(maxHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Sensors")
@@ -107,7 +120,7 @@ struct TemperatureTabView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 360)
+                .frame(maxHeight: maxHeight)
             }
         }
         .padding(12)
@@ -131,7 +144,7 @@ struct TemperatureTabView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
+                Spacer(minLength: 6)
                 Text(valueText(for: channel))
                     .font(.subheadline.monospacedDigit())
                     .frame(minWidth: 66, alignment: .trailing)
@@ -144,7 +157,7 @@ struct TemperatureTabView: View {
                             .frame(width: barWidth(for: channel, totalWidth: proxy.size.width))
                     }
                 }
-                .frame(width: 100, height: 10)
+                .frame(width: 90, height: 10)
             }
             .padding(.vertical, 2)
             .padding(.horizontal, 6)
@@ -156,28 +169,20 @@ struct TemperatureTabView: View {
         .buttonStyle(.plain)
     }
 
-    private var selectedHistoryPanel: some View {
+    private func selectedHistoryPanel(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(selectedSensor?.displayName ?? "Select a sensor")
-                        .font(.headline)
-                    if let selectedSensor {
-                        Text("\(selectedSensor.category.label) • \(selectedSensor.channelType == .fanRPM ? "Fan RPM" : "Temperature")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    historyTitleBlock
+                    historyWindowPicker(segmented: false)
                 }
-
-                Spacer()
-
-                Picker("Window", selection: $coordinator.selectedTemperatureHistoryWindow) {
-                    ForEach(TemperatureHistoryWindow.allCases, id: \.self) { window in
-                        Text(window.label).tag(window)
-                    }
+            } else {
+                HStack(alignment: .top) {
+                    historyTitleBlock
+                    Spacer()
+                    historyWindowPicker(segmented: true)
+                        .frame(maxWidth: 420)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 300)
             }
 
             if selectedSensorHistory.isEmpty {
@@ -257,6 +262,41 @@ struct TemperatureTabView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
         )
+    }
+
+    private var historyTitleBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(selectedSensor?.displayName ?? "Select a sensor")
+                .font(.headline)
+                .lineLimit(1)
+            if let selectedSensor {
+                Text("\(selectedSensor.category.label) • \(selectedSensor.channelType == .fanRPM ? "Fan RPM" : "Temperature")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func historyWindowPicker(segmented: Bool) -> some View {
+        Group {
+            if segmented {
+                Picker("Window", selection: $coordinator.selectedTemperatureHistoryWindow) {
+                    ForEach(TemperatureHistoryWindow.allCases, id: \.self) { window in
+                        Text(window.label).tag(window)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            } else {
+                Picker("Window", selection: $coordinator.selectedTemperatureHistoryWindow) {
+                    ForEach(TemperatureHistoryWindow.allCases, id: \.self) { window in
+                        Text(window.label).tag(window)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+        }
     }
 
     private var diagnosticsPanel: some View {
@@ -352,10 +392,11 @@ struct TemperatureTabView: View {
             Text(value)
                 .font(.title3.monospacedDigit())
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
