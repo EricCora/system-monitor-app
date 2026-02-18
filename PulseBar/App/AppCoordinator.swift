@@ -47,6 +47,7 @@ final class AppCoordinator: ObservableObject {
     @Published var privilegedTemperatureStatusMessage: String?
     @Published var privilegedTemperatureLastSuccessMessage: String?
     @Published var privilegedTemperatureHealthy: Bool = false
+    @Published var latestTemperatureSensors: [TemperatureSensorReading] = []
     @Published var currentPowerSourceDescription: String = "Unknown"
 
     @Published var sampleInterval: Double {
@@ -503,6 +504,7 @@ final class AppCoordinator: ObservableObject {
             privilegedTemperatureStatusMessage = "Privileged mode off (standard thermal state only)."
             privilegedTemperatureLastSuccessMessage = nil
             privilegedTemperatureHealthy = false
+            latestTemperatureSensors = []
             return
         }
 
@@ -550,6 +552,8 @@ final class AppCoordinator: ObservableObject {
         } else {
             privilegedTemperatureLastSuccessMessage = nil
         }
+
+        latestTemperatureSensors = status.latestReading?.sensors ?? []
     }
 
     private func handlePowerSourceChange(_ source: PowerSourceState) async {

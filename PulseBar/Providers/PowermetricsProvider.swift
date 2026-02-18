@@ -1,27 +1,67 @@
 import Foundation
 
+public struct TemperatureSensorReading: Sendable, Equatable, Codable {
+    public let name: String
+    public let celsius: Double
+
+    public init(name: String, celsius: Double) {
+        self.name = name
+        self.celsius = celsius
+    }
+}
+
 public struct PowermetricsTemperatureReading: Sendable, Equatable, Codable {
     public let primaryCelsius: Double
     public let maxCelsius: Double
     public let sensorCount: Int
+    public let sensors: [TemperatureSensorReading]
     public let source: String?
 
     public init(
         primaryCelsius: Double,
         maxCelsius: Double,
         sensorCount: Int,
+        sensors: [TemperatureSensorReading] = [],
         source: String? = nil
     ) {
         self.primaryCelsius = primaryCelsius
         self.maxCelsius = maxCelsius
         self.sensorCount = sensorCount
+        self.sensors = sensors
         self.source = source
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case primaryCelsius
+        case maxCelsius
+        case sensorCount
+        case sensors
+        case source
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        primaryCelsius = try container.decode(Double.self, forKey: .primaryCelsius)
+        maxCelsius = try container.decode(Double.self, forKey: .maxCelsius)
+        sensorCount = try container.decode(Int.self, forKey: .sensorCount)
+        sensors = try container.decodeIfPresent([TemperatureSensorReading].self, forKey: .sensors) ?? []
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(primaryCelsius, forKey: .primaryCelsius)
+        try container.encode(maxCelsius, forKey: .maxCelsius)
+        try container.encode(sensorCount, forKey: .sensorCount)
+        try container.encode(sensors, forKey: .sensors)
+        try container.encodeIfPresent(source, forKey: .source)
     }
 }
 
 public struct PrivilegedTemperatureStatus: Sendable, Equatable {
     public let isEnabled: Bool
     public let sourceDescription: String
+    public let latestReading: PowermetricsTemperatureReading?
     public let lastSuccessAt: Date?
     public let lastErrorMessage: String?
     public let nextRetryAt: Date?
@@ -30,6 +70,7 @@ public struct PrivilegedTemperatureStatus: Sendable, Equatable {
     public init(
         isEnabled: Bool,
         sourceDescription: String,
+        latestReading: PowermetricsTemperatureReading?,
         lastSuccessAt: Date?,
         lastErrorMessage: String?,
         nextRetryAt: Date?,
@@ -37,6 +78,7 @@ public struct PrivilegedTemperatureStatus: Sendable, Equatable {
     ) {
         self.isEnabled = isEnabled
         self.sourceDescription = sourceDescription
+        self.latestReading = latestReading
         self.lastSuccessAt = lastSuccessAt
         self.lastErrorMessage = lastErrorMessage
         self.nextRetryAt = nextRetryAt
@@ -324,6 +366,7 @@ public actor PowermetricsProvider: MetricProvider {
         PrivilegedTemperatureStatus(
             isEnabled: isEnabled,
             sourceDescription: sourceDescription,
+            latestReading: cachedReading,
             lastSuccessAt: lastSuccessAt,
             lastErrorMessage: lastErrorMessage,
             nextRetryAt: nextRetryAt,

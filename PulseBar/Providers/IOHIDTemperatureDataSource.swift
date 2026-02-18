@@ -69,13 +69,22 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
             throw ProviderError.parsingFailed("No valid Celsius temperatures found in IOHID sensor output")
         }
 
+        let sortedReadings = sensors
+            .map { TemperatureSensorReading(name: $0.name, celsius: $0.celsius) }
+            .sorted { lhs, rhs in
+                if lhs.celsius != rhs.celsius {
+                    return lhs.celsius > rhs.celsius
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
         let primary = preferredPrimarySensor(from: sensors)?.celsius ?? sensors[0].celsius
-        let maximum = sensors.map(\.celsius).max() ?? primary
+        let maximum = sortedReadings.first?.celsius ?? primary
 
         return PowermetricsTemperatureReading(
             primaryCelsius: primary,
             maxCelsius: maximum,
-            sensorCount: sensors.count,
+            sensorCount: sortedReadings.count,
+            sensors: sortedReadings,
             source: "iohid"
         )
     }
@@ -92,9 +101,6 @@ public struct IOHIDTemperatureDataSource: TemperatureDataSource {
     private func includeSensor(named name: String) -> Bool {
         let lower = name.lowercased()
         if lower.contains("gas gauge") {
-            return false
-        }
-        if lower.contains("battery") {
             return false
         }
         return true
