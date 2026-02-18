@@ -229,7 +229,7 @@ public actor TemperatureHistoryStore {
         if rows.count <= maxPoints {
             return rows
         }
-        let stride = max(1, rows.count / maxPoints)
+        let stride = max(1, Int(ceil(Double(rows.count) / Double(maxPoints))))
         var result: [(ts: Int64, value: Double)] = []
         result.reserveCapacity(maxPoints)
 
@@ -239,7 +239,11 @@ public actor TemperatureHistoryStore {
             index += stride
         }
         if let last = rows.last, result.last?.ts != last.ts {
-            result.append(last)
+            if result.count >= maxPoints {
+                result[result.count - 1] = last
+            } else {
+                result.append(last)
+            }
         }
         return result
     }

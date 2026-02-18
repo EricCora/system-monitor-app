@@ -102,6 +102,41 @@ final class TemperatureHistoryStoreTests: XCTestCase {
         }
     }
 
+    func testSeriesRespectsMaxPointsCap() async throws {
+        let url = tempDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = TemperatureHistoryStore(databaseURL: url)
+        let startupError = await store.startupError()
+        XCTAssertNil(startupError)
+
+        let sensorID = "iohid:temperatureCelsius:max-points-sensor"
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let channels = (0..<1_800).map { index in
+            SensorReading(
+                id: sensorID,
+                rawName: "Max Points Sensor",
+                displayName: "Max Points Sensor",
+                category: .cpu,
+                channelType: .temperatureCelsius,
+                value: 55 + Double(index % 10),
+                source: "iohid",
+                timestamp: base.addingTimeInterval(Double(index))
+            )
+        }
+
+        await store.append(channels: channels)
+        let points = await store.series(
+            sensorID: sensorID,
+            channelType: .temperatureCelsius,
+            window: .oneHour,
+            now: base.addingTimeInterval(1_801),
+            maxPoints: 900
+        )
+
+        XCTAssertLessThanOrEqual(points.count, 900)
+    }
+
     private func tempDatabaseURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("pulsebar-history-\(UUID().uuidString).sqlite3")
