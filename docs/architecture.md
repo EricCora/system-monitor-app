@@ -29,10 +29,12 @@
   - `MemoryProvider`: Mach `host_statistics64`
   - `NetworkProvider`: `getifaddrs` byte counters
   - `DiskProvider`: free bytes + combined throughput via `iostat`
-  - `PowermetricsProvider`: optional privileged Celsius sampling via helper transport with cache + retry backoff
+  - `IOHIDTemperatureDataSource`: Apple Silicon HID-event Celsius sensor reader (privileged helper side)
+  - `CompositeTemperatureDataSource`: IOHID-first fallback chain to `powermetrics`
+  - `PowermetricsProvider`: privileged Celsius sampling provider with cache + retry backoff
 
 - `PulseBarHelper/`
-  - `PulseBarPrivilegedHelper`: root-required helper executable that runs `powermetrics` (sampler capability detection + fallback chain) and responds over local unix socket IPC
+  - `PulseBarPrivilegedHelper`: root-required helper executable that samples IOHID Celsius sensors and falls back to `powermetrics`, responding over local unix socket IPC
 
 - `Alerts/`
   - `AlertRule`
@@ -50,7 +52,7 @@
 2. Providers sample concurrently.
 3. Standard thermal-state samples are always available.
 4. If privileged mode is enabled, app-side data source ensures helper availability and requests privileged samples over unix socket IPC.
-5. Helper performs root-required `powermetrics` sampling and returns structured response payload.
+5. Helper samples IOHID temperature services first, then falls back to `powermetrics` when needed.
 6. Privileged Celsius samples are emitted only when helper transport is healthy.
 7. Privileged enable/retry actions trigger an immediate probe attempt to reduce status latency.
 8. Batch is appended to `TimeSeriesStore`.

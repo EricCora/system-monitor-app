@@ -12,7 +12,7 @@ Implemented in this repo:
 - Providers: CPU (Mach), Memory (Mach VM stats), Network (`getifaddrs`), Disk (free space + combined throughput from `iostat`)
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
-  - optional privileged mode via root helper + `powermetrics` (opt-in)
+  - privileged mode via root helper with IOHID-first Celsius sampling and `powermetrics` fallback
 - Profiles: Quiet / Balanced / Performance / Custom
 - Power-source auto-switch rules (AC and Battery profile mapping)
 - Settings persistence via `UserDefaults` + `settings.v2` migration model
@@ -54,10 +54,10 @@ PulseBar uses `SMAppService.mainApp`.
 - The Settings screen surfaces success/failure status text.
 
 ## Privileged Metrics (Optional Mode)
-Privileged temperature sampling is optional and off by default.
+Privileged temperature sampling is enabled by default for local personal builds.
 - App process remains unprivileged; privileged sampling runs through `PulseBarPrivilegedHelper`.
-- Helper command path: `/usr/bin/powermetrics` (sampler selection prefers `cpu_power` family and falls back to `thermal`).
-- Some macOS/tool versions expose only power or thermal-pressure data via `powermetrics`; when no Celsius sensors are exposed, PulseBar reports this explicitly and falls back to standard thermal state.
+- Helper source chain: IOHID temperature services first, then `/usr/bin/powermetrics` sampler fallback.
+- Some macOS/tool versions expose only power or thermal-pressure data via `powermetrics`; when that happens, PulseBar still prefers IOHID Celsius sensors and degrades to standard thermal state only if privileged sources are unavailable.
 - Enabling privileged mode may trigger a macOS admin authentication prompt.
 - Privileged mode now performs an immediate probe on enable/retry so status updates are not delayed until the next sampling tick.
 - If helper binary is missing, build it once:
@@ -104,4 +104,4 @@ swift test
 ```
 
 Covers ring buffer behavior, downsampling logic, units formatting, and alert-rule evaluation.
-Additional tests cover thermal-state mapping, powermetrics parsing, profile-settings migration, privileged IPC payloads, and privileged provider caching/degradation behavior.
+Additional tests cover thermal-state mapping, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration, privileged IPC payloads, and privileged provider caching/degradation behavior.

@@ -36,7 +36,12 @@ final class PowermetricsProviderTests: XCTestCase {
     }
 
     func testEnabledProviderReturnsCelsiusSamples() async {
-        let reading = PowermetricsTemperatureReading(primaryCelsius: 54.2, maxCelsius: 61.8, sensorCount: 9)
+        let reading = PowermetricsTemperatureReading(
+            primaryCelsius: 54.2,
+            maxCelsius: 61.8,
+            sensorCount: 9,
+            source: "iohid"
+        )
         let state = MockState([.success(reading)])
         let provider = PowermetricsProvider(
             dataSource: MockDataSource(state: state),
@@ -52,6 +57,7 @@ final class PowermetricsProviderTests: XCTestCase {
 
         let status = await provider.currentStatus()
         XCTAssertTrue(status.healthy)
+        XCTAssertEqual(status.sourceDescription, "privileged helper (iohid)")
         let calls = await state.callCount()
         XCTAssertEqual(calls, 1)
     }

@@ -7,12 +7,12 @@
 - On this macOS flavor, iostat exposes combined throughput columns, not explicit read/write split.
 - Standard temperature mode is `ProcessInfo.thermalState` (qualitative and coarse, not direct Celsius).
 - Privileged temperature sampling executes in `PulseBarPrivilegedHelper`, not the app process.
-- Helper runs `/usr/bin/powermetrics` and selects compatible sampler flags from `powermetrics --help` capability detection (`cpu_power` family first, `thermal` fallback).
+- Helper samples IOHID temperature services first and falls back to `/usr/bin/powermetrics` when IOHID data is unavailable.
 - App and helper communicate via local unix socket IPC (`/tmp/pulsebar-temp.sock` by default).
 - Privileged helper launch is requested via macOS admin prompt (`osascript ... with administrator privileges`).
 - Privileged helper launch writes PID/log diagnostics to `/tmp/pulsebar-helper.pid` and `/tmp/pulsebar_priv_helper.log`.
 - Privileged temperature parser is best-effort and can drift with OS/hardware output changes.
-- On some modern macOS builds, `powermetrics` may expose power/thermal-pressure only and no Celsius sensor values.
+- On some modern macOS builds, `powermetrics` may expose power/thermal-pressure only and no Celsius sensor values; IOHID remains the primary Celsius source.
 - Launch-at-login via `SMAppService` can fail in unsigned/debug contexts.
 - Notification delivery requires user authorization.
 
@@ -33,7 +33,7 @@
 - Windows: `5m`, `15m`, `1h`
 - Profiles: Quiet / Balanced / Performance / Custom
 - Auto-switch rules default: disabled; AC -> Balanced, Battery -> Quiet
-- Privileged temperature mode default: disabled
+- Privileged temperature mode default: enabled
 - In-memory history only
 - Throughput display default: `Bytes/s`
 - Temperature alert default: disabled, threshold `92 C`, duration `20s`
@@ -45,6 +45,8 @@
 - Helper socket unavailable/unreachable
 - Helper command timeout or non-zero exit
 - Helper command output deadlock/timeout from heavy sampler output (mitigated by file-backed command capture)
+- IOHID symbols unavailable on current macOS build
+- IOHID sensor events unavailable or invalid
 - Parser unable to extract valid Celsius values
 - Command output supports no Celsius sensors on current macOS/tool variant
 - Empty sensor set from command output
