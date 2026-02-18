@@ -18,4 +18,8 @@ final class UnitsFormatterTests: XCTestCase {
         XCTAssertNotEqual(bytesText, bitsText)
         XCTAssertTrue(bitsText.contains("b/s"))
     }
+
+    func testCelsiusFormatting() {
+        XCTAssertEqual(UnitsFormatter.format(56.42, unit: .celsius), "56.4 C")
+    }
 }

@@ -5,7 +5,6 @@ struct DiskTabView: View {
     @ObservedObject var coordinator: AppCoordinator
 
     @State private var throughputSamples: [MetricSample] = []
-    private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -49,7 +48,7 @@ struct DiskTabView: View {
         .task {
             await refresh()
         }
-        .onReceive(timer) { _ in
+        .onReceive(coordinator.$latestSamples) { _ in
             Task { await refresh() }
         }
     }

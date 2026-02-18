@@ -1,4 +1,5 @@
 import SwiftUI
+import PulseBarCore
 
 struct DashboardView: View {
     @ObservedObject var coordinator: AppCoordinator
@@ -7,6 +8,25 @@ struct DashboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 10) {
+                HStack {
+                    Text("Profile")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Profile", selection: $coordinator.selectedProfileID) {
+                        ForEach(ProfileID.allCases, id: \.self) { profile in
+                            Text(profile.label).tag(profile)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+
+                    Spacer()
+
+                    Text(coordinator.currentPowerSourceDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Picker("Section", selection: $selectedTab) {
                     ForEach(DashboardTab.allCases, id: \.self) { tab in
                         Text(tab.title).tag(tab)
@@ -21,7 +41,7 @@ struct DashboardView: View {
             .layoutPriority(2)
 
             ScrollView {
-                Group {
+                VStack(alignment: .leading, spacing: 0) {
                     switch selectedTab {
                     case .cpu:
                         CPUTabView(coordinator: coordinator)
@@ -29,6 +49,8 @@ struct DashboardView: View {
                         MemoryTabView(coordinator: coordinator)
                     case .network:
                         NetworkTabView(coordinator: coordinator)
+                    case .temperature:
+                        TemperatureTabView(coordinator: coordinator)
                     case .disk:
                         DiskTabView(coordinator: coordinator)
                     case .settings:
@@ -46,6 +68,7 @@ private enum DashboardTab: CaseIterable {
     case cpu
     case memory
     case network
+    case temperature
     case disk
     case settings
 
@@ -57,6 +80,8 @@ private enum DashboardTab: CaseIterable {
             return "Memory"
         case .network:
             return "Network"
+        case .temperature:
+            return "Temperature"
         case .disk:
             return "Disk"
         case .settings:

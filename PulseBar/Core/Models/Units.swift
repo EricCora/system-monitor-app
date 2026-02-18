@@ -4,6 +4,7 @@ public enum MetricUnit: String, Codable, Sendable {
     case percent
     case bytes
     case bytesPerSecond
+    case celsius
     case scalar
 }
 
@@ -62,6 +63,8 @@ public enum UnitsFormatter {
             return formatBytes(value)
         case .bytesPerSecond:
             return formatThroughput(value, displayUnit: throughputUnit)
+        case .celsius:
+            return String(format: "%.1f C", value)
         case .scalar:
             return String(format: "%.2f", value)
         }

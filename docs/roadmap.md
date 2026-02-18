@@ -1,6 +1,24 @@
 # Roadmap
 
-## Next (V1)
+## Delivered In Current Iteration
+
+- Temperature tracking:
+  - standard mode thermal-state metric (non-privileged)
+  - optional privileged Celsius sampling via root helper + `powermetrics`
+  - temperature dashboard tab and menu-bar temperature surface
+  - privileged status/error visibility and safe fallback behavior
+  - privileged helper IPC contract and helper executable target
+
+- Profiles:
+  - built-in profiles: Quiet / Balanced / Performance
+  - mutable Custom profile with migration from legacy settings
+  - profile-aware settings persistence (`settings.v2`)
+  - optional power-source auto-switch rules (AC/Battery mapping)
+
+- Alerts:
+  - multi-rule alert engine (CPU + optional temperature threshold rule)
+
+## Next (V1 Continuing Backlog)
 
 - Battery and power metrics:
   - charge percent
@@ -8,14 +26,10 @@
   - discharge rate
   - estimated remaining time
 
-- Sensor metrics:
-  - non-privileged sensors where available
-  - optional privileged mode using `powermetrics`
-
-- Alert expansion:
-  - multiple rules
-  - per-metric rules
-  - UI rule list management
+- Sensor and thermal depth:
+  - richer privileged sensor inventory display/filtering
+  - source confidence/caveat annotations per sensor family
+  - signed distribution hardening for privileged helper lifecycle
 
 - History persistence:
   - in-memory base interval for real-time
@@ -23,6 +37,20 @@
 
 - Disk I/O improvement:
   - true read/write split counters (replace combined-only MVP path)
+
+## Fan Control Feasibility Track (Safety-Gated)
+
+- No direct fan write path is currently planned for implementation by default.
+- Required go/no-go gate before any fan control coding:
+  - public/system-supported control interface confirmation for target devices
+  - bounded control + deterministic readback validation
+  - watchdog/failsafe rollback-to-auto guarantees
+  - conflict handling with external fan-control tooling
+  - safety matrix pass under load/sleep/wake/error scenarios
+
+- If gate criteria are not met:
+  - keep fan control deferred
+  - prioritize thermal alerts, profile automation, and cooling guidance UX
 
 ## Quality and UX
 

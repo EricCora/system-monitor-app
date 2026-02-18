@@ -14,9 +14,21 @@ let package = Package(
         .executable(
             name: "PulseBarApp",
             targets: ["PulseBarApp"]
+        ),
+        .executable(
+            name: "PulseBarPrivilegedHelper",
+            targets: ["PulseBarPrivilegedHelper"]
         )
     ],
     targets: [
+        .target(
+            name: "PulseBarSMCBridge",
+            path: "PulseBarSMCBridge",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("IOKit")
+            ]
+        ),
         .target(
             name: "PulseBarCore",
             path: "PulseBar",
@@ -29,6 +41,9 @@ let package = Package(
                 "Core",
                 "Providers",
                 "Alerts"
+            ],
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
             ]
         ),
         .executableTarget(
@@ -52,7 +67,16 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("Charts"),
                 .linkedFramework("ServiceManagement"),
-                .linkedFramework("UserNotifications")
+                .linkedFramework("UserNotifications"),
+                .linkedFramework("IOKit")
+            ]
+        ),
+        .executableTarget(
+            name: "PulseBarPrivilegedHelper",
+            dependencies: ["PulseBarCore", "PulseBarSMCBridge"],
+            path: "PulseBarHelper",
+            linkerSettings: [
+                .linkedFramework("IOKit")
             ]
         ),
         .testTarget(

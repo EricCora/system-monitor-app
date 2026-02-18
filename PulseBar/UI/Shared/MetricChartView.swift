@@ -8,6 +8,7 @@ struct MetricChartView: View {
     let throughputUnit: ThroughputDisplayUnit
 
     @State private var hoveredSample: MetricSample?
+    @State private var isHoveringChart = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -31,20 +32,38 @@ struct MetricChartView: View {
                         y: .value("Value", sample.value)
                     )
                     .interpolationMethod(.catmullRom)
+
+                    if let hoveredSample {
+                        RuleMark(x: .value("Hover Time", hoveredSample.timestamp))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .chartYScale(domain: yDomain)
                 .chartYAxis {
-                    AxisMarks(position: .leading) { value in
-                        AxisGridLine()
-                        AxisTick()
-                        AxisValueLabel {
-                            if let numericValue = value.as(Double.self) {
-                                Text(axisLabel(for: numericValue))
+                    if isThermalStateChart {
+                        AxisMarks(position: .leading, values: [0, 1, 2, 3]) { value in
+                            AxisGridLine()
+                            AxisTick()
+                            AxisValueLabel {
+                                if let numericValue = value.as(Double.self) {
+                                    Text(axisLabel(for: numericValue))
+                                }
+                            }
+                        }
+                    } else {
+                        AxisMarks(position: .leading) { value in
+                            AxisGridLine()
+                            AxisTick()
+                            AxisValueLabel {
+                                if let numericValue = value.as(Double.self) {
+                                    Text(axisLabel(for: numericValue))
+                                }
                             }
                         }
                     }
                 }
-                .frame(minHeight: 180)
+                .frame(height: 180)
                 .chartOverlay { proxy in
                     GeometryReader { geometry in
                         Rectangle()
@@ -53,6 +72,7 @@ struct MetricChartView: View {
                             .onContinuousHover { phase in
                                 switch phase {
                                 case .active(let location):
+                                    isHoveringChart = true
                                     let xPosition = location.x - geometry[proxy.plotAreaFrame].origin.x
                                     guard xPosition >= 0,
                                           xPosition <= proxy.plotAreaSize.width,
@@ -62,30 +82,27 @@ struct MetricChartView: View {
                                     }
                                     hoveredSample = nearestSample(to: date)
                                 case .ended:
+                                    isHoveringChart = false
                                     hoveredSample = nil
                                 }
                             }
                     }
                 }
 
-                if let hoveredSample {
-                    HStack {
-                        Text(hoveredSample.timestamp.formatted(date: .omitted, time: .standard))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(UnitsFormatter.format(
-                            hoveredSample.value,
-                            unit: hoveredSample.unit,
-                            throughputUnit: throughputUnit
-                        ))
-                    }
-                    .font(.caption)
-                }
+                hoverSummaryRow
             }
         }
     }
 
+    private var isThermalStateChart: Bool {
+        samples.first?.metricID == .thermalStateLevel
+    }
+
     private var yDomain: ClosedRange<Double> {
+        if isThermalStateChart {
+            return 0...3
+        }
+
         let values = samples.map(\.value)
         guard let minValue = values.min(), let maxValue = values.max() else {
             return 0...1
@@ -98,6 +115,35 @@ struct MetricChartView: View {
 
         let padding = (maxValue - minValue) * 0.1
         return max(0, minValue - padding)...(maxValue + padding)
+    }
+
+    private var summarySample: MetricSample? {
+        if isHoveringChart {
+            return hoveredSample ?? samples.last
+        }
+        return samples.last
+    }
+
+    @ViewBuilder
+    private var hoverSummaryRow: some View {
+        HStack {
+            if let summarySample {
+                Text(summarySample.timestamp.formatted(date: .omitted, time: .standard))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(UnitsFormatter.format(
+                    summarySample.value,
+                    unit: summarySample.unit,
+                    throughputUnit: throughputUnit
+                ))
+            } else {
+                Text(" ")
+                Spacer()
+                Text(" ")
+            }
+        }
+        .font(.caption)
+        .frame(height: 18)
     }
 
     private func nearestSample(to date: Date) -> MetricSample? {
@@ -118,7 +164,12 @@ struct MetricChartView: View {
             return UnitsFormatter.format(value, unit: .bytesPerSecond, throughputUnit: throughputUnit)
         case .percent:
             return String(format: "%.0f%%", value)
+        case .celsius:
+            return String(format: "%.0f C", value)
         case .scalar:
+            if isThermalStateChart {
+                return ThermalStateLevel.from(metricValue: value.rounded()).shortLabel
+            }
             return String(format: "%.1f", value)
         }
     }

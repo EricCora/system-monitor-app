@@ -30,6 +30,7 @@ When an agent changes behavior, it must update all impacted docs in the same cha
 - If tests are added/removed, keep testing section accurate.
 - If APIs/interfaces change, document old/new behavior and migration impact.
 - Keep docs short, factual, and directly mapped to code.
+- If scope is safety-gated or deferred (example: fan control), document both the defer reason and go/no-go criteria.
 
 ## PR/Change Checklist for Agents
 
@@ -38,6 +39,7 @@ When an agent changes behavior, it must update all impacted docs in the same cha
 - [ ] README updated if user-facing behavior changed
 - [ ] Architecture/dev-notes updated if internal flow changed
 - [ ] Roadmap adjusted for shipped/deferred scope
+- [ ] Explicitly call out safety-gated deferrals and fallback behavior where relevant
 
 ## Ownership Rule
 

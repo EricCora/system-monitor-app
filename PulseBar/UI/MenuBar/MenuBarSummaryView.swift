@@ -18,6 +18,9 @@ struct MenuBarSummaryView: View {
             if coordinator.showDiskInMenu {
                 Text(diskText)
             }
+            if coordinator.showTemperatureInMenu {
+                Text(temperatureText)
+            }
         }
         .font(.system(size: 11, weight: .medium, design: .rounded))
     }
@@ -50,5 +53,12 @@ struct MenuBarSummaryView: View {
         }
         let value = UnitsFormatter.format(sample.value, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit)
         return "DSK \(value)"
+    }
+
+    private var temperatureText: String {
+        if let sample = coordinator.latestValue(for: .temperaturePrimaryCelsius) {
+            return "TMP \(UnitsFormatter.format(sample.value, unit: .celsius))"
+        }
+        return "TMP \(coordinator.latestThermalState().shortLabel)"
     }
 }
