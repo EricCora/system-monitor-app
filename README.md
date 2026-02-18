@@ -13,6 +13,7 @@ Implemented in this repo:
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
   - privileged mode via root helper with IOHID-first Celsius sampling and `powermetrics` fallback
+  - iStat-style sensor panel (named Celsius sensors + live bars) in Temperature tab when privileged readings include sensor names
 - Profiles: Quiet / Balanced / Performance / Custom
 - Power-source auto-switch rules (AC and Battery profile mapping)
 - Settings persistence via `UserDefaults` + `settings.v2` migration model
@@ -60,6 +61,7 @@ Privileged temperature sampling is enabled by default for local personal builds.
 - Some macOS/tool versions expose only power or thermal-pressure data via `powermetrics`; when that happens, PulseBar still prefers IOHID Celsius sensors and degrades to standard thermal state only if privileged sources are unavailable.
 - Enabling privileged mode may trigger a macOS admin authentication prompt.
 - Privileged mode now performs an immediate probe on enable/retry so status updates are not delayed until the next sampling tick.
+- Helper payload includes per-sensor readings when available (IOHID path), allowing richer UI without changing app privilege level.
 - If helper binary is missing, build it once:
   ```bash
   swift build --product PulseBarPrivilegedHelper
@@ -104,4 +106,4 @@ swift test
 ```
 
 Covers ring buffer behavior, downsampling logic, units formatting, and alert-rule evaluation.
-Additional tests cover thermal-state mapping, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration, privileged IPC payloads, and privileged provider caching/degradation behavior.
+Additional tests cover thermal-state mapping, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration, privileged IPC payloads (including legacy payload compatibility), and privileged provider caching/degradation behavior.

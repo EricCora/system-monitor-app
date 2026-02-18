@@ -43,6 +43,7 @@
 - `UI/`
   - Menu label summary
   - Popover dashboard tabs (CPU/Memory/Network/Temperature/Disk/Settings)
+  - Temperature tab sensor panel for named privileged Celsius sensors
   - Shared chart rendering
   - Settings form (profiles, privileged mode, alerts)
 
@@ -57,7 +58,7 @@
 7. Privileged enable/retry actions trigger an immediate probe attempt to reduce status latency.
 8. Batch is appended to `TimeSeriesStore`.
 9. Batch is sent to `AlertEngine` for multi-rule evaluation.
-10. Latest values and privileged status are published to UI via `AppCoordinator`.
+10. Latest values, privileged status, and latest privileged sensor list are published to UI via `AppCoordinator`.
 11. Tabs request windowed series (`5m/15m/1h`) and downsample for chart efficiency.
 12. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
 
