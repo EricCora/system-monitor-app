@@ -4,6 +4,7 @@ import PulseBarCore
 struct TemperatureTabView: View {
     @ObservedObject var coordinator: AppCoordinator
 
+    @State private var primaryTemperatureSamples: [MetricSample] = []
     @State private var thermalStateSamples: [MetricSample] = []
     @State private var maxTemperatureSamples: [MetricSample] = []
 
@@ -45,6 +46,12 @@ struct TemperatureTabView: View {
             }
 
             MetricChartView(
+                title: "Primary Temperature",
+                samples: primaryTemperatureSamples,
+                throughputUnit: coordinator.throughputUnit
+            )
+
+            MetricChartView(
                 title: "Thermal State Level",
                 samples: thermalStateSamples,
                 throughputUnit: coordinator.throughputUnit
@@ -71,6 +78,7 @@ struct TemperatureTabView: View {
     }
 
     private func refresh() async {
+        primaryTemperatureSamples = await coordinator.series(for: .temperaturePrimaryCelsius)
         thermalStateSamples = await coordinator.series(for: .thermalStateLevel)
         maxTemperatureSamples = await coordinator.series(for: .temperatureMaxCelsius)
     }
