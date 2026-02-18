@@ -45,7 +45,10 @@ private struct Configuration {
 
 private final class PrivilegedTemperatureServer {
     private let socketPath: String
-    private let dataSource = PowermetricsTemperatureDataSource()
+    private let dataSource = CompositeTemperatureDataSource(
+        primary: IOHIDTemperatureDataSource(),
+        fallback: PowermetricsTemperatureDataSource()
+    )
     private var listenFD: Int32 = -1
 
     init(socketPath: String) {
@@ -90,7 +93,7 @@ private final class PrivilegedTemperatureServer {
         case .sample:
             do {
                 let reading = try await dataSource.readTemperatures()
-                write(response: .success(reading), to: clientFD)
+                write(response: .success(reading, source: reading.source ?? "unknown"), to: clientFD)
             } catch {
                 write(response: .failure(error.localizedDescription), to: clientFD)
             }

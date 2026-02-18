@@ -253,7 +253,7 @@ final class AppCoordinator: ObservableObject {
             activeProfile = .custom
             customProfile = legacy.asProfileSettings()
             autoSwitchRules = .defaults
-            privilegedTemperatureEnabled = defaults.object(forKey: DefaultsKey.privilegedTemperatureEnabled) as? Bool ?? false
+            privilegedTemperatureEnabled = defaults.object(forKey: DefaultsKey.privilegedTemperatureEnabled) as? Bool ?? true
             profileSettings = legacy.asProfileSettings()
         }
 

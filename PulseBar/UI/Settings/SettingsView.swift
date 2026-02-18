@@ -152,7 +152,7 @@ struct SettingsView: View {
     private var temperatureModeDescription: String? {
         if coordinator.privilegedTemperatureEnabled {
             if coordinator.privilegedTemperatureHealthy {
-                return "Privileged mode is enabled and active. Celsius readings come from powermetrics."
+                return "Privileged mode is enabled and active. Celsius readings come from IOHID sensors with powermetrics fallback."
             }
             // Avoid duplicate/conflicting text when a specific status/error message is already shown below.
             return nil

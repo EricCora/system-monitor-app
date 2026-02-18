@@ -4,11 +4,18 @@ public struct PowermetricsTemperatureReading: Sendable, Equatable, Codable {
     public let primaryCelsius: Double
     public let maxCelsius: Double
     public let sensorCount: Int
+    public let source: String?
 
-    public init(primaryCelsius: Double, maxCelsius: Double, sensorCount: Int) {
+    public init(
+        primaryCelsius: Double,
+        maxCelsius: Double,
+        sensorCount: Int,
+        source: String? = nil
+    ) {
         self.primaryCelsius = primaryCelsius
         self.maxCelsius = maxCelsius
         self.sensorCount = sensorCount
+        self.source = source
     }
 }
 
@@ -85,7 +92,8 @@ public struct PowermetricsTemperatureParser: Sendable {
         return PowermetricsTemperatureReading(
             primaryCelsius: primary,
             maxCelsius: maximum,
-            sensorCount: allTemps.count
+            sensorCount: allTemps.count,
+            source: "powermetrics"
         )
     }
 }
@@ -293,6 +301,7 @@ public actor PowermetricsProvider: MetricProvider {
     private var nextRetryAt: Date?
     private var consecutiveFailures = 0
     private var nextAllowedCollectionAt = Date.distantPast
+    private var sourceDescription = "privileged helper"
 
     public init(
         dataSource: TemperatureDataSource = PowermetricsTemperatureDataSource(),
@@ -308,12 +317,13 @@ public actor PowermetricsProvider: MetricProvider {
         nextRetryAt = nil
         lastSuccessAt = nil
         consecutiveFailures = 0
+        sourceDescription = "privileged helper"
     }
 
     public func currentStatus() -> PrivilegedTemperatureStatus {
         PrivilegedTemperatureStatus(
             isEnabled: isEnabled,
-            sourceDescription: "privileged helper",
+            sourceDescription: sourceDescription,
             lastSuccessAt: lastSuccessAt,
             lastErrorMessage: lastErrorMessage,
             nextRetryAt: nextRetryAt,
@@ -334,6 +344,7 @@ public actor PowermetricsProvider: MetricProvider {
         do {
             let reading = try await dataSource.readTemperatures()
             cachedReading = reading
+            sourceDescription = statusSourceDescription(from: reading)
             lastSuccessAt = date
             lastErrorMessage = nil
             nextRetryAt = nil
@@ -366,6 +377,7 @@ public actor PowermetricsProvider: MetricProvider {
         do {
             let reading = try await dataSource.readTemperatures()
             cachedReading = reading
+            sourceDescription = statusSourceDescription(from: reading)
             lastSuccessAt = date
             lastErrorMessage = nil
             nextRetryAt = nil
@@ -410,5 +422,13 @@ public actor PowermetricsProvider: MetricProvider {
         default:
             return 60
         }
+    }
+
+    private func statusSourceDescription(from reading: PowermetricsTemperatureReading) -> String {
+        guard let source = reading.source?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !source.isEmpty else {
+            return "privileged helper"
+        }
+        return "privileged helper (\(source))"
     }
 }
