@@ -628,6 +628,10 @@ final class AppCoordinator: ObservableObject {
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
 
+        // Persist channel samples before publishing so the chart query does not race
+        // ahead of database writes and get stuck in "Collecting sensor history".
+        await temperatureHistoryStore.append(channels: mappedChannels)
+
         latestSensorChannels = mappedChannels
         latestTemperatureSensors = mappedChannels
             .filter { $0.channelType == .temperatureCelsius }
@@ -654,9 +658,6 @@ final class AppCoordinator: ObservableObject {
             fanParityGateMessage = nil
         }
 
-        Task {
-            await temperatureHistoryStore.append(channels: mappedChannels)
-        }
     }
 
     private func handlePowerSourceChange(_ source: PowerSourceState) async {

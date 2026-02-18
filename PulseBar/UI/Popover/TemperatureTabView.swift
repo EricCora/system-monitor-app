@@ -405,7 +405,11 @@ struct TemperatureTabView: View {
 
     private func refreshSelectedHistory() async {
         guard let selectedSensor else {
-            selectedSensorHistory = []
+            if let first = coordinator.latestSensorChannels.first {
+                coordinator.selectedTemperatureSensorID = first.id
+            } else {
+                selectedSensorHistory = []
+            }
             return
         }
         selectedSensorHistory = await coordinator.temperatureHistorySeries(

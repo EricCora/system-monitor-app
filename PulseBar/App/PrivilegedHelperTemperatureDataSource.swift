@@ -271,7 +271,7 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
         payload.append(0x0A)
         try writeAll(payload, to: fd)
 
-        let responseData = try readLine(from: fd, maxBytes: 16 * 1024)
+        let responseData = try readLine(from: fd, maxBytes: 256 * 1024)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(PrivilegedTemperatureResponse.self, from: responseData)
@@ -311,6 +311,7 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
     private func readLine(from fd: Int32, maxBytes: Int) throws -> Data {
         var collected = Data()
         collected.reserveCapacity(2048)
+        var reachedLimit = false
 
         var byte: UInt8 = 0
         while collected.count < maxBytes {
@@ -330,8 +331,15 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
             collected.append(byte)
         }
 
+        if collected.count >= maxBytes {
+            reachedLimit = true
+        }
+
         guard !collected.isEmpty else {
             throw ProviderError.parsingFailed("Privileged helper returned an empty response")
+        }
+        if reachedLimit {
+            throw ProviderError.unavailable("Privileged helper response exceeded read buffer limit")
         }
         return collected
     }
