@@ -206,13 +206,16 @@ actor PrivilegedHelperLauncher {
 struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
     private let socketPath: String
     private let launcher: PrivilegedHelperLauncher
+    private let channelBackfillSource: TemperatureDataSource
 
     init(
         socketPath: String = "/tmp/pulsebar-temp.sock",
-        launcher: PrivilegedHelperLauncher = PrivilegedHelperLauncher()
+        launcher: PrivilegedHelperLauncher = PrivilegedHelperLauncher(),
+        channelBackfillSource: TemperatureDataSource = IOHIDTemperatureDataSource()
     ) {
         self.socketPath = socketPath
         self.launcher = launcher
+        self.channelBackfillSource = channelBackfillSource
     }
 
     func readTemperatures() async throws -> PowermetricsTemperatureReading {
@@ -227,7 +230,67 @@ struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
         guard let reading = response.reading else {
             throw ProviderError.parsingFailed("Privileged helper returned an empty reading")
         }
-        return reading
+        return await backfillChannelsIfNeeded(reading)
+    }
+
+    private func backfillChannelsIfNeeded(_ reading: PowermetricsTemperatureReading) async -> PowermetricsTemperatureReading {
+        guard reading.channels.isEmpty else {
+            return reading
+        }
+
+        guard let fallback = try? await channelBackfillSource.readTemperatures(),
+              !fallback.channels.isEmpty else {
+            return reading
+        }
+
+        let primary = reading.primaryCelsius > 0 ? reading.primaryCelsius : fallback.primaryCelsius
+        let max = max(reading.maxCelsius, fallback.maxCelsius)
+        let source = reading.source ?? fallback.source ?? "iohid"
+        let chain = mergedSourceChain(primary: reading.sourceChain, fallback: fallback.sourceChain)
+        let diagnostics = mergedDiagnostics(primary: reading.sourceDiagnostics)
+
+        return PowermetricsTemperatureReading(
+            primaryCelsius: primary,
+            maxCelsius: max,
+            sensorCount: fallback.sensorCount,
+            sensors: fallback.sensors,
+            channels: fallback.channels,
+            source: source,
+            sourceChain: chain,
+            sourceDiagnostics: diagnostics,
+            fanTelemetryAvailable: reading.fanTelemetryAvailable,
+            fanCount: reading.fanCount
+        )
+    }
+
+    private func mergedSourceChain(primary: [String], fallback: [String]) -> [String] {
+        var result: [String] = []
+        for item in primary where !item.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !result.contains(item) {
+                result.append(item)
+            }
+        }
+        for item in fallback where !item.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !result.contains(item) {
+                result.append(item)
+            }
+        }
+        if !result.contains("app-iohid-backfill") {
+            result.append("app-iohid-backfill")
+        }
+        return result
+    }
+
+    private func mergedDiagnostics(primary: [SensorSourceDiagnostic]) -> [SensorSourceDiagnostic] {
+        var diagnostics = primary
+        diagnostics.append(
+            SensorSourceDiagnostic(
+                source: "app-iohid-backfill",
+                healthy: true,
+                message: "Filled missing helper channels from direct IOHID probe"
+            )
+        )
+        return diagnostics
     }
 
     private func sendRequest(
