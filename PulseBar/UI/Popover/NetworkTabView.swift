@@ -48,6 +48,32 @@ struct NetworkTabView: View {
                 samples: outboundSamples,
                 throughputUnit: coordinator.throughputUnit
             )
+
+            if !interfaceRates.isEmpty {
+                Divider()
+                Text("Interfaces")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                ForEach(Array(interfaceRates.enumerated()), id: \.element.id) { index, rate in
+                    HStack {
+                        Text(rate.interface)
+                            .font(.callout.monospacedDigit())
+                        if index == 0 {
+                            Text("Primary")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.quaternary, in: Capsule())
+                        }
+                        Spacer()
+                        Text("↓\(UnitsFormatter.format(rate.inboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
+                            .font(.caption.monospacedDigit())
+                        Text("↑\(UnitsFormatter.format(rate.outboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
+                            .font(.caption.monospacedDigit())
+                    }
+                }
+            }
         }
         .task {
             await refresh()
@@ -60,5 +86,9 @@ struct NetworkTabView: View {
     private func refresh() async {
         inboundSamples = await coordinator.series(for: .networkInBytesPerSec)
         outboundSamples = await coordinator.series(for: .networkOutBytesPerSec)
+    }
+
+    private var interfaceRates: [NetworkInterfaceRate] {
+        coordinator.latestNetworkInterfaces()
     }
 }

@@ -77,6 +77,13 @@ public actor CPUProvider: MetricProvider {
             )
         )
 
+        var loadAverages = [Double](repeating: 0, count: 3)
+        if getloadavg(&loadAverages, Int32(loadAverages.count)) == Int32(loadAverages.count) {
+            samples.append(MetricSample(metricID: .cpuLoadAverage1, timestamp: date, value: loadAverages[0], unit: .scalar))
+            samples.append(MetricSample(metricID: .cpuLoadAverage5, timestamp: date, value: loadAverages[1], unit: .scalar))
+            samples.append(MetricSample(metricID: .cpuLoadAverage15, timestamp: date, value: loadAverages[2], unit: .scalar))
+        }
+
         return samples
     }
 
@@ -119,6 +126,13 @@ public actor CPUProvider: MetricProvider {
                 unit: .percent
             )
         )
+
+        var loadAverages = [Double](repeating: 0, count: 3)
+        if getloadavg(&loadAverages, Int32(loadAverages.count)) == Int32(loadAverages.count) {
+            samples.append(MetricSample(metricID: .cpuLoadAverage1, timestamp: date, value: loadAverages[0], unit: .scalar))
+            samples.append(MetricSample(metricID: .cpuLoadAverage5, timestamp: date, value: loadAverages[1], unit: .scalar))
+            samples.append(MetricSample(metricID: .cpuLoadAverage15, timestamp: date, value: loadAverages[2], unit: .scalar))
+        }
 
         return samples
     }

@@ -4,12 +4,22 @@ import PulseBarCore
 import ServiceManagement
 import UserNotifications
 
+struct NetworkInterfaceRate: Identifiable {
+    let interface: String
+    let inboundBytesPerSecond: Double
+    let outboundBytesPerSecond: Double
+
+    var id: String { interface }
+    var totalBytesPerSecond: Double { inboundBytesPerSecond + outboundBytesPerSecond }
+}
+
 @MainActor
 final class AppCoordinator: ObservableObject {
     private enum DefaultsKey {
         static let sampleInterval = "settings.sampleInterval"
         static let showCPUInMenu = "settings.showCPUInMenu"
         static let showMemoryInMenu = "settings.showMemoryInMenu"
+        static let showBatteryInMenu = "settings.showBatteryInMenu"
         static let showNetworkInMenu = "settings.showNetworkInMenu"
         static let showDiskInMenu = "settings.showDiskInMenu"
         static let showTemperatureInMenu = "settings.showTemperatureInMenu"
@@ -22,6 +32,12 @@ final class AppCoordinator: ObservableObject {
         static let temperatureAlertEnabled = "settings.temperatureAlertEnabled"
         static let temperatureAlertThreshold = "settings.temperatureAlertThreshold"
         static let temperatureAlertDuration = "settings.temperatureAlertDuration"
+        static let memoryPressureAlertEnabled = "settings.memoryPressureAlertEnabled"
+        static let memoryPressureAlertThreshold = "settings.memoryPressureAlertThreshold"
+        static let memoryPressureAlertDuration = "settings.memoryPressureAlertDuration"
+        static let diskFreeAlertEnabled = "settings.diskFreeAlertEnabled"
+        static let diskFreeAlertThresholdBytes = "settings.diskFreeAlertThresholdBytes"
+        static let diskFreeAlertDuration = "settings.diskFreeAlertDuration"
         static let selectedProfileID = "settings.selectedProfileID"
         static let autoSwitchEnabled = "settings.autoSwitchEnabled"
         static let autoSwitchACProfile = "settings.autoSwitchACProfile"
@@ -96,6 +112,13 @@ final class AppCoordinator: ObservableObject {
     @Published var showMemoryInMenu: Bool {
         didSet {
             persist(showMemoryInMenu, key: DefaultsKey.showMemoryInMenu)
+            onProfileControlledSettingChanged()
+        }
+    }
+
+    @Published var showBatteryInMenu: Bool {
+        didSet {
+            persist(showBatteryInMenu, key: DefaultsKey.showBatteryInMenu)
             onProfileControlledSettingChanged()
         }
     }
@@ -253,6 +276,74 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    @Published var memoryPressureAlertEnabled: Bool {
+        didSet {
+            persist(memoryPressureAlertEnabled, key: DefaultsKey.memoryPressureAlertEnabled)
+            Task { await refreshAlertRules() }
+            onProfileControlledSettingChanged()
+        }
+    }
+
+    @Published var memoryPressureAlertThreshold: Double {
+        didSet {
+            let clamped = min(max(memoryPressureAlertThreshold, 1), 100)
+            if clamped != memoryPressureAlertThreshold {
+                memoryPressureAlertThreshold = clamped
+                return
+            }
+            persist(memoryPressureAlertThreshold, key: DefaultsKey.memoryPressureAlertThreshold)
+            Task { await refreshAlertRules() }
+            onProfileControlledSettingChanged()
+        }
+    }
+
+    @Published var memoryPressureAlertDuration: Int {
+        didSet {
+            let clamped = max(memoryPressureAlertDuration, 5)
+            if clamped != memoryPressureAlertDuration {
+                memoryPressureAlertDuration = clamped
+                return
+            }
+            persist(memoryPressureAlertDuration, key: DefaultsKey.memoryPressureAlertDuration)
+            Task { await refreshAlertRules() }
+            onProfileControlledSettingChanged()
+        }
+    }
+
+    @Published var diskFreeAlertEnabled: Bool {
+        didSet {
+            persist(diskFreeAlertEnabled, key: DefaultsKey.diskFreeAlertEnabled)
+            Task { await refreshAlertRules() }
+            onProfileControlledSettingChanged()
+        }
+    }
+
+    @Published var diskFreeAlertThresholdBytes: Double {
+        didSet {
+            let clamped = min(max(diskFreeAlertThresholdBytes, 1 * 1_073_741_824), 2_000 * 1_073_741_824)
+            if clamped != diskFreeAlertThresholdBytes {
+                diskFreeAlertThresholdBytes = clamped
+                return
+            }
+            persist(diskFreeAlertThresholdBytes, key: DefaultsKey.diskFreeAlertThresholdBytes)
+            Task { await refreshAlertRules() }
+            onProfileControlledSettingChanged()
+        }
+    }
+
+    @Published var diskFreeAlertDuration: Int {
+        didSet {
+            let clamped = max(diskFreeAlertDuration, 5)
+            if clamped != diskFreeAlertDuration {
+                diskFreeAlertDuration = clamped
+                return
+            }
+            persist(diskFreeAlertDuration, key: DefaultsKey.diskFreeAlertDuration)
+            Task { await refreshAlertRules() }
+            onProfileControlledSettingChanged()
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.isAppBundleRuntime = Bundle.main.bundleURL.pathExtension == "app"
@@ -290,6 +381,7 @@ final class AppCoordinator: ObservableObject {
         self.sampleInterval = profileSettings.sampleInterval.clamped(to: 1...10)
         self.showCPUInMenu = profileSettings.showCPUInMenu
         self.showMemoryInMenu = profileSettings.showMemoryInMenu
+        self.showBatteryInMenu = profileSettings.showBatteryInMenu
         self.showNetworkInMenu = profileSettings.showNetworkInMenu
         self.showDiskInMenu = profileSettings.showDiskInMenu
         self.showTemperatureInMenu = profileSettings.showTemperatureInMenu
@@ -307,6 +399,12 @@ final class AppCoordinator: ObservableObject {
         self.temperatureAlertEnabled = profileSettings.temperatureAlertEnabled
         self.temperatureAlertThreshold = profileSettings.temperatureAlertThreshold
         self.temperatureAlertDuration = profileSettings.temperatureAlertDuration
+        self.memoryPressureAlertEnabled = profileSettings.memoryPressureAlertEnabled
+        self.memoryPressureAlertThreshold = profileSettings.memoryPressureAlertThreshold
+        self.memoryPressureAlertDuration = profileSettings.memoryPressureAlertDuration
+        self.diskFreeAlertEnabled = profileSettings.diskFreeAlertEnabled
+        self.diskFreeAlertThresholdBytes = profileSettings.diskFreeAlertThresholdBytes
+        self.diskFreeAlertDuration = profileSettings.diskFreeAlertDuration
         self.selectedTemperatureSensorID = selectedTemperatureSensorID
         self.selectedTemperatureHistoryWindow = selectedTemperatureHistoryWindow
 
@@ -324,6 +422,7 @@ final class AppCoordinator: ObservableObject {
         let providers: [any MetricProvider] = [
             CPUProvider(),
             ThermalStateProvider(),
+            BatteryProvider(),
             MemoryProvider(),
             NetworkProvider(),
             DiskProvider(),
@@ -390,6 +489,10 @@ final class AppCoordinator: ObservableObject {
         latestSamples[metricID]
     }
 
+    func hasBatteryTelemetry() -> Bool {
+        latestSamples[.batteryChargePercent] != nil || latestSamples[.batteryIsCharging] != nil
+    }
+
     func latestCPUCores() -> [MetricSample] {
         latestSamples
             .values
@@ -405,6 +508,38 @@ final class AppCoordinator: ObservableObject {
                     return false
                 }
                 return l < r
+            }
+    }
+
+    func latestNetworkInterfaces() -> [NetworkInterfaceRate] {
+        var inboundByInterface: [String: Double] = [:]
+        var outboundByInterface: [String: Double] = [:]
+
+        for sample in latestSamples.values {
+            switch sample.metricID {
+            case .networkInterfaceInBytesPerSec(let interface):
+                inboundByInterface[interface] = sample.value
+            case .networkInterfaceOutBytesPerSec(let interface):
+                outboundByInterface[interface] = sample.value
+            default:
+                continue
+            }
+        }
+
+        let allInterfaces = Set(inboundByInterface.keys).union(outboundByInterface.keys)
+        return allInterfaces
+            .map { interface in
+                NetworkInterfaceRate(
+                    interface: interface,
+                    inboundBytesPerSecond: inboundByInterface[interface] ?? 0,
+                    outboundBytesPerSecond: outboundByInterface[interface] ?? 0
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.totalBytesPerSecond != rhs.totalBytesPerSecond {
+                    return lhs.totalBytesPerSecond > rhs.totalBytesPerSecond
+                }
+                return lhs.interface.localizedCaseInsensitiveCompare(rhs.interface) == .orderedAscending
             }
     }
 
@@ -426,6 +561,31 @@ final class AppCoordinator: ObservableObject {
         await alertEngine.process(samples: batch)
 
         await MainActor.run {
+            let incomingMetricIDs = Set(batch.map(\.metricID))
+
+            let includesNetworkAggregate = incomingMetricIDs.contains(.networkInBytesPerSec)
+                || incomingMetricIDs.contains(.networkOutBytesPerSec)
+            if includesNetworkAggregate {
+                for metricID in latestSamples.keys {
+                    switch metricID {
+                    case .networkInterfaceInBytesPerSec, .networkInterfaceOutBytesPerSec:
+                        if !incomingMetricIDs.contains(metricID) {
+                            latestSamples[metricID] = nil
+                        }
+                    default:
+                        break
+                    }
+                }
+            }
+
+            let includesDiskAggregate = incomingMetricIDs.contains(.diskThroughputBytesPerSec)
+            let includesDiskSplit = incomingMetricIDs.contains(.diskReadBytesPerSec)
+                || incomingMetricIDs.contains(.diskWriteBytesPerSec)
+            if includesDiskAggregate && !includesDiskSplit {
+                latestSamples[.diskReadBytesPerSec] = nil
+                latestSamples[.diskWriteBytesPerSec] = nil
+            }
+
             for sample in batch {
                 latestSamples[sample.metricID] = sample
             }
@@ -445,13 +605,29 @@ final class AppCoordinator: ObservableObject {
                 metricID: .cpuTotalPercent,
                 threshold: cpuAlertThreshold,
                 durationSeconds: cpuAlertDuration,
-                isEnabled: cpuAlertEnabled
+                isEnabled: cpuAlertEnabled,
+                comparison: .aboveOrEqual
             ),
             AlertRule(
                 metricID: .temperatureMaxCelsius,
                 threshold: temperatureAlertThreshold,
                 durationSeconds: temperatureAlertDuration,
-                isEnabled: temperatureAlertEnabled
+                isEnabled: temperatureAlertEnabled,
+                comparison: .aboveOrEqual
+            ),
+            AlertRule(
+                metricID: .memoryPressureLevel,
+                threshold: memoryPressureAlertThreshold,
+                durationSeconds: memoryPressureAlertDuration,
+                isEnabled: memoryPressureAlertEnabled,
+                comparison: .aboveOrEqual
+            ),
+            AlertRule(
+                metricID: .diskFreeBytes,
+                threshold: diskFreeAlertThresholdBytes,
+                durationSeconds: diskFreeAlertDuration,
+                isEnabled: diskFreeAlertEnabled,
+                comparison: .belowOrEqual
             )
         ]
         await alertEngine.updateRules(rules)
@@ -469,6 +645,7 @@ final class AppCoordinator: ObservableObject {
         sampleInterval = settings.sampleInterval
         showCPUInMenu = settings.showCPUInMenu
         showMemoryInMenu = settings.showMemoryInMenu
+        showBatteryInMenu = settings.showBatteryInMenu
         showNetworkInMenu = settings.showNetworkInMenu
         showDiskInMenu = settings.showDiskInMenu
         showTemperatureInMenu = settings.showTemperatureInMenu
@@ -480,6 +657,12 @@ final class AppCoordinator: ObservableObject {
         temperatureAlertEnabled = settings.temperatureAlertEnabled
         temperatureAlertThreshold = settings.temperatureAlertThreshold
         temperatureAlertDuration = settings.temperatureAlertDuration
+        memoryPressureAlertEnabled = settings.memoryPressureAlertEnabled
+        memoryPressureAlertThreshold = settings.memoryPressureAlertThreshold
+        memoryPressureAlertDuration = settings.memoryPressureAlertDuration
+        diskFreeAlertEnabled = settings.diskFreeAlertEnabled
+        diskFreeAlertThresholdBytes = settings.diskFreeAlertThresholdBytes
+        diskFreeAlertDuration = settings.diskFreeAlertDuration
         isApplyingProfile = false
         persistAppSettingsV2()
     }
@@ -502,6 +685,7 @@ final class AppCoordinator: ObservableObject {
             sampleInterval: sampleInterval,
             showCPUInMenu: showCPUInMenu,
             showMemoryInMenu: showMemoryInMenu,
+            showBatteryInMenu: showBatteryInMenu,
             showNetworkInMenu: showNetworkInMenu,
             showDiskInMenu: showDiskInMenu,
             showTemperatureInMenu: showTemperatureInMenu,
@@ -512,7 +696,13 @@ final class AppCoordinator: ObservableObject {
             cpuAlertDuration: cpuAlertDuration,
             temperatureAlertEnabled: temperatureAlertEnabled,
             temperatureAlertThreshold: temperatureAlertThreshold,
-            temperatureAlertDuration: temperatureAlertDuration
+            temperatureAlertDuration: temperatureAlertDuration,
+            memoryPressureAlertEnabled: memoryPressureAlertEnabled,
+            memoryPressureAlertThreshold: memoryPressureAlertThreshold,
+            memoryPressureAlertDuration: memoryPressureAlertDuration,
+            diskFreeAlertEnabled: diskFreeAlertEnabled,
+            diskFreeAlertThresholdBytes: diskFreeAlertThresholdBytes,
+            diskFreeAlertDuration: diskFreeAlertDuration
         )
     }
 
@@ -720,6 +910,7 @@ final class AppCoordinator: ObservableObject {
         let sampleInterval = defaults.object(forKey: DefaultsKey.sampleInterval) as? Double ?? 2.0
         let showCPUInMenu = defaults.object(forKey: DefaultsKey.showCPUInMenu) as? Bool ?? true
         let showMemoryInMenu = defaults.object(forKey: DefaultsKey.showMemoryInMenu) as? Bool ?? true
+        let showBatteryInMenu = defaults.object(forKey: DefaultsKey.showBatteryInMenu) as? Bool ?? false
         let showNetworkInMenu = defaults.object(forKey: DefaultsKey.showNetworkInMenu) as? Bool ?? true
         let showDiskInMenu = defaults.object(forKey: DefaultsKey.showDiskInMenu) as? Bool ?? false
         let showTemperatureInMenu = defaults.object(forKey: DefaultsKey.showTemperatureInMenu) as? Bool ?? true
@@ -731,11 +922,18 @@ final class AppCoordinator: ObservableObject {
         let temperatureAlertEnabled = defaults.object(forKey: DefaultsKey.temperatureAlertEnabled) as? Bool ?? false
         let temperatureAlertThreshold = defaults.object(forKey: DefaultsKey.temperatureAlertThreshold) as? Double ?? 92
         let temperatureAlertDuration = defaults.object(forKey: DefaultsKey.temperatureAlertDuration) as? Int ?? 20
+        let memoryPressureAlertEnabled = defaults.object(forKey: DefaultsKey.memoryPressureAlertEnabled) as? Bool ?? false
+        let memoryPressureAlertThreshold = defaults.object(forKey: DefaultsKey.memoryPressureAlertThreshold) as? Double ?? 90
+        let memoryPressureAlertDuration = defaults.object(forKey: DefaultsKey.memoryPressureAlertDuration) as? Int ?? 30
+        let diskFreeAlertEnabled = defaults.object(forKey: DefaultsKey.diskFreeAlertEnabled) as? Bool ?? false
+        let diskFreeAlertThresholdBytes = defaults.object(forKey: DefaultsKey.diskFreeAlertThresholdBytes) as? Double ?? (20 * 1_073_741_824)
+        let diskFreeAlertDuration = defaults.object(forKey: DefaultsKey.diskFreeAlertDuration) as? Int ?? 30
 
         return LegacySettingsSnapshot(
             sampleInterval: sampleInterval.clamped(to: 1...10),
             showCPUInMenu: showCPUInMenu,
             showMemoryInMenu: showMemoryInMenu,
+            showBatteryInMenu: showBatteryInMenu,
             showNetworkInMenu: showNetworkInMenu,
             showDiskInMenu: showDiskInMenu,
             showTemperatureInMenu: showTemperatureInMenu,
@@ -746,7 +944,13 @@ final class AppCoordinator: ObservableObject {
             cpuAlertDuration: cpuAlertDuration,
             temperatureAlertEnabled: temperatureAlertEnabled,
             temperatureAlertThreshold: temperatureAlertThreshold,
-            temperatureAlertDuration: temperatureAlertDuration
+            temperatureAlertDuration: temperatureAlertDuration,
+            memoryPressureAlertEnabled: memoryPressureAlertEnabled,
+            memoryPressureAlertThreshold: memoryPressureAlertThreshold,
+            memoryPressureAlertDuration: memoryPressureAlertDuration,
+            diskFreeAlertEnabled: diskFreeAlertEnabled,
+            diskFreeAlertThresholdBytes: diskFreeAlertThresholdBytes,
+            diskFreeAlertDuration: diskFreeAlertDuration
         )
     }
 }

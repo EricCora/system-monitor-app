@@ -98,9 +98,16 @@ struct MetricChartView: View {
         samples.first?.metricID == .thermalStateLevel
     }
 
+    private var isBatteryChargeChart: Bool {
+        samples.first?.metricID == .batteryChargePercent
+    }
+
     private var yDomain: ClosedRange<Double> {
         if isThermalStateChart {
             return 0...3
+        }
+        if isBatteryChargeChart {
+            return 0...100
         }
 
         let values = samples.map(\.value)
@@ -166,6 +173,10 @@ struct MetricChartView: View {
             return String(format: "%.0f%%", value)
         case .celsius:
             return String(format: "%.0f C", value)
+        case .milliamps:
+            return String(format: "%.0f mA", value)
+        case .minutes:
+            return UnitsFormatter.format(value, unit: .minutes)
         case .scalar:
             if isThermalStateChart {
                 return ThermalStateLevel.from(metricValue: value.rounded()).shortLabel

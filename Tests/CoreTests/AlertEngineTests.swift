@@ -91,4 +91,63 @@ final class AlertEngineTests: XCTestCase {
         let count = await recorder.value()
         XCTAssertEqual(count, 2)
     }
+
+    func testBelowOrEqualComparisonTriggers() async {
+        let recorder = Recorder()
+        let engine = AlertEngine(
+            rule: AlertRule(
+                metricID: .diskFreeBytes,
+                threshold: 20,
+                durationSeconds: 5,
+                isEnabled: true,
+                comparison: .belowOrEqual
+            ),
+            cooldownSeconds: 1
+        ) { _, _ in
+            await recorder.hit()
+        }
+
+        let start = Date()
+
+        await engine.process(samples: [
+            MetricSample(metricID: .diskFreeBytes, timestamp: start, value: 19, unit: .bytes)
+        ])
+        await engine.process(samples: [
+            MetricSample(metricID: .diskFreeBytes, timestamp: start.addingTimeInterval(6), value: 18, unit: .bytes)
+        ])
+
+        let count = await recorder.value()
+        XCTAssertEqual(count, 1)
+    }
+
+    func testBelowOrEqualRuleHonorsCooldown() async {
+        let recorder = Recorder()
+        let engine = AlertEngine(
+            rule: AlertRule(
+                metricID: .diskFreeBytes,
+                threshold: 50,
+                durationSeconds: 1,
+                isEnabled: true,
+                comparison: .belowOrEqual
+            ),
+            cooldownSeconds: 10
+        ) { _, _ in
+            await recorder.hit()
+        }
+
+        let start = Date()
+
+        await engine.process(samples: [
+            MetricSample(metricID: .diskFreeBytes, timestamp: start, value: 10, unit: .bytes)
+        ])
+        await engine.process(samples: [
+            MetricSample(metricID: .diskFreeBytes, timestamp: start.addingTimeInterval(2), value: 10, unit: .bytes)
+        ])
+        await engine.process(samples: [
+            MetricSample(metricID: .diskFreeBytes, timestamp: start.addingTimeInterval(4), value: 10, unit: .bytes)
+        ])
+
+        let count = await recorder.value()
+        XCTAssertEqual(count, 1)
+    }
 }

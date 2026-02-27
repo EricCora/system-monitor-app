@@ -60,8 +60,19 @@ public actor AlertEngine {
 
     private func evaluate(rule: AlertRule, sample: MetricSample) async {
         var state = statesByMetric[rule.metricID] ?? RuleState(thresholdStart: nil, lastNotificationDate: nil)
+        let thresholdMet: Bool
+        let relationText: String
 
-        if sample.value >= rule.threshold {
+        switch rule.comparison {
+        case .aboveOrEqual:
+            thresholdMet = sample.value >= rule.threshold
+            relationText = "above"
+        case .belowOrEqual:
+            thresholdMet = sample.value <= rule.threshold
+            relationText = "below"
+        }
+
+        if thresholdMet {
             if state.thresholdStart == nil {
                 state.thresholdStart = sample.timestamp
                 statesByMetric[rule.metricID] = state
@@ -86,7 +97,7 @@ public actor AlertEngine {
             statesByMetric[rule.metricID] = state
 
             let thresholdText = UnitsFormatter.format(rule.threshold, unit: sample.unit)
-            let body = "\(rule.metricID.displayName) has been above \(thresholdText) for \(rule.durationSeconds)s."
+            let body = "\(rule.metricID.displayName) has been \(relationText) \(thresholdText) for \(rule.durationSeconds)s."
             await notifier("PulseBar Alert", body)
         } else {
             state.thresholdStart = nil

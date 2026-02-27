@@ -33,6 +33,8 @@ public struct MemoryProvider: MetricProvider {
         let usedPages = activePages + inactivePages + wiredPages + compressedPages
         let usedBytes = usedPages * pageSize
         let freeBytes = max(0, freePages * pageSize)
+        let compressedBytes = max(0, compressedPages * pageSize)
+        let swapUsedBytes = readSwapUsedBytes() ?? 0
 
         let pressurePercent = totalMemoryBytes > 0
             ? min(max((usedBytes / totalMemoryBytes) * 100.0, 0), 100)
@@ -41,7 +43,19 @@ public struct MemoryProvider: MetricProvider {
         return [
             MetricSample(metricID: .memoryUsedBytes, timestamp: date, value: usedBytes, unit: .bytes),
             MetricSample(metricID: .memoryFreeBytes, timestamp: date, value: freeBytes, unit: .bytes),
+            MetricSample(metricID: .memoryCompressedBytes, timestamp: date, value: compressedBytes, unit: .bytes),
+            MetricSample(metricID: .memorySwapUsedBytes, timestamp: date, value: swapUsedBytes, unit: .bytes),
             MetricSample(metricID: .memoryPressureLevel, timestamp: date, value: pressurePercent, unit: .percent)
         ]
+    }
+
+    private func readSwapUsedBytes() -> Double? {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.stride
+        let result = sysctlbyname("vm.swapusage", &usage, &size, nil, 0)
+        guard result == 0 else {
+            return nil
+        }
+        return Double(usage.xsu_used)
     }
 }

@@ -5,6 +5,8 @@ public enum MetricUnit: String, Codable, Sendable {
     case bytes
     case bytesPerSecond
     case celsius
+    case milliamps
+    case minutes
     case scalar
 }
 
@@ -65,6 +67,10 @@ public enum UnitsFormatter {
             return formatThroughput(value, displayUnit: throughputUnit)
         case .celsius:
             return String(format: "%.1f C", value)
+        case .milliamps:
+            return String(format: "%.0f mA", value)
+        case .minutes:
+            return formatMinutes(value)
         case .scalar:
             return String(format: "%.2f", value)
         }
@@ -102,5 +108,15 @@ public enum UnitsFormatter {
             return String(format: "%.0f %@", scaled, units[unitIndex])
         }
         return String(format: "%.1f %@", scaled, units[unitIndex])
+    }
+
+    private static func formatMinutes(_ minutes: Double) -> String {
+        let clamped = max(0, Int(minutes.rounded()))
+        if clamped >= 60 {
+            let hours = clamped / 60
+            let remainingMinutes = clamped % 60
+            return "\(hours)h \(remainingMinutes)m"
+        }
+        return "\(clamped)m"
     }
 }

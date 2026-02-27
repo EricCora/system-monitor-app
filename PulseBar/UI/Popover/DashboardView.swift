@@ -32,6 +32,7 @@ struct DashboardView: View {
                         Text(tab.title).tag(tab)
                     }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
                 .frame(maxWidth: .infinity)
 
@@ -47,6 +48,8 @@ struct DashboardView: View {
                         CPUTabView(coordinator: coordinator)
                     case .memory:
                         MemoryTabView(coordinator: coordinator)
+                    case .battery:
+                        BatteryTabView(coordinator: coordinator)
                     case .network:
                         NetworkTabView(coordinator: coordinator)
                     case .temperature:
@@ -67,6 +70,7 @@ struct DashboardView: View {
 private enum DashboardTab: CaseIterable {
     case cpu
     case memory
+    case battery
     case network
     case temperature
     case disk
@@ -78,6 +82,8 @@ private enum DashboardTab: CaseIterable {
             return "CPU"
         case .memory:
             return "Memory"
+        case .battery:
+            return "Battery"
         case .network:
             return "Network"
         case .temperature:

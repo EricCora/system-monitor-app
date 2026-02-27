@@ -24,6 +24,14 @@ struct CPUTabView: View {
                 throughputUnit: coordinator.throughputUnit
             )
 
+            HStack {
+                loadAverageValue(title: "Load 1m", metricID: .cpuLoadAverage1)
+                Spacer()
+                loadAverageValue(title: "Load 5m", metricID: .cpuLoadAverage5)
+                Spacer()
+                loadAverageValue(title: "Load 15m", metricID: .cpuLoadAverage15)
+            }
+
             if !coordinator.latestCPUCores().isEmpty {
                 Divider()
                 Text("Per-Core")
@@ -54,5 +62,21 @@ struct CPUTabView: View {
 
     private func refresh() async {
         cpuSamples = await coordinator.series(for: .cpuTotalPercent)
+    }
+
+    @ViewBuilder
+    private func loadAverageValue(title: String, metricID: MetricID) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let sample = coordinator.latestValue(for: metricID) {
+                Text(String(format: "%.2f", sample.value))
+                    .font(.callout.monospacedDigit())
+            } else {
+                Text("--")
+                    .font(.callout.monospacedDigit())
+            }
+        }
     }
 }

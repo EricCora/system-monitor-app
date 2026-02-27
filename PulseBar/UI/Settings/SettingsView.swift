@@ -56,6 +56,7 @@ struct SettingsView: View {
             Section("Menu Bar Items") {
                 Toggle("CPU", isOn: $coordinator.showCPUInMenu)
                 Toggle("Memory", isOn: $coordinator.showMemoryInMenu)
+                Toggle("Battery", isOn: $coordinator.showBatteryInMenu)
                 Toggle("Network", isOn: $coordinator.showNetworkInMenu)
                 Toggle("Disk", isOn: $coordinator.showDiskInMenu)
                 Toggle("Temperature", isOn: $coordinator.showTemperatureInMenu)
@@ -143,6 +144,51 @@ struct SettingsView: View {
                 }
 
                 Stepper("Duration: \(coordinator.temperatureAlertDuration)s", value: $coordinator.temperatureAlertDuration, in: 5...600, step: 5)
+            }
+
+            Section("Memory Alert") {
+                Toggle("Enable memory pressure alert", isOn: $coordinator.memoryPressureAlertEnabled)
+
+                HStack {
+                    Text("Threshold")
+                    Slider(value: $coordinator.memoryPressureAlertThreshold, in: 1...100, step: 1)
+                    Text("\(Int(coordinator.memoryPressureAlertThreshold))%")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                Stepper(
+                    "Duration: \(coordinator.memoryPressureAlertDuration)s",
+                    value: $coordinator.memoryPressureAlertDuration,
+                    in: 5...600,
+                    step: 5
+                )
+            }
+
+            Section("Disk Free Alert") {
+                Toggle("Enable low disk free-space alert", isOn: $coordinator.diskFreeAlertEnabled)
+
+                HStack {
+                    Text("Threshold")
+                    Slider(
+                        value: Binding(
+                            get: { coordinator.diskFreeAlertThresholdBytes / 1_073_741_824 },
+                            set: { coordinator.diskFreeAlertThresholdBytes = $0 * 1_073_741_824 }
+                        ),
+                        in: 1...500,
+                        step: 1
+                    )
+                    Text("\(Int(coordinator.diskFreeAlertThresholdBytes / 1_073_741_824)) GB")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                Stepper(
+                    "Duration: \(coordinator.diskFreeAlertDuration)s",
+                    value: $coordinator.diskFreeAlertDuration,
+                    in: 5...600,
+                    step: 5
+                )
             }
         }
         .formStyle(.grouped)

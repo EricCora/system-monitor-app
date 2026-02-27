@@ -43,7 +43,8 @@ let package = Package(
                 "Alerts"
             ],
             linkerSettings: [
-                .linkedLibrary("sqlite3")
+                .linkedLibrary("sqlite3"),
+                .linkedFramework("IOKit")
             ]
         ),
         .executableTarget(

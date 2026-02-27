@@ -5,6 +5,7 @@ struct MemoryTabView: View {
     @ObservedObject var coordinator: AppCoordinator
 
     @State private var memorySamples: [MetricSample] = []
+    @State private var swapSamples: [MetricSample] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -34,9 +35,33 @@ struct MemoryTabView: View {
                 }
             }
 
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Compressed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(UnitsFormatter.format(coordinator.latestValue(for: .memoryCompressedBytes)?.value ?? 0, unit: .bytes))
+                        .font(.title3.monospacedDigit())
+                }
+                Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Swap Used")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(UnitsFormatter.format(coordinator.latestValue(for: .memorySwapUsedBytes)?.value ?? 0, unit: .bytes))
+                        .font(.title3.monospacedDigit())
+                }
+            }
+
             MetricChartView(
                 title: "Memory Used",
                 samples: memorySamples,
+                throughputUnit: coordinator.throughputUnit
+            )
+
+            MetricChartView(
+                title: "Swap Used",
+                samples: swapSamples,
                 throughputUnit: coordinator.throughputUnit
             )
         }
@@ -50,5 +75,6 @@ struct MemoryTabView: View {
 
     private func refresh() async {
         memorySamples = await coordinator.series(for: .memoryUsedBytes)
+        swapSamples = await coordinator.series(for: .memorySwapUsedBytes)
     }
 }

@@ -12,6 +12,9 @@ struct MenuBarSummaryView: View {
             if coordinator.showMemoryInMenu {
                 Text(memoryText)
             }
+            if coordinator.showBatteryInMenu {
+                Text(batteryText)
+            }
             if coordinator.showNetworkInMenu {
                 Text(networkText)
             }
@@ -29,6 +32,9 @@ struct MenuBarSummaryView: View {
         guard let sample = coordinator.latestValue(for: .cpuTotalPercent) else {
             return "CPU --"
         }
+        if let load = coordinator.latestValue(for: .cpuLoadAverage1) {
+            return String(format: "CPU %@ L%.2f", UnitsFormatter.format(sample.value, unit: .percent), load.value)
+        }
         return "CPU \(UnitsFormatter.format(sample.value, unit: .percent))"
     }
 
@@ -37,6 +43,15 @@ struct MenuBarSummaryView: View {
             return "MEM --"
         }
         return "MEM \(UnitsFormatter.format(sample.value, unit: .bytes))"
+    }
+
+    private var batteryText: String {
+        guard let charge = coordinator.latestValue(for: .batteryChargePercent)?.value else {
+            return "BAT --"
+        }
+        let charging = (coordinator.latestValue(for: .batteryIsCharging)?.value ?? 0) >= 0.5
+        let status = charging ? "+" : "-"
+        return "BAT \(UnitsFormatter.format(charge, unit: .percent))\(status)"
     }
 
     private var networkText: String {

@@ -22,4 +22,13 @@ final class UnitsFormatterTests: XCTestCase {
     func testCelsiusFormatting() {
         XCTAssertEqual(UnitsFormatter.format(56.42, unit: .celsius), "56.4 C")
     }
+
+    func testMilliampsFormatting() {
+        XCTAssertEqual(UnitsFormatter.format(1234.4, unit: .milliamps), "1234 mA")
+    }
+
+    func testMinutesFormatting() {
+        XCTAssertEqual(UnitsFormatter.format(45, unit: .minutes), "45m")
+        XCTAssertEqual(UnitsFormatter.format(125, unit: .minutes), "2h 5m")
+    }
 }

@@ -25,11 +25,12 @@
   - `Sampling/`: scheduler engine + downsampling
 
 - `Providers/`
-  - `CPUProvider`: Mach `host_processor_info`
+  - `CPUProvider`: Mach `host_processor_info` + `getloadavg(3)` load averages
+  - `BatteryProvider`: IOKit `IOPowerSources` battery telemetry (charge/state/current/time/health/cycles)
   - `ThermalStateProvider`: `ProcessInfo.thermalState` -> qualitative thermal level metric
-  - `MemoryProvider`: Mach `host_statistics64`
-  - `NetworkProvider`: `getifaddrs` byte counters
-  - `DiskProvider`: free bytes + combined throughput via `iostat`
+  - `MemoryProvider`: Mach `host_statistics64` + `vm.swapusage` swap used
+  - `NetworkProvider`: `getifaddrs` aggregate + per-interface byte counters
+  - `DiskProvider`: free bytes + S.M.A.R.T. status + read/write throughput via IOBlockStorageDriver stats (`iostat` combined fallback)
   - `IOHIDTemperatureDataSource`: Apple Silicon HID-event Celsius sensor reader (privileged helper side)
   - `CompositeTemperatureDataSource`: compatibility fallback chain for privileged temperature reads
   - `PowermetricsProvider`: privileged Celsius sampling provider with cache + retry backoff
@@ -40,11 +41,11 @@
 
 - `Alerts/`
   - `AlertRule`
-  - `AlertEngine` multi-rule threshold evaluator (CPU + temperature)
+  - `AlertEngine` multi-rule threshold evaluator with above/below comparators (CPU, temperature, memory pressure, disk free)
 
 - `UI/`
   - Menu label summary
-  - Popover dashboard tabs (CPU/Memory/Network/Temperature/Disk/Settings)
+  - Popover dashboard tabs (CPU/Memory/Battery/Network/Temperature/Disk/Settings)
   - Temperature tab sensor dashboard with grouped channels, source diagnostics, and selected-channel history (`1h/24h/7d/30d`)
   - Shared chart rendering
   - Settings form (profiles, privileged mode, alerts)
@@ -86,7 +87,7 @@ To add a new metric category:
 ## Profile System Notes
 
 - Built-in profiles: `Quiet`, `Balanced`, `Performance`; user editable profile: `Custom`.
-- Profile-controlled settings include sampling, menu visibility, graph window, throughput unit, and alert thresholds.
+- Profile-controlled settings include sampling, menu visibility, graph window, throughput unit, and alert thresholds (CPU, temperature, memory pressure, disk free).
 - Privileged temperature mode remains a global non-profile setting to avoid silent privilege changes during auto-switch.
 - Legacy settings keys migrate into `AppSettingsV2` (`activeProfile: custom`, auto-switch off by default).
 

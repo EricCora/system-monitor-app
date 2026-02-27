@@ -6,11 +6,11 @@ It is an original implementation inspired by iStat-style capabilities, with no c
 ## MVP Status
 
 Implemented in this repo:
-- Menu bar summary (CPU, Memory, Network, optional Disk)
-- Popover dashboard tabs: CPU, Memory, Network, Temperature, Disk, Settings
+- Menu bar summary (CPU, Memory, Battery, Network, optional Disk/Temperature)
+- Popover dashboard tabs: CPU, Memory, Battery, Network, Temperature, Disk, Settings
 - 5m / 15m / 1h history graphs with dynamic y-scaling
 - Temperature sensor history windows: 1h / 24h / 7d / 30d (SQLite-backed rollups)
-- Providers: CPU (Mach), Memory (Mach VM stats), Network (`getifaddrs`), Disk (free space + combined throughput from `iostat`)
+- Providers: CPU (Mach + load average), Battery (IOKit power sources), Memory (Mach VM stats + swap usage), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback)
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
   - privileged mode via helper source chain: IOHID temperature sensors + AppleSMC fan probe + `powermetrics` fallback
@@ -19,7 +19,7 @@ Implemented in this repo:
 - Power-source auto-switch rules (AC and Battery profile mapping)
 - Settings persistence via `UserDefaults` + `settings.v2` migration model
 - Launch-at-login toggle using `SMAppService`
-- Multi-rule alerts (CPU and optional temperature threshold alerts)
+- Multi-rule alerts (CPU, temperature, memory pressure, disk free-space thresholds)
 - Powermetrics provider with parser, retry backoff, and status reporting
 - Privileged helper executable (`PulseBarPrivilegedHelper`) with local IPC contract
 
@@ -80,7 +80,8 @@ Run helper manually (advanced/debug):
 
 ## Disk Throughput Note
 
-Current macOS `iostat` output is used for **combined throughput** only in MVP. Read/write split is deferred to V1.
+Disk read/write split now uses IOBlockStorageDriver cumulative byte counters where available.
+If split counters are unavailable, PulseBar falls back to combined throughput via `iostat`.
 
 ## Fan Control Status
 
@@ -108,4 +109,4 @@ swift test
 ```
 
 Covers ring buffer behavior, downsampling logic, units formatting, and alert-rule evaluation.
-Additional tests cover thermal-state mapping, temperature-history storage/rollups, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration, privileged IPC payloads (including legacy payload compatibility), and privileged provider channel/status metadata behavior.
+Additional tests cover thermal-state mapping, temperature-history storage/rollups, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration/backfill compatibility, metric codable coverage (including associated interface metrics), battery/disk parser behavior, CPU load-average samples, privileged IPC payloads (including legacy payload compatibility), and privileged provider channel/status metadata behavior.
