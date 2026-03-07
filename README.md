@@ -8,18 +8,23 @@ It is an original implementation inspired by iStat-style capabilities, with no c
 Implemented in this repo:
 - Menu bar summary (CPU, Memory, Battery, Network, optional Disk/Temperature)
 - Popover dashboard tabs: CPU, Memory, Battery, Network, Temperature, Disk, Settings
-- 5m / 15m / 1h history graphs with dynamic y-scaling
+- 5m / 15m / 1h history graphs with dynamic y-scaling and persistent chart history across launches
 - Temperature sensor history windows: 1h / 24h / 7d / 30d (SQLite-backed rollups)
-- Providers: CPU (Mach + load average), Battery (IOKit power sources), Memory (Mach VM stats + swap usage), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback)
+- Memory composition history windows: 1h / 24h / 7d / 30d (SQLite-backed rollups)
+- Generic metric history persistence: CPU, battery, network, disk, FPS, and other plot-backed samples persist for 30 days while preserving offline gaps between sessions
+- Providers: CPU (Mach user/system/idle + per-core + load average + uptime), Battery (IOKit power sources), Memory (Mach VM stats + swap usage + paging rates), Process CPU (`ps` top list with cache), Process memory (`ps` top list with cache), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback), FPS (ScreenCaptureKit compositor frame stream with display-refresh fallback when screen capture access is unavailable), GPU summary (private IOAccelerator/AGX performance statistics for processor + memory usage)
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
   - privileged mode via helper source chain: IOHID temperature sensors + AppleSMC fan probe + `powermetrics` fallback
-  - iStat-style sensor panel with grouped channels, selection, and long-range trend windows
+  - iStat-style temperature tab with compact sensor list plus a detached adjacent history pane (hover preview, click pinning, hide/reset sensor controls, long-range trend windows)
+- Memory tab parity panel: compact pressure/memory/process/swap/pages summary menu with detached hover-expanded history panes
+- CPU tab parity panel: compact CPU/process/GPU/FPS/load-average/uptime summary menu with detached hover-expanded history panes
 - Profiles: Quiet / Balanced / Performance / Custom
 - Power-source auto-switch rules (AC and Battery profile mapping)
-- Settings persistence via `UserDefaults` + `settings.v2` migration model
+- Settings persistence via `UserDefaults` + `settings.v3` migration model
+- Global refresh frequency (`1s...10s`) that applies uniformly to the sampling engine, privileged temperature sampling, and subprocess-backed providers
 - Launch-at-login toggle using `SMAppService`
-- Multi-rule alerts (CPU, temperature, memory pressure, disk free-space thresholds)
+- Multi-rule alerts (CPU, temperature, memory pressure, disk free-space thresholds) with in-app recent alert history plus system notifications when running as an app bundle
 - Powermetrics provider with parser, retry backoff, and status reporting
 - Privileged helper executable (`PulseBarPrivilegedHelper`) with local IPC contract
 
@@ -70,6 +75,13 @@ Privileged temperature sampling is enabled by default for local personal builds.
   ```
 - If admin auth is unavailable/cancelled or helper communication fails, PulseBar remains operational and continues standard thermal-state monitoring.
 
+## FPS and GPU Telemetry Notes
+
+- GPU processor and memory percentages now come from private IOAccelerator / AGX `PerformanceStatistics` counters.
+- FPS can use the live compositor frame stream from ScreenCaptureKit when enabled in Settings.
+- Live compositor FPS capture is off by default.
+- If ScreenCaptureKit cannot start because screen capture access is unavailable, PulseBar falls back to the display's live refresh rate and surfaces a status note in the CPU tab.
+
 ## Privileged Helper Target
 
 Run helper manually (advanced/debug):
@@ -109,4 +121,4 @@ swift test
 ```
 
 Covers ring buffer behavior, downsampling logic, units formatting, and alert-rule evaluation.
-Additional tests cover thermal-state mapping, temperature-history storage/rollups, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration/backfill compatibility, metric codable coverage (including associated interface metrics), battery/disk parser behavior, CPU load-average samples, privileged IPC payloads (including legacy payload compatibility), and privileged provider channel/status metadata behavior.
+Additional tests cover detached-pane placement and hover-delay behavior, thermal-state mapping, temperature-history storage/rollups, memory-history storage/rollups/pruning, generic metric-history persistence, memory provider paging and swap fallback behavior, process-memory parsing/cache fallback behavior, process-CPU parsing, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration/backfill compatibility, metric codable/storage-key coverage (including associated interface metrics), battery/disk parser behavior, CPU user/system/idle samples, privileged IPC payloads (including legacy payload compatibility), and privileged provider channel/status metadata behavior.

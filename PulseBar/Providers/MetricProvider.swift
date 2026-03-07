@@ -3,6 +3,11 @@ import Foundation
 public protocol MetricProvider: Sendable {
     var providerID: String { get }
     func sample(at date: Date) async throws -> [MetricSample]
+    func updateInterval(seconds: Double) async
+}
+
+public extension MetricProvider {
+    func updateInterval(seconds: Double) async {}
 }
 
 public enum ProviderError: Error, LocalizedError {

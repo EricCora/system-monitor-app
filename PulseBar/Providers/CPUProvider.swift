@@ -40,9 +40,13 @@ public actor CPUProvider: MetricProvider {
         }
 
         var samples: [MetricSample] = []
-        samples.reserveCapacity(currentTicks.count + 1)
+        samples.reserveCapacity(currentTicks.count + 8)
 
         var totalCoreUsage = 0.0
+        var totalUserDelta = 0.0
+        var totalSystemDelta = 0.0
+        var totalIdleDelta = 0.0
+        var totalNiceDelta = 0.0
 
         for (index, current) in currentTicks.enumerated() {
             let prior = previous[index]
@@ -51,6 +55,11 @@ public actor CPUProvider: MetricProvider {
             let systemDelta = Double(current[1] &- prior[1])
             let idleDelta = Double(current[2] &- prior[2])
             let niceDelta = Double(current[3] &- prior[3])
+
+            totalUserDelta += userDelta
+            totalSystemDelta += systemDelta
+            totalIdleDelta += idleDelta
+            totalNiceDelta += niceDelta
 
             let usedDelta = userDelta + systemDelta + niceDelta
             let totalDelta = usedDelta + idleDelta
@@ -68,6 +77,11 @@ public actor CPUProvider: MetricProvider {
         }
 
         let overall = currentTicks.isEmpty ? 0.0 : totalCoreUsage / Double(currentTicks.count)
+        let totalDelta = totalUserDelta + totalSystemDelta + totalIdleDelta + totalNiceDelta
+        let userPercent = totalDelta > 0 ? ((totalUserDelta + totalNiceDelta) / totalDelta) * 100.0 : 0.0
+        let systemPercent = totalDelta > 0 ? (totalSystemDelta / totalDelta) * 100.0 : 0.0
+        let idlePercent = totalDelta > 0 ? (totalIdleDelta / totalDelta) * 100.0 : 100.0
+
         samples.append(
             MetricSample(
                 metricID: .cpuTotalPercent,
@@ -76,6 +90,9 @@ public actor CPUProvider: MetricProvider {
                 unit: .percent
             )
         )
+        samples.append(MetricSample(metricID: .cpuUserPercent, timestamp: date, value: userPercent, unit: .percent))
+        samples.append(MetricSample(metricID: .cpuSystemPercent, timestamp: date, value: systemPercent, unit: .percent))
+        samples.append(MetricSample(metricID: .cpuIdlePercent, timestamp: date, value: idlePercent, unit: .percent))
 
         var loadAverages = [Double](repeating: 0, count: 3)
         if getloadavg(&loadAverages, Int32(loadAverages.count)) == Int32(loadAverages.count) {
@@ -83,6 +100,15 @@ public actor CPUProvider: MetricProvider {
             samples.append(MetricSample(metricID: .cpuLoadAverage5, timestamp: date, value: loadAverages[1], unit: .scalar))
             samples.append(MetricSample(metricID: .cpuLoadAverage15, timestamp: date, value: loadAverages[2], unit: .scalar))
         }
+
+        samples.append(
+            MetricSample(
+                metricID: .uptimeSeconds,
+                timestamp: date,
+                value: ProcessInfo.processInfo.systemUptime,
+                unit: .seconds
+            )
+        )
 
         return samples
     }
@@ -105,7 +131,7 @@ public actor CPUProvider: MetricProvider {
 
     private func bootstrapSamples(from ticks: [[UInt32]], at date: Date) -> [MetricSample] {
         var samples: [MetricSample] = []
-        samples.reserveCapacity(ticks.count + 1)
+        samples.reserveCapacity(ticks.count + 8)
 
         for index in ticks.indices {
             samples.append(
@@ -126,6 +152,9 @@ public actor CPUProvider: MetricProvider {
                 unit: .percent
             )
         )
+        samples.append(MetricSample(metricID: .cpuUserPercent, timestamp: date, value: 0, unit: .percent))
+        samples.append(MetricSample(metricID: .cpuSystemPercent, timestamp: date, value: 0, unit: .percent))
+        samples.append(MetricSample(metricID: .cpuIdlePercent, timestamp: date, value: 100, unit: .percent))
 
         var loadAverages = [Double](repeating: 0, count: 3)
         if getloadavg(&loadAverages, Int32(loadAverages.count)) == Int32(loadAverages.count) {
@@ -133,6 +162,14 @@ public actor CPUProvider: MetricProvider {
             samples.append(MetricSample(metricID: .cpuLoadAverage5, timestamp: date, value: loadAverages[1], unit: .scalar))
             samples.append(MetricSample(metricID: .cpuLoadAverage15, timestamp: date, value: loadAverages[2], unit: .scalar))
         }
+        samples.append(
+            MetricSample(
+                metricID: .uptimeSeconds,
+                timestamp: date,
+                value: ProcessInfo.processInfo.systemUptime,
+                unit: .seconds
+            )
+        )
 
         return samples
     }

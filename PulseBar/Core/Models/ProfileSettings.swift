@@ -21,7 +21,6 @@ public enum ProfileID: String, Codable, CaseIterable, Sendable {
 }
 
 public struct ProfileSettings: Codable, Sendable, Equatable {
-    public var sampleInterval: Double
     public var showCPUInMenu: Bool
     public var showMemoryInMenu: Bool
     public var showBatteryInMenu: Bool
@@ -48,7 +47,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     public var diskFreeAlertDuration: Int
 
     public init(
-        sampleInterval: Double,
         showCPUInMenu: Bool,
         showMemoryInMenu: Bool,
         showBatteryInMenu: Bool,
@@ -70,7 +68,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         diskFreeAlertThresholdBytes: Double,
         diskFreeAlertDuration: Int
     ) {
-        self.sampleInterval = sampleInterval
         self.showCPUInMenu = showCPUInMenu
         self.showMemoryInMenu = showMemoryInMenu
         self.showBatteryInMenu = showBatteryInMenu
@@ -94,7 +91,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sampleInterval
         case showCPUInMenu
         case showMemoryInMenu
         case showBatteryInMenu
@@ -120,7 +116,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        sampleInterval = try container.decode(Double.self, forKey: .sampleInterval)
         showCPUInMenu = try container.decode(Bool.self, forKey: .showCPUInMenu)
         showMemoryInMenu = try container.decode(Bool.self, forKey: .showMemoryInMenu)
         showBatteryInMenu = try container.decodeIfPresent(Bool.self, forKey: .showBatteryInMenu) ?? false
@@ -147,7 +142,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(sampleInterval, forKey: .sampleInterval)
         try container.encode(showCPUInMenu, forKey: .showCPUInMenu)
         try container.encode(showMemoryInMenu, forKey: .showMemoryInMenu)
         try container.encode(showBatteryInMenu, forKey: .showBatteryInMenu)
@@ -171,7 +165,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     }
 
     public static let quiet = ProfileSettings(
-        sampleInterval: 5,
         showCPUInMenu: true,
         showMemoryInMenu: true,
         showBatteryInMenu: false,
@@ -195,7 +188,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     )
 
     public static let balanced = ProfileSettings(
-        sampleInterval: 2,
         showCPUInMenu: true,
         showMemoryInMenu: true,
         showBatteryInMenu: false,
@@ -219,7 +211,6 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     )
 
     public static let performance = ProfileSettings(
-        sampleInterval: 1,
         showCPUInMenu: true,
         showMemoryInMenu: true,
         showBatteryInMenu: true,
@@ -336,7 +327,6 @@ public struct LegacySettingsSnapshot: Sendable, Equatable {
 
     public func asProfileSettings() -> ProfileSettings {
         ProfileSettings(
-            sampleInterval: sampleInterval,
             showCPUInMenu: showCPUInMenu,
             showMemoryInMenu: showMemoryInMenu,
             showBatteryInMenu: showBatteryInMenu,
@@ -402,5 +392,153 @@ public struct AppSettingsV2: Codable, Sendable, Equatable {
             autoSwitchRules: .defaults,
             privilegedTemperatureEnabled: false
         )
+    }
+}
+
+public struct AppSettingsV3: Codable, Sendable, Equatable {
+    public var schemaVersion: Int
+    public var globalSamplingInterval: Double
+    public var liveCompositorFPSEnabled: Bool
+    public var activeProfile: ProfileID
+    public var customProfile: ProfileSettings
+    public var autoSwitchRules: ProfileAutoSwitchRules
+    public var privilegedTemperatureEnabled: Bool
+    public var cpuMenuLayout: MenuSectionLayout<CPUMenuSectionID>
+    public var memoryMenuLayout: MenuSectionLayout<MemoryMenuSectionID>
+    public var cpuProcessCount: Int
+    public var memoryProcessCount: Int
+    public var selectedCPUPaneChart: CPUPaneChart
+    public var selectedMemoryPaneChart: MemoryPaneChart
+
+    public init(
+        schemaVersion: Int = 3,
+        globalSamplingInterval: Double,
+        liveCompositorFPSEnabled: Bool = false,
+        activeProfile: ProfileID,
+        customProfile: ProfileSettings,
+        autoSwitchRules: ProfileAutoSwitchRules,
+        privilegedTemperatureEnabled: Bool,
+        cpuMenuLayout: MenuSectionLayout<CPUMenuSectionID> = .cpuDefault,
+        memoryMenuLayout: MenuSectionLayout<MemoryMenuSectionID> = .memoryDefault,
+        cpuProcessCount: Int = 5,
+        memoryProcessCount: Int = 5,
+        selectedCPUPaneChart: CPUPaneChart = .usage,
+        selectedMemoryPaneChart: MemoryPaneChart = .composition
+    ) {
+        self.schemaVersion = schemaVersion
+        self.globalSamplingInterval = globalSamplingInterval.clamped(to: 1...10)
+        self.liveCompositorFPSEnabled = liveCompositorFPSEnabled
+        self.activeProfile = activeProfile
+        self.customProfile = customProfile
+        self.autoSwitchRules = autoSwitchRules
+        self.privilegedTemperatureEnabled = privilegedTemperatureEnabled
+        self.cpuMenuLayout = cpuMenuLayout
+        self.memoryMenuLayout = memoryMenuLayout
+        self.cpuProcessCount = max(3, min(cpuProcessCount, 12))
+        self.memoryProcessCount = max(3, min(memoryProcessCount, 12))
+        self.selectedCPUPaneChart = selectedCPUPaneChart
+        self.selectedMemoryPaneChart = selectedMemoryPaneChart
+    }
+
+    public func settings(for profile: ProfileID) -> ProfileSettings {
+        switch profile {
+        case .quiet:
+            return .quiet
+        case .balanced:
+            return .balanced
+        case .performance:
+            return .performance
+        case .custom:
+            return customProfile
+        }
+    }
+
+    public static func migrated(
+        from v2: AppSettingsV2,
+        legacySamplingInterval: Double?
+    ) -> AppSettingsV3 {
+        let fallbackInterval = samplingIntervalFallback(for: v2.activeProfile)
+        return AppSettingsV3(
+            globalSamplingInterval: (legacySamplingInterval ?? fallbackInterval).clamped(to: 1...10),
+            liveCompositorFPSEnabled: false,
+            activeProfile: v2.activeProfile,
+            customProfile: v2.customProfile,
+            autoSwitchRules: v2.autoSwitchRules,
+            privilegedTemperatureEnabled: v2.privilegedTemperatureEnabled
+        )
+    }
+
+    public static func migrated(from legacy: LegacySettingsSnapshot) -> AppSettingsV3 {
+        AppSettingsV3(
+            globalSamplingInterval: legacy.sampleInterval.clamped(to: 1...10),
+            liveCompositorFPSEnabled: false,
+            activeProfile: .custom,
+            customProfile: legacy.asProfileSettings(),
+            autoSwitchRules: .defaults,
+            privilegedTemperatureEnabled: false
+        )
+    }
+
+    private static func samplingIntervalFallback(for profile: ProfileID) -> Double {
+        switch profile {
+        case .quiet:
+            return 5
+        case .balanced:
+            return 2
+        case .performance:
+            return 1
+        case .custom:
+            return 2
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case globalSamplingInterval
+        case liveCompositorFPSEnabled
+        case activeProfile
+        case customProfile
+        case autoSwitchRules
+        case privilegedTemperatureEnabled
+        case cpuMenuLayout
+        case memoryMenuLayout
+        case cpuProcessCount
+        case memoryProcessCount
+        case selectedCPUPaneChart
+        case selectedMemoryPaneChart
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 3
+        globalSamplingInterval = (try container.decode(Double.self, forKey: .globalSamplingInterval)).clamped(to: 1...10)
+        liveCompositorFPSEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveCompositorFPSEnabled) ?? false
+        activeProfile = try container.decode(ProfileID.self, forKey: .activeProfile)
+        customProfile = try container.decode(ProfileSettings.self, forKey: .customProfile)
+        autoSwitchRules = try container.decode(ProfileAutoSwitchRules.self, forKey: .autoSwitchRules)
+        privilegedTemperatureEnabled = try container.decode(Bool.self, forKey: .privilegedTemperatureEnabled)
+        cpuMenuLayout = try container.decodeIfPresent(MenuSectionLayout<CPUMenuSectionID>.self, forKey: .cpuMenuLayout) ?? .cpuDefault
+        memoryMenuLayout = try container.decodeIfPresent(MenuSectionLayout<MemoryMenuSectionID>.self, forKey: .memoryMenuLayout) ?? .memoryDefault
+        cpuProcessCount = max(3, min((try container.decodeIfPresent(Int.self, forKey: .cpuProcessCount) ?? 5), 12))
+        memoryProcessCount = max(3, min((try container.decodeIfPresent(Int.self, forKey: .memoryProcessCount) ?? 5), 12))
+        selectedCPUPaneChart = try container.decodeIfPresent(CPUPaneChart.self, forKey: .selectedCPUPaneChart) ?? .usage
+        selectedMemoryPaneChart = try container.decodeIfPresent(MemoryPaneChart.self, forKey: .selectedMemoryPaneChart) ?? .composition
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(globalSamplingInterval, forKey: .globalSamplingInterval)
+        try container.encode(liveCompositorFPSEnabled, forKey: .liveCompositorFPSEnabled)
+        try container.encode(activeProfile, forKey: .activeProfile)
+        try container.encode(customProfile, forKey: .customProfile)
+        try container.encode(autoSwitchRules, forKey: .autoSwitchRules)
+        try container.encode(privilegedTemperatureEnabled, forKey: .privilegedTemperatureEnabled)
+        try container.encode(cpuMenuLayout, forKey: .cpuMenuLayout)
+        try container.encode(memoryMenuLayout, forKey: .memoryMenuLayout)
+        try container.encode(cpuProcessCount, forKey: .cpuProcessCount)
+        try container.encode(memoryProcessCount, forKey: .memoryProcessCount)
+        try container.encode(selectedCPUPaneChart, forKey: .selectedCPUPaneChart)
+        try container.encode(selectedMemoryPaneChart, forKey: .selectedMemoryPaneChart)
     }
 }

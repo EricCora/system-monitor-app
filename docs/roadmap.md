@@ -15,7 +15,7 @@ Reach practical iStat Menus parity for core system monitoring while preserving P
 - `Planned`: scoped and prioritized but not started
 - `Deferred`: intentionally not targeted in near-term delivery
 
-## Parity Progress Snapshot (as of 2026-02-22)
+## Parity Progress Snapshot (as of 2026-03-06)
 
 | Area | Tier | Status | Notes |
 |------|------|--------|-------|
@@ -23,16 +23,24 @@ Reach practical iStat Menus parity for core system monitoring while preserving P
 | Privileged telemetry path (helper + IPC + fallback) | Foundation | `Done` | Privileged Celsius + fan telemetry are read-only and degrade safely. |
 | Profiles + power-source auto-switch | Foundation | `Done` | Quiet/Balanced/Performance + Custom profile migration complete. |
 | Alert engine v1 (CPU + temperature) | Foundation | `Done` | Threshold + duration + cooldown pattern is available for extension. |
-| Temperature long-window history (`1h/24h/7d/30d`) | Foundation | `Done` | Persisted in `TemperatureHistoryStore`; other metric families remain real-time/rolling. |
+| Temperature long-window history (`1h/24h/7d/30d`) | Foundation | `Done` | Persisted in `TemperatureHistoryStore` for sensor-level trend queries. |
+| Temperature interaction parity (long sensor list, hover preview, click pin, hide/reset controls) | Foundation | `Done` | iStat-style detached adjacent history pane now ships with compact base popover temperature list. |
+| Shared detached history panes | Foundation | `Done` | Temperature, Memory, and CPU now use the same adjacent pane controller for hover-preview + click-pin behavior. |
+| Global refresh frequency + provider propagation | Foundation | `Done` | Refresh cadence is no longer profile-scoped and now propagates to privileged and subprocess-backed providers. |
+| Persistent generic chart history across launches | Foundation | `Done` | CPU, battery, network, disk, FPS, and other plot-backed metrics persist in `MetricHistoryStore` for 30 days with natural gaps between sessions. |
+| In-app alert delivery + recent alert log | Foundation | `Done` | Alerts now surface during `swift run` and continue sending notifications in app-bundle runtime. |
+| Memory parity panel (pressure/memory/processes/swap/pages + detached history panes) | Foundation | `Done` | `MemoryTabView` now mirrors the compact iStat-style summary menu and hover-expanded pane model. |
+| Memory long-window history (`1h/24h/7d/30d`) | Foundation | `Done` | Persisted in `MemoryHistoryStore` with rollups and downsampling. |
+| CPU compact parity shell (usage/processes/GPU/FPS/load average/uptime + detached panes) | Foundation | `Done` | CPU menu now uses the same compact-summary + detached-history interaction model with live IOAccelerator GPU telemetry and ScreenCaptureKit compositor FPS capture (display-refresh fallback if screen capture access is unavailable). |
 | Tier 1 execution plan + implementation pass | Tier 1 | `Done` | Tier 1 core parity set shipped in codebase. |
 | Battery metrics (percent/state/rate/time/health) | 1.1 | `Done` | IOKit-based provider + Battery tab/menu integration. |
-| Memory compressed + swap metrics | 1.2 (phase 1) | `Done` | Memory provider + Memory tab now expose compressed and swap-used telemetry. |
+| Memory compressed + swap + paging metrics | 1.2 (phase 1) | `Done` | Memory provider now exposes compressed/swap totals plus page-in/page-out throughput. |
 | Memory + disk alerts | 1.5 | `Done` | Alert engine supports both above and below comparators with Settings controls. |
 | CPU load average (1/5/15 min) | 1.6 | `Done` | CPU provider appends load averages and UI surfaces values. |
 | Disk S.M.A.R.T. status | 1.4 | `Done` | Disk tab displays parsed SMART status with graceful unknown handling. |
 | Disk read/write split | 1.3 | `Done` | IOBlockStorageDriver counters as primary source; combined `iostat` fallback retained. |
 | Network per-interface visibility | 1.7 | `Done` | Per-interface throughput telemetry and primary-interface UX added. |
-| Tier 2 UX + advanced telemetry package | Tier 2 | `Planned` | Sparklines/themes/Wi-Fi+VPN/frequency-power/GPU work. |
+| Tier 2 UX + advanced telemetry package | Tier 2 | `Planned` | Sparklines/themes/Wi-Fi+VPN/frequency-power/per-process GPU telemetry work. |
 | Tier 3 stretch items (fan control, weather, clocks, per-app network/disk, etc.) | Tier 3 | `Deferred` | Fan control stays blocked on safety gate. |
 
 ## Tier 1 Delivery Plan (Concrete)
@@ -61,7 +69,7 @@ Goal: complete remaining Tier 1 monitoring gaps.
 
 Goal: optional depth features after base Tier 1 parity is complete.
 
-1. Per-app memory breakdown behind a settings toggle (`3-4d`)
+1. Per-process memory detail expansion (PID drill-in, more than top list) behind a settings toggle (`3-4d`)
 2. Sampling-throttle guardrails + overhead instrumentation (`1-2d`)
 3. UX cleanup for dense memory/process views (`1d`)
 
@@ -82,7 +90,7 @@ Goal: optional depth features after base Tier 1 parity is complete.
 
 - compact/customizable menu layouts
 - optional menu-bar sparklines
-- sensor filtering/pinning improvements
+- advanced sensor presets (pinning profiles, import/export)
 - launch-at-login diagnostics for unsigned/dev builds
 - settings profile import/export
 - optional provider plugin registration

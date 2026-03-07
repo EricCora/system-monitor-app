@@ -3,6 +3,7 @@ import PulseBarCore
 
 struct DashboardView: View {
     @ObservedObject var coordinator: AppCoordinator
+    @StateObject private var paneController = DetachedMetricsPaneController()
     @State private var selectedTab: DashboardTab = .cpu
 
     var body: some View {
@@ -45,15 +46,15 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     switch selectedTab {
                     case .cpu:
-                        CPUTabView(coordinator: coordinator)
+                        CPUTabView(coordinator: coordinator, paneController: paneController)
                     case .memory:
-                        MemoryTabView(coordinator: coordinator)
+                        MemoryTabView(coordinator: coordinator, paneController: paneController)
                     case .battery:
                         BatteryTabView(coordinator: coordinator)
                     case .network:
                         NetworkTabView(coordinator: coordinator)
                     case .temperature:
-                        TemperatureTabView(coordinator: coordinator)
+                        TemperatureTabView(coordinator: coordinator, paneController: paneController)
                     case .disk:
                         DiskTabView(coordinator: coordinator)
                     case .settings:

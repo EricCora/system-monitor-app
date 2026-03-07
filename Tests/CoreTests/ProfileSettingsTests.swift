@@ -2,7 +2,7 @@ import XCTest
 @testable import PulseBarCore
 
 final class ProfileSettingsTests: XCTestCase {
-    func testMigrationCreatesCustomActiveProfile() {
+    func testLegacyMigrationCreatesV3CustomProfileAndGlobalSamplingInterval() {
         let legacy = LegacySettingsSnapshot(
             sampleInterval: 3,
             showCPUInMenu: true,
@@ -27,10 +27,11 @@ final class ProfileSettingsTests: XCTestCase {
             diskFreeAlertDuration: 45
         )
 
-        let settings = AppSettingsV2.migrated(from: legacy)
+        let settings = AppSettingsV3.migrated(from: legacy)
 
         XCTAssertEqual(settings.activeProfile, .custom)
-        XCTAssertEqual(settings.customProfile.sampleInterval, 3)
+        XCTAssertEqual(settings.globalSamplingInterval, 3)
+        XCTAssertFalse(settings.liveCompositorFPSEnabled)
         XCTAssertEqual(settings.customProfile.throughputUnit, .bitsPerSecond)
         XCTAssertEqual(settings.customProfile.temperatureAlertThreshold, 95)
         XCTAssertEqual(settings.customProfile.memoryPressureAlertThreshold, 93)
@@ -38,8 +39,26 @@ final class ProfileSettingsTests: XCTestCase {
         XCTAssertFalse(settings.autoSwitchRules.isEnabled)
     }
 
+    func testV2MigrationUsesLegacySamplingIntervalOverride() {
+        let settingsV2 = AppSettingsV2(
+            activeProfile: .balanced,
+            customProfile: .quiet,
+            autoSwitchRules: .defaults,
+            privilegedTemperatureEnabled: false
+        )
+
+        let migrated = AppSettingsV3.migrated(from: settingsV2, legacySamplingInterval: 1)
+
+        XCTAssertEqual(migrated.globalSamplingInterval, 1)
+        XCTAssertFalse(migrated.liveCompositorFPSEnabled)
+        XCTAssertEqual(migrated.activeProfile, .balanced)
+        XCTAssertEqual(migrated.settings(for: .balanced), .balanced)
+    }
+
     func testBuiltInProfileResolution() {
-        let settings = AppSettingsV2(
+        let settings = AppSettingsV3(
+            globalSamplingInterval: 2,
+            liveCompositorFPSEnabled: true,
             activeProfile: .balanced,
             customProfile: .quiet,
             autoSwitchRules: .defaults,
@@ -49,6 +68,48 @@ final class ProfileSettingsTests: XCTestCase {
         XCTAssertEqual(settings.settings(for: .quiet), .quiet)
         XCTAssertEqual(settings.settings(for: .balanced), .balanced)
         XCTAssertEqual(settings.settings(for: .performance), .performance)
+        XCTAssertTrue(settings.liveCompositorFPSEnabled)
+    }
+
+    func testDecodingV3WithoutLiveFPSFlagDefaultsToDisabled() throws {
+        let json = """
+        {
+          "schemaVersion": 3,
+          "globalSamplingInterval": 2,
+          "activeProfile": "balanced",
+          "customProfile": {
+            "showCPUInMenu": true,
+            "showMemoryInMenu": true,
+            "showBatteryInMenu": false,
+            "showNetworkInMenu": true,
+            "showDiskInMenu": false,
+            "showTemperatureInMenu": true,
+            "throughputUnit": "bytesPerSecond",
+            "selectedWindow": "oneHour",
+            "cpuAlertEnabled": false,
+            "cpuAlertThreshold": 85,
+            "cpuAlertDuration": 30,
+            "temperatureAlertEnabled": false,
+            "temperatureAlertThreshold": 92,
+            "temperatureAlertDuration": 20,
+            "memoryPressureAlertEnabled": false,
+            "memoryPressureAlertThreshold": 90,
+            "memoryPressureAlertDuration": 30,
+            "diskFreeAlertEnabled": false,
+            "diskFreeAlertThresholdBytes": 21474836480,
+            "diskFreeAlertDuration": 30
+          },
+          "autoSwitchRules": {
+            "isEnabled": false,
+            "acProfile": "balanced",
+            "batteryProfile": "quiet"
+          },
+          "privilegedTemperatureEnabled": false
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettingsV3.self, from: Data(json.utf8))
+        XCTAssertFalse(decoded.liveCompositorFPSEnabled)
     }
 
     func testDecodingLegacyProfileSettingsBackfillsNewFields() throws {

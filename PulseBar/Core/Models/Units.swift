@@ -7,6 +7,7 @@ public enum MetricUnit: String, Codable, Sendable {
     case celsius
     case milliamps
     case minutes
+    case seconds
     case scalar
 }
 
@@ -71,6 +72,8 @@ public enum UnitsFormatter {
             return String(format: "%.0f mA", value)
         case .minutes:
             return formatMinutes(value)
+        case .seconds:
+            return formatSeconds(value)
         case .scalar:
             return String(format: "%.2f", value)
         }
@@ -118,5 +121,24 @@ public enum UnitsFormatter {
             return "\(hours)h \(remainingMinutes)m"
         }
         return "\(clamped)m"
+    }
+
+    private static func formatSeconds(_ seconds: Double) -> String {
+        let clamped = max(0, Int(seconds.rounded()))
+        let days = clamped / 86_400
+        let hours = (clamped % 86_400) / 3_600
+        let minutes = (clamped % 3_600) / 60
+        let remainingSeconds = clamped % 60
+
+        if days > 0 {
+            return "\(days)d \(hours)h \(minutes)m"
+        }
+        if hours > 0 {
+            return "\(hours)h \(minutes)m \(remainingSeconds)s"
+        }
+        if minutes > 0 {
+            return "\(minutes)m \(remainingSeconds)s"
+        }
+        return "\(remainingSeconds)s"
     }
 }

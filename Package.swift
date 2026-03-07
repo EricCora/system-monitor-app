@@ -44,7 +44,12 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
-                .linkedFramework("IOKit")
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreVideo"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("AppKit")
             ]
         ),
         .executableTarget(
@@ -84,6 +89,11 @@ let package = Package(
             name: "CoreTests",
             dependencies: ["PulseBarCore"],
             path: "Tests/CoreTests"
+        ),
+        .testTarget(
+            name: "AppTests",
+            dependencies: ["PulseBarApp"],
+            path: "Tests/AppTests"
         )
     ]
 )

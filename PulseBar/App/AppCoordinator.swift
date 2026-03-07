@@ -17,6 +17,7 @@ struct NetworkInterfaceRate: Identifiable {
 final class AppCoordinator: ObservableObject {
     private enum DefaultsKey {
         static let sampleInterval = "settings.sampleInterval"
+        static let globalSamplingInterval = "settings.globalSamplingInterval"
         static let showCPUInMenu = "settings.showCPUInMenu"
         static let showMemoryInMenu = "settings.showMemoryInMenu"
         static let showBatteryInMenu = "settings.showBatteryInMenu"
@@ -45,7 +46,16 @@ final class AppCoordinator: ObservableObject {
         static let privilegedTemperatureEnabled = "settings.privilegedTemperatureEnabled"
         static let selectedTemperatureSensorID = "settings.selectedTemperatureSensorID"
         static let selectedTemperatureHistoryWindow = "settings.selectedTemperatureHistoryWindow"
+        static let selectedMemoryHistoryWindow = "settings.selectedMemoryHistoryWindow"
+        static let selectedCPUHistoryWindow = "settings.selectedCPUHistoryWindow"
+        static let selectedMemoryPaneChart = "settings.selectedMemoryPaneChart"
+        static let selectedCPUPaneChart = "settings.selectedCPUPaneChart"
+        static let hiddenTemperatureSensorIDs = "settings.hiddenTemperatureSensorIDs"
+        static let cpuProcessCount = "settings.cpuProcessCount"
+        static let memoryProcessCount = "settings.memoryProcessCount"
         static let appSettingsV2 = "settings.v2.data"
+        static let appSettingsV3 = "settings.v3.data"
+        static let liveCompositorFPSEnabled = "settings.liveCompositorFPSEnabled"
     }
 
     private let defaults: UserDefaults
@@ -55,6 +65,13 @@ final class AppCoordinator: ObservableObject {
     private let isAppBundleRuntime: Bool
     private let temperatureCoordinator: TemperatureCoordinator
     private let temperatureHistoryStore: TemperatureHistoryStore
+    private let memoryHistoryStore: MemoryHistoryStore
+    private let metricHistoryStore: MetricHistoryStore
+    private let processMemoryProvider: ProcessMemoryProvider
+    private let processCPUProvider: ProcessCPUProvider
+    private let gpuStatsProvider: GPUStatsProvider
+    private let fpsProvider: FPSProvider
+    private let alertDeliveryCenter: AlertDeliveryCenter
     private let powerSourceMonitor = PowerSourceMonitor()
 
     private var bootstrapping = true
@@ -75,7 +92,26 @@ final class AppCoordinator: ObservableObject {
     @Published var fanParityGateBlocked: Bool = false
     @Published var fanParityGateMessage: String?
     @Published var temperatureHistoryStoreStatusMessage: String?
+    @Published var memoryHistoryStoreStatusMessage: String?
+    @Published var historyStoreStatusMessage: String?
+    @Published var memoryProcessesStatusMessage: String?
+    @Published var cpuProcessesStatusMessage: String?
     @Published var currentPowerSourceDescription: String = "Unknown"
+    @Published var topMemoryProcesses: [MemoryProcessEntry] = []
+    @Published var topCPUProcesses: [CPUProcessEntry] = []
+    @Published var recentAlerts: [DeliveredAlert] = []
+    @Published var latestGPUSummary: GPUSummarySnapshot?
+    @Published var fpsStatusMessage: String?
+    @Published var liveCompositorFPSEnabled: Bool {
+        didSet {
+            persist(liveCompositorFPSEnabled, key: DefaultsKey.liveCompositorFPSEnabled)
+            Task {
+                await fpsProvider.setLiveCaptureEnabled(liveCompositorFPSEnabled)
+                fpsStatusMessage = await fpsProvider.currentStatusMessage()
+            }
+            persistAppSettingsV3()
+        }
+    }
 
     @Published var selectedTemperatureSensorID: String {
         didSet {
@@ -89,16 +125,60 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    @Published var sampleInterval: Double {
+    @Published var selectedMemoryHistoryWindow: MemoryHistoryWindow {
         didSet {
-            let clamped = sampleInterval.clamped(to: 1...10)
-            if clamped != sampleInterval {
-                sampleInterval = clamped
+            persist(selectedMemoryHistoryWindow.rawValue, key: DefaultsKey.selectedMemoryHistoryWindow)
+        }
+    }
+
+    @Published var selectedCPUHistoryWindow: MetricHistoryWindow {
+        didSet {
+            persist(selectedCPUHistoryWindow.rawValue, key: DefaultsKey.selectedCPUHistoryWindow)
+            persistAppSettingsV3()
+        }
+    }
+
+    @Published var selectedMemoryPaneChart: MemoryPaneChart {
+        didSet {
+            persist(selectedMemoryPaneChart.rawValue, key: DefaultsKey.selectedMemoryPaneChart)
+            persistAppSettingsV3()
+        }
+    }
+
+    @Published var selectedCPUPaneChart: CPUPaneChart {
+        didSet {
+            persist(selectedCPUPaneChart.rawValue, key: DefaultsKey.selectedCPUPaneChart)
+            persistAppSettingsV3()
+        }
+    }
+
+    @Published var hiddenTemperatureSensorIDs: [String] {
+        didSet {
+            let normalized = Array(Set(hiddenTemperatureSensorIDs))
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            if normalized != hiddenTemperatureSensorIDs {
+                hiddenTemperatureSensorIDs = normalized
                 return
             }
-            persist(sampleInterval, key: DefaultsKey.sampleInterval)
-            Task { await samplingEngine.updateInterval(seconds: sampleInterval) }
-            onProfileControlledSettingChanged()
+            persist(hiddenTemperatureSensorIDs, key: DefaultsKey.hiddenTemperatureSensorIDs)
+        }
+    }
+
+    @Published var globalSamplingInterval: Double {
+        didSet {
+            let clamped = globalSamplingInterval.clamped(to: 1...10)
+            if clamped != globalSamplingInterval {
+                globalSamplingInterval = clamped
+                return
+            }
+            persist(globalSamplingInterval, key: DefaultsKey.globalSamplingInterval)
+            persist(globalSamplingInterval, key: DefaultsKey.sampleInterval)
+            Task {
+                await samplingEngine.updateInterval(seconds: globalSamplingInterval)
+                await processMemoryProvider.updateInterval(seconds: globalSamplingInterval)
+                await processCPUProvider.updateInterval(seconds: globalSamplingInterval)
+            }
+            persistAppSettingsV3()
         }
     }
 
@@ -168,7 +248,7 @@ final class AppCoordinator: ObservableObject {
     @Published var privilegedTemperatureEnabled: Bool {
         didSet {
             persist(privilegedTemperatureEnabled, key: DefaultsKey.privilegedTemperatureEnabled)
-            persistAppSettingsV2()
+            persistAppSettingsV3()
             Task {
                 await temperatureCoordinator.setPrivilegedEnabled(privilegedTemperatureEnabled)
                 if privilegedTemperatureEnabled {
@@ -190,21 +270,21 @@ final class AppCoordinator: ObservableObject {
     @Published var autoSwitchProfilesEnabled: Bool {
         didSet {
             persist(autoSwitchProfilesEnabled, key: DefaultsKey.autoSwitchEnabled)
-            persistAppSettingsV2()
+            persistAppSettingsV3()
         }
     }
 
     @Published var autoSwitchACProfile: ProfileID {
         didSet {
             persist(autoSwitchACProfile.rawValue, key: DefaultsKey.autoSwitchACProfile)
-            persistAppSettingsV2()
+            persistAppSettingsV3()
         }
     }
 
     @Published var autoSwitchBatteryProfile: ProfileID {
         didSet {
             persist(autoSwitchBatteryProfile.rawValue, key: DefaultsKey.autoSwitchBatteryProfile)
-            persistAppSettingsV2()
+            persistAppSettingsV3()
         }
     }
 
@@ -344,41 +424,112 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    @Published var cpuMenuLayout: MenuSectionLayout<CPUMenuSectionID> {
+        didSet {
+            let normalized = cpuMenuLayout.reconciledEnsuringVisibleSections(fallback: .cpuDefault)
+            if normalized != cpuMenuLayout {
+                cpuMenuLayout = normalized
+                return
+            }
+            persistAppSettingsV3()
+        }
+    }
+
+    @Published var memoryMenuLayout: MenuSectionLayout<MemoryMenuSectionID> {
+        didSet {
+            let normalized = memoryMenuLayout.reconciledEnsuringVisibleSections(fallback: .memoryDefault)
+            if normalized != memoryMenuLayout {
+                memoryMenuLayout = normalized
+                return
+            }
+            persistAppSettingsV3()
+        }
+    }
+
+    @Published var cpuProcessCount: Int {
+        didSet {
+            let clamped = max(3, min(cpuProcessCount, 12))
+            if clamped != cpuProcessCount {
+                cpuProcessCount = clamped
+                return
+            }
+            persist(cpuProcessCount, key: DefaultsKey.cpuProcessCount)
+            persistAppSettingsV3()
+        }
+    }
+
+    @Published var memoryProcessCount: Int {
+        didSet {
+            let clamped = max(3, min(memoryProcessCount, 12))
+            if clamped != memoryProcessCount {
+                memoryProcessCount = clamped
+                return
+            }
+            persist(memoryProcessCount, key: DefaultsKey.memoryProcessCount)
+            persistAppSettingsV3()
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.isAppBundleRuntime = Bundle.main.bundleURL.pathExtension == "app"
+        let alertDeliveryCenter = AlertDeliveryCenter(isAppBundleRuntime: Bundle.main.bundleURL.pathExtension == "app")
+        self.alertDeliveryCenter = alertDeliveryCenter
 
         let legacy = AppCoordinator.loadLegacySnapshot(defaults: defaults)
+        let loadedV3 = AppCoordinator.loadSettingsV3(defaults: defaults)
         let loadedV2 = AppCoordinator.loadSettingsV2(defaults: defaults)
         let launchAtLogin = defaults.object(forKey: DefaultsKey.launchAtLogin) as? Bool ?? false
         let selectedTemperatureSensorID = defaults.string(forKey: DefaultsKey.selectedTemperatureSensorID) ?? ""
         let selectedTemperatureHistoryWindow = TemperatureHistoryWindow(
             rawValue: defaults.string(forKey: DefaultsKey.selectedTemperatureHistoryWindow) ?? ""
         ) ?? .oneHour
+        let selectedMemoryHistoryWindow = MemoryHistoryWindow(
+            rawValue: defaults.string(forKey: DefaultsKey.selectedMemoryHistoryWindow) ?? ""
+        ) ?? .oneHour
+        let selectedCPUHistoryWindow = MetricHistoryWindow(
+            rawValue: defaults.string(forKey: DefaultsKey.selectedCPUHistoryWindow) ?? ""
+        ) ?? .oneHour
+        let selectedMemoryPaneChart = MemoryPaneChart(
+            rawValue: defaults.string(forKey: DefaultsKey.selectedMemoryPaneChart) ?? ""
+        ) ?? .composition
+        let selectedCPUPaneChart = CPUPaneChart(
+            rawValue: defaults.string(forKey: DefaultsKey.selectedCPUPaneChart) ?? ""
+        ) ?? .usage
+        let hiddenTemperatureSensorIDs = (defaults.array(forKey: DefaultsKey.hiddenTemperatureSensorIDs) as? [String] ?? [])
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+        let appSettings: AppSettingsV3
         let activeProfile: ProfileID
         let customProfile: ProfileSettings
         let autoSwitchRules: ProfileAutoSwitchRules
         let privilegedTemperatureEnabled: Bool
         let profileSettings: ProfileSettings
+        let globalSamplingInterval: Double
+        let liveCompositorFPSEnabled: Bool
 
-        if let loadedV2 {
-            activeProfile = loadedV2.activeProfile
-            customProfile = loadedV2.customProfile
-            autoSwitchRules = loadedV2.autoSwitchRules
-            privilegedTemperatureEnabled = loadedV2.privilegedTemperatureEnabled
-            profileSettings = loadedV2.settings(for: loadedV2.activeProfile)
+        if let loadedV3 {
+            appSettings = loadedV3
+        } else if let loadedV2 {
+            let legacySamplingInterval = defaults.object(forKey: DefaultsKey.globalSamplingInterval) as? Double
+                ?? defaults.object(forKey: DefaultsKey.sampleInterval) as? Double
+            appSettings = AppSettingsV3.migrated(from: loadedV2, legacySamplingInterval: legacySamplingInterval)
         } else {
-            activeProfile = .custom
-            customProfile = legacy.asProfileSettings()
-            autoSwitchRules = .defaults
-            privilegedTemperatureEnabled = defaults.object(forKey: DefaultsKey.privilegedTemperatureEnabled) as? Bool ?? true
-            profileSettings = legacy.asProfileSettings()
+            appSettings = AppSettingsV3.migrated(from: legacy)
         }
+
+        activeProfile = appSettings.activeProfile
+        customProfile = appSettings.customProfile
+        autoSwitchRules = appSettings.autoSwitchRules
+        privilegedTemperatureEnabled = appSettings.privilegedTemperatureEnabled
+        profileSettings = appSettings.settings(for: appSettings.activeProfile)
+        globalSamplingInterval = appSettings.globalSamplingInterval
+        liveCompositorFPSEnabled = appSettings.liveCompositorFPSEnabled
 
         self.customProfileSettings = customProfile
 
-        self.sampleInterval = profileSettings.sampleInterval.clamped(to: 1...10)
+        self.globalSamplingInterval = globalSamplingInterval.clamped(to: 1...10)
+        self.liveCompositorFPSEnabled = liveCompositorFPSEnabled
         self.showCPUInMenu = profileSettings.showCPUInMenu
         self.showMemoryInMenu = profileSettings.showMemoryInMenu
         self.showBatteryInMenu = profileSettings.showBatteryInMenu
@@ -407,17 +558,37 @@ final class AppCoordinator: ObservableObject {
         self.diskFreeAlertDuration = profileSettings.diskFreeAlertDuration
         self.selectedTemperatureSensorID = selectedTemperatureSensorID
         self.selectedTemperatureHistoryWindow = selectedTemperatureHistoryWindow
+        self.selectedMemoryHistoryWindow = selectedMemoryHistoryWindow
+        self.selectedCPUHistoryWindow = selectedCPUHistoryWindow
+        self.selectedMemoryPaneChart = selectedMemoryPaneChart
+        self.selectedCPUPaneChart = selectedCPUPaneChart
+        self.hiddenTemperatureSensorIDs = hiddenTemperatureSensorIDs
+        self.cpuMenuLayout = appSettings.cpuMenuLayout.reconciledEnsuringVisibleSections(fallback: .cpuDefault)
+        self.memoryMenuLayout = appSettings.memoryMenuLayout.reconciledEnsuringVisibleSections(fallback: .memoryDefault)
+        self.cpuProcessCount = appSettings.cpuProcessCount
+        self.memoryProcessCount = appSettings.memoryProcessCount
 
         self.store = TimeSeriesStore(defaultCapacity: 7200)
         self.temperatureHistoryStore = TemperatureHistoryStore()
+        self.memoryHistoryStore = MemoryHistoryStore()
+        self.metricHistoryStore = MetricHistoryStore()
+        self.processMemoryProvider = ProcessMemoryProvider(maxEntries: 12, minCollectionInterval: globalSamplingInterval)
+        self.processCPUProvider = ProcessCPUProvider(maxEntries: 12, minCollectionInterval: globalSamplingInterval)
+        let gpuStatsProvider = GPUStatsProvider()
+        self.gpuStatsProvider = gpuStatsProvider
 
         self.alertEngine = AlertEngine { title, body in
-            await NotificationDispatcher.send(title: title, body: body)
+            _ = await alertDeliveryCenter.deliver(title: title, body: body)
         }
 
         let privilegedSource = PrivilegedHelperTemperatureDataSource()
-        let powermetricsProvider = PowermetricsProvider(dataSource: privilegedSource)
+        let powermetricsProvider = PowermetricsProvider(
+            dataSource: privilegedSource,
+            minCollectionInterval: globalSamplingInterval
+        )
         self.temperatureCoordinator = TemperatureCoordinator(provider: powermetricsProvider)
+        let fpsProvider = FPSProvider(liveCaptureEnabled: liveCompositorFPSEnabled)
+        self.fpsProvider = fpsProvider
 
         let providers: [any MetricProvider] = [
             CPUProvider(),
@@ -426,19 +597,19 @@ final class AppCoordinator: ObservableObject {
             MemoryProvider(),
             NetworkProvider(),
             DiskProvider(),
+            gpuStatsProvider,
+            fpsProvider,
             powermetricsProvider
         ]
 
         self.samplingEngine = SamplingEngine(
             providers: providers,
             store: store,
-            intervalSeconds: profileSettings.sampleInterval.clamped(to: 1...10)
+            intervalSeconds: globalSamplingInterval.clamped(to: 1...10)
         )
 
         bootstrapping = false
-        if loadedV2 == nil {
-            persistAppSettingsV2()
-        }
+        persistAppSettingsV3()
 
         Task {
             await samplingEngine.setOnBatch { [weak self] batch in
@@ -449,10 +620,26 @@ final class AppCoordinator: ObservableObject {
             } else {
                 temperatureHistoryStoreStatusMessage = nil
             }
-            await NotificationDispatcher.requestAuthorizationIfNeeded(isAppBundleRuntime: isAppBundleRuntime)
+            if let memoryHistoryStartupError = await memoryHistoryStore.startupError() {
+                memoryHistoryStoreStatusMessage = "Memory history database unavailable: \(memoryHistoryStartupError)"
+            } else {
+                memoryHistoryStoreStatusMessage = nil
+            }
+            if let metricHistoryStartupError = await metricHistoryStore.startupError() {
+                historyStoreStatusMessage = "Metric history database unavailable: \(metricHistoryStartupError)"
+            } else {
+                historyStoreStatusMessage = nil
+            }
+            await hydrateLatestSamplesFromPersistentHistory()
+            recentAlerts = alertDeliveryCenter.recentAlerts
+            await alertDeliveryCenter.requestAuthorizationIfNeeded()
             await temperatureCoordinator.setPrivilegedEnabled(privilegedTemperatureEnabled)
             await refreshAlertRules()
             await updateLaunchAtLogin()
+            await refreshMemoryProcesses(at: Date())
+            await refreshCPUProcesses(at: Date())
+            latestGPUSummary = await gpuStatsProvider.currentSnapshot()
+            fpsStatusMessage = await fpsProvider.currentStatusMessage()
             await refreshPrivilegedTemperatureStatus()
             await powerSourceMonitor.start { [weak self] source in
                 await self?.handlePowerSourceChange(source)
@@ -463,8 +650,19 @@ final class AppCoordinator: ObservableObject {
 
     func series(for metricID: MetricID, window: TimeWindow? = nil, maxPoints: Int = 300) async -> [MetricSample] {
         let selected = window ?? selectedWindow
+        if historyStoreStatusMessage == nil {
+            return await metricHistoryStore.series(for: metricID, window: selected, maxPoints: maxPoints)
+        }
         let raw = await store.series(for: metricID, window: selected)
         return Downsampler.downsample(raw, maxPoints: maxPoints)
+    }
+
+    func metricHistorySeries(
+        for metricID: MetricID,
+        window: MetricHistoryWindow,
+        maxPoints: Int = 900
+    ) async -> [MetricHistoryPoint] {
+        await metricHistoryStore.series(for: metricID, window: window, maxPoints: maxPoints)
     }
 
     func temperatureHistorySeries(
@@ -481,8 +679,44 @@ final class AppCoordinator: ObservableObject {
         )
     }
 
-    func selectedSensorReading() -> SensorReading? {
-        latestSensorChannels.first { $0.id == selectedTemperatureSensorID }
+    func memoryHistorySeries(
+        window: MemoryHistoryWindow,
+        maxPoints: Int = 900
+    ) async -> [MemoryHistoryPoint] {
+        await memoryHistoryStore.series(
+            window: window,
+            maxPoints: maxPoints
+        )
+    }
+
+    func visibleSensorChannels() -> [SensorReading] {
+        latestSensorChannels.filter { !hiddenTemperatureSensorIDs.contains($0.id) }
+    }
+
+    func selectedSensorReading(includeHidden: Bool = false) -> SensorReading? {
+        let source = includeHidden ? latestSensorChannels : visibleSensorChannels()
+        return source.first { $0.id == selectedTemperatureSensorID }
+    }
+
+    func hideTemperatureSensor(sensorID: String) {
+        guard !sensorID.isEmpty else { return }
+        guard !hiddenTemperatureSensorIDs.contains(sensorID) else { return }
+        hiddenTemperatureSensorIDs.append(sensorID)
+
+        if selectedTemperatureSensorID == sensorID {
+            selectedTemperatureSensorID = visibleSensorChannels().first?.id ?? ""
+        }
+    }
+
+    func resetHiddenTemperatureSensors() {
+        hiddenTemperatureSensorIDs = []
+        if selectedTemperatureSensorID.isEmpty {
+            selectedTemperatureSensorID = visibleSensorChannels().first?.id ?? ""
+        }
+    }
+
+    func isTemperatureSensorHidden(sensorID: String) -> Bool {
+        hiddenTemperatureSensorIDs.contains(sensorID)
     }
 
     func latestValue(for metricID: MetricID) -> MetricSample? {
@@ -548,6 +782,22 @@ final class AppCoordinator: ObservableObject {
         return ThermalStateLevel.from(metricValue: value)
     }
 
+    func cpuSummarySnapshot() -> CPUSummarySnapshot {
+        CPUSummarySnapshot(
+            userPercent: latestSamples[.cpuUserPercent]?.value ?? 0,
+            systemPercent: latestSamples[.cpuSystemPercent]?.value ?? 0,
+            idlePercent: latestSamples[.cpuIdlePercent]?.value ?? 100,
+            loadAverages: CPUSummarySnapshot.LoadAverageSnapshot(
+                one: latestSamples[.cpuLoadAverage1]?.value ?? 0,
+                five: latestSamples[.cpuLoadAverage5]?.value ?? 0,
+                fifteen: latestSamples[.cpuLoadAverage15]?.value ?? 0
+            ),
+            framesPerSecond: latestSamples[.framesPerSecond]?.value,
+            uptimeSeconds: latestSamples[.uptimeSeconds]?.value ?? ProcessInfo.processInfo.systemUptime,
+            gpu: latestGPUSummary
+        )
+    }
+
     func retryPrivilegedTemperatureNow() {
         Task {
             await temperatureCoordinator.requestImmediateRetry()
@@ -559,6 +809,8 @@ final class AppCoordinator: ObservableObject {
 
     private func handle(batch: [MetricSample]) async {
         await alertEngine.process(samples: batch)
+        let tickTimestamp = batch.first?.timestamp ?? Date()
+        await metricHistoryStore.append(samples: batch, now: tickTimestamp)
 
         await MainActor.run {
             let incomingMetricIDs = Set(batch.map(\.metricID))
@@ -589,14 +841,72 @@ final class AppCoordinator: ObservableObject {
             for sample in batch {
                 latestSamples[sample.metricID] = sample
             }
+
+            recentAlerts = alertDeliveryCenter.recentAlerts
         }
 
+        await appendMemoryHistoryPointIfAvailable(at: tickTimestamp)
+        await refreshMemoryProcesses(at: tickTimestamp)
+        await refreshCPUProcesses(at: tickTimestamp)
+        latestGPUSummary = await gpuStatsProvider.currentSnapshot()
+        fpsStatusMessage = await fpsProvider.currentStatusMessage()
         await refreshPrivilegedTemperatureStatus()
     }
 
     private func applyImmediatePrivilegedSamples(_ samples: [MetricSample]) async {
         guard !samples.isEmpty else { return }
         await handle(batch: samples)
+    }
+
+    private func appendMemoryHistoryPointIfAvailable(at timestamp: Date) async {
+        guard let appBytes = latestSamples[.memoryAppBytes]?.value,
+              let wiredBytes = latestSamples[.memoryWiredBytes]?.value,
+              let activeBytes = latestSamples[.memoryActiveBytes]?.value,
+              let compressedBytes = latestSamples[.memoryCompressedBytes]?.value,
+              let cacheBytes = latestSamples[.memoryCacheBytes]?.value,
+              let freeBytes = latestSamples[.memoryFreeBytes]?.value,
+              let pressurePercent = latestSamples[.memoryPressureLevel]?.value else {
+            return
+        }
+
+        let reportedTotal = latestSamples[.memoryUsedBytes].map { $0.value + freeBytes } ?? 0
+        let totalBytes = max(reportedTotal, Double(ProcessInfo.processInfo.physicalMemory))
+
+        await memoryHistoryStore.append(
+            point: MemoryHistoryPoint(
+                timestamp: timestamp,
+                appBytes: appBytes,
+                wiredBytes: wiredBytes,
+                activeBytes: activeBytes,
+                compressedBytes: compressedBytes,
+                cacheBytes: cacheBytes,
+                freeBytes: freeBytes,
+                totalBytes: totalBytes,
+                pressurePercent: pressurePercent
+            )
+        )
+    }
+
+    private func refreshMemoryProcesses(at date: Date) async {
+        let entries = await processMemoryProvider.topProcesses(at: date)
+        let status = await processMemoryProvider.statusMessage()
+        topMemoryProcesses = Array(entries.prefix(memoryProcessCount))
+        if let status {
+            memoryProcessesStatusMessage = "Process memory list unavailable: \(status)"
+        } else {
+            memoryProcessesStatusMessage = nil
+        }
+    }
+
+    private func refreshCPUProcesses(at date: Date) async {
+        let entries = await processCPUProvider.topProcesses(at: date)
+        let status = await processCPUProvider.statusMessage()
+        topCPUProcesses = Array(entries.prefix(cpuProcessCount))
+        if let status {
+            cpuProcessesStatusMessage = "CPU process list unavailable: \(status)"
+        } else {
+            cpuProcessesStatusMessage = nil
+        }
     }
 
     private func refreshAlertRules() async {
@@ -642,7 +952,6 @@ final class AppCoordinator: ObservableObject {
     private func applyProfile(_ profileID: ProfileID) {
         let settings = settings(for: profileID)
         isApplyingProfile = true
-        sampleInterval = settings.sampleInterval
         showCPUInMenu = settings.showCPUInMenu
         showMemoryInMenu = settings.showMemoryInMenu
         showBatteryInMenu = settings.showBatteryInMenu
@@ -664,7 +973,7 @@ final class AppCoordinator: ObservableObject {
         diskFreeAlertThresholdBytes = settings.diskFreeAlertThresholdBytes
         diskFreeAlertDuration = settings.diskFreeAlertDuration
         isApplyingProfile = false
-        persistAppSettingsV2()
+        persistAppSettingsV3()
     }
 
     private func settings(for profileID: ProfileID) -> ProfileSettings {
@@ -682,7 +991,6 @@ final class AppCoordinator: ObservableObject {
 
     private func currentProfileSettings() -> ProfileSettings {
         ProfileSettings(
-            sampleInterval: sampleInterval,
             showCPUInMenu: showCPUInMenu,
             showMemoryInMenu: showMemoryInMenu,
             showBatteryInMenu: showBatteryInMenu,
@@ -710,7 +1018,7 @@ final class AppCoordinator: ObservableObject {
         guard !bootstrapping else { return }
 
         if isApplyingProfile {
-            persistAppSettingsV2()
+            persistAppSettingsV3()
             return
         }
 
@@ -720,12 +1028,14 @@ final class AppCoordinator: ObservableObject {
             return
         }
 
-        persistAppSettingsV2()
+        persistAppSettingsV3()
     }
 
-    private func persistAppSettingsV2() {
+    private func persistAppSettingsV3() {
         guard !bootstrapping else { return }
-        let settings = AppSettingsV2(
+        let settings = AppSettingsV3(
+            globalSamplingInterval: globalSamplingInterval,
+            liveCompositorFPSEnabled: liveCompositorFPSEnabled,
             activeProfile: selectedProfileID,
             customProfile: customProfileSettings,
             autoSwitchRules: ProfileAutoSwitchRules(
@@ -733,11 +1043,17 @@ final class AppCoordinator: ObservableObject {
                 acProfile: autoSwitchACProfile,
                 batteryProfile: autoSwitchBatteryProfile
             ),
-            privilegedTemperatureEnabled: privilegedTemperatureEnabled
+            privilegedTemperatureEnabled: privilegedTemperatureEnabled,
+            cpuMenuLayout: cpuMenuLayout,
+            memoryMenuLayout: memoryMenuLayout,
+            cpuProcessCount: cpuProcessCount,
+            memoryProcessCount: memoryProcessCount,
+            selectedCPUPaneChart: selectedCPUPaneChart,
+            selectedMemoryPaneChart: selectedMemoryPaneChart
         )
 
         guard let data = try? JSONEncoder().encode(settings) else { return }
-        defaults.set(data, forKey: DefaultsKey.appSettingsV2)
+        defaults.set(data, forKey: DefaultsKey.appSettingsV3)
     }
 
     private func refreshPrivilegedTemperatureStatus() async {
@@ -831,8 +1147,15 @@ final class AppCoordinator: ObservableObject {
         privilegedActiveSourceChain = status.activeSourceChain
         privilegedSourceDiagnostics = status.sourceDiagnostics
 
-        if selectedTemperatureSensorID.isEmpty || !mappedChannels.contains(where: { $0.id == selectedTemperatureSensorID }) {
-            selectedTemperatureSensorID = mappedChannels.first?.id ?? ""
+        let currentChannelIDs = Set(mappedChannels.map(\.id))
+        let updatedHidden = hiddenTemperatureSensorIDs.filter { currentChannelIDs.contains($0) }
+        if updatedHidden != hiddenTemperatureSensorIDs {
+            hiddenTemperatureSensorIDs = updatedHidden
+        }
+
+        let visibleChannels = mappedChannels.filter { !hiddenTemperatureSensorIDs.contains($0.id) }
+        if selectedTemperatureSensorID.isEmpty || !visibleChannels.contains(where: { $0.id == selectedTemperatureSensorID }) {
+            selectedTemperatureSensorID = visibleChannels.first?.id ?? ""
         }
 
         let fanChannelCount = mappedChannels.filter { $0.channelType == .fanRPM }.count
@@ -899,6 +1222,21 @@ final class AppCoordinator: ObservableObject {
         defaults.set(value, forKey: key)
     }
 
+    private func hydrateLatestSamplesFromPersistentHistory() async {
+        let persistedLatest = await metricHistoryStore.latestByMetric()
+        guard !persistedLatest.isEmpty else { return }
+
+        await store.append(Array(persistedLatest.values))
+        latestSamples.merge(persistedLatest) { _, persisted in persisted }
+    }
+
+    private static func loadSettingsV3(defaults: UserDefaults) -> AppSettingsV3? {
+        guard let data = defaults.data(forKey: DefaultsKey.appSettingsV3) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(AppSettingsV3.self, from: data)
+    }
+
     private static func loadSettingsV2(defaults: UserDefaults) -> AppSettingsV2? {
         guard let data = defaults.data(forKey: DefaultsKey.appSettingsV2) else {
             return nil
@@ -907,7 +1245,9 @@ final class AppCoordinator: ObservableObject {
     }
 
     private static func loadLegacySnapshot(defaults: UserDefaults) -> LegacySettingsSnapshot {
-        let sampleInterval = defaults.object(forKey: DefaultsKey.sampleInterval) as? Double ?? 2.0
+        let sampleInterval = defaults.object(forKey: DefaultsKey.globalSamplingInterval) as? Double
+            ?? defaults.object(forKey: DefaultsKey.sampleInterval) as? Double
+            ?? 2.0
         let showCPUInMenu = defaults.object(forKey: DefaultsKey.showCPUInMenu) as? Bool ?? true
         let showMemoryInMenu = defaults.object(forKey: DefaultsKey.showMemoryInMenu) as? Bool ?? true
         let showBatteryInMenu = defaults.object(forKey: DefaultsKey.showBatteryInMenu) as? Bool ?? false
@@ -962,8 +1302,8 @@ private enum NotificationDispatcher {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }
 
-    static func send(title: String, body: String) async {
-        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+    static func send(title: String, body: String, isAppBundleRuntime: Bool) async {
+        guard isAppBundleRuntime else { return }
 
         let content = UNMutableNotificationContent()
         content.title = title
@@ -980,11 +1320,5 @@ private enum NotificationDispatcher {
                 continuation.resume()
             }
         }
-    }
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
     }
 }

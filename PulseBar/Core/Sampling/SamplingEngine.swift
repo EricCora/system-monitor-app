@@ -37,8 +37,11 @@ public actor SamplingEngine {
         loopTask = nil
     }
 
-    public func updateInterval(seconds: Double) {
+    public func updateInterval(seconds: Double) async {
         intervalSeconds = min(max(seconds, 1.0), 10.0)
+        for provider in providers {
+            await provider.updateInterval(seconds: intervalSeconds)
+        }
     }
 
     private func runLoop() async {

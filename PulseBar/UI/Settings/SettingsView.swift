@@ -21,6 +21,10 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
+                Text("Refresh frequency is global and no longer tied to the selected profile.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
                 Toggle("Auto-switch by power source", isOn: $coordinator.autoSwitchProfilesEnabled)
 
                 if coordinator.autoSwitchProfilesEnabled {
@@ -39,16 +43,86 @@ struct SettingsView: View {
 
             Section("Sampling") {
                 HStack {
-                    Text("Interval")
-                    Slider(value: $coordinator.sampleInterval, in: 1...10, step: 1)
-                    Text("\(Int(coordinator.sampleInterval))s")
+                    Text("Refresh Frequency")
+                    Slider(value: $coordinator.globalSamplingInterval, in: 1...10, step: 1)
+                    Text("\(Int(coordinator.globalSamplingInterval))s")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
 
+                Toggle("Enable live compositor FPS capture", isOn: $coordinator.liveCompositorFPSEnabled)
+
+                Text("Off by default. Turn this on only if you want true compositor FPS telemetry. macOS may ask for Screen Recording permission when enabled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("Graph Window", selection: $coordinator.selectedWindow) {
                     ForEach(TimeWindow.allCases, id: \.self) { window in
                         Text(window.label).tag(window)
+                    }
+                }
+            }
+
+            Section("CPU Menu Layout") {
+                Stepper(
+                    "CPU Processes: \(coordinator.cpuProcessCount)",
+                    value: $coordinator.cpuProcessCount,
+                    in: 3...12
+                )
+
+                ForEach(Array(coordinator.cpuMenuLayout.orderedSections.enumerated()), id: \.element) { index, section in
+                    HStack {
+                        Toggle(
+                            section.label,
+                            isOn: Binding(
+                                get: { isCPUSectionVisible(section) },
+                                set: { toggleCPUSection(section, isVisible: $0) }
+                            )
+                        )
+
+                        Spacer()
+
+                        Button("Up") {
+                            moveCPUSection(from: index, direction: -1)
+                        }
+                        .disabled(index == 0)
+
+                        Button("Down") {
+                            moveCPUSection(from: index, direction: 1)
+                        }
+                        .disabled(index == coordinator.cpuMenuLayout.orderedSections.count - 1)
+                    }
+                }
+            }
+
+            Section("Memory Menu Layout") {
+                Stepper(
+                    "Memory Processes: \(coordinator.memoryProcessCount)",
+                    value: $coordinator.memoryProcessCount,
+                    in: 3...12
+                )
+
+                ForEach(Array(coordinator.memoryMenuLayout.orderedSections.enumerated()), id: \.element) { index, section in
+                    HStack {
+                        Toggle(
+                            section.label,
+                            isOn: Binding(
+                                get: { isMemorySectionVisible(section) },
+                                set: { toggleMemorySection(section, isVisible: $0) }
+                            )
+                        )
+
+                        Spacer()
+
+                        Button("Up") {
+                            moveMemorySection(from: index, direction: -1)
+                        }
+                        .disabled(index == 0)
+
+                        Button("Down") {
+                            moveMemorySection(from: index, direction: 1)
+                        }
+                        .disabled(index == coordinator.memoryMenuLayout.orderedSections.count - 1)
                     }
                 }
             }
@@ -190,6 +264,27 @@ struct SettingsView: View {
                     step: 5
                 )
             }
+
+            Section("Recent Alerts") {
+                if coordinator.recentAlerts.isEmpty {
+                    Text("No alerts fired yet in this session.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(coordinator.recentAlerts) { alert in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(alert.title)
+                                .font(.subheadline.weight(.semibold))
+                            Text(alert.body)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(alert.deliveredAt.formatted(date: .omitted, time: .standard))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -216,5 +311,49 @@ struct SettingsView: View {
             return nil
         }
         return "Standard mode uses macOS thermal state (qualitative). Enable privileged mode for Celsius readings."
+    }
+
+    private func isCPUSectionVisible(_ section: CPUMenuSectionID) -> Bool {
+        coordinator.cpuMenuLayout.visibleSections.contains(section)
+    }
+
+    private func toggleCPUSection(_ section: CPUMenuSectionID, isVisible: Bool) {
+        if !isVisible && coordinator.cpuMenuLayout.visibleSections.count <= 1 {
+            return
+        }
+        var layout = coordinator.cpuMenuLayout
+        layout.setHidden(!isVisible, for: section)
+        coordinator.cpuMenuLayout = layout
+    }
+
+    private func moveCPUSection(from index: Int, direction: Int) {
+        var layout = coordinator.cpuMenuLayout
+        let destination = index + direction
+        guard destination >= 0, destination < layout.orderedSections.count else { return }
+        layout.orderedSections.swapAt(index, destination)
+        layout.reconcile()
+        coordinator.cpuMenuLayout = layout
+    }
+
+    private func isMemorySectionVisible(_ section: MemoryMenuSectionID) -> Bool {
+        coordinator.memoryMenuLayout.visibleSections.contains(section)
+    }
+
+    private func toggleMemorySection(_ section: MemoryMenuSectionID, isVisible: Bool) {
+        if !isVisible && coordinator.memoryMenuLayout.visibleSections.count <= 1 {
+            return
+        }
+        var layout = coordinator.memoryMenuLayout
+        layout.setHidden(!isVisible, for: section)
+        coordinator.memoryMenuLayout = layout
+    }
+
+    private func moveMemorySection(from index: Int, direction: Int) {
+        var layout = coordinator.memoryMenuLayout
+        let destination = index + direction
+        guard destination >= 0, destination < layout.orderedSections.count else { return }
+        layout.orderedSections.swapAt(index, destination)
+        layout.reconcile()
+        coordinator.memoryMenuLayout = layout
     }
 }

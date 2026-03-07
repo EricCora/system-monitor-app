@@ -598,7 +598,7 @@ public actor PowermetricsProvider: MetricProvider {
     public nonisolated let providerID = "powermetrics"
 
     private let dataSource: TemperatureDataSource
-    private let minCollectionInterval: TimeInterval
+    private var minCollectionInterval: TimeInterval
 
     private var isEnabled = false
     private var cachedReading: PowermetricsTemperatureReading?
@@ -650,6 +650,11 @@ public actor PowermetricsProvider: MetricProvider {
 
     public func latestReading() -> PowermetricsTemperatureReading? {
         cachedReading
+    }
+
+    public func updateInterval(seconds: Double) {
+        minCollectionInterval = max(1, seconds)
+        nextAllowedCollectionAt = Date.distantPast
     }
 
     public func probeNow(at date: Date = Date()) async -> [MetricSample] {
