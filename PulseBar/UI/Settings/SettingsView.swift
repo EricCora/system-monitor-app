@@ -3,10 +3,51 @@ import PulseBarCore
 
 struct SettingsView: View {
     @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var diagnosticsStore: PerformanceDiagnosticsStore
+    @State private var selectedSection: SettingsSection? = .general
 
     var body: some View {
-        Form {
-            Section("Profiles") {
+        NavigationSplitView {
+            List(SettingsSection.allCases, selection: $selectedSection) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 190)
+        } detail: {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    sectionContent
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle(selectedSection?.title ?? SettingsSection.general.title)
+        }
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch selectedSection ?? .general {
+        case .general:
+            generalSection
+        case .charts:
+            chartsSection
+        case .cpu:
+            cpuSection
+        case .memory:
+            memorySection
+        case .temperature:
+            temperatureSection
+        case .alerts:
+            alertsSection
+        case .diagnostics:
+            diagnosticsSection
+        }
+    }
+
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Profiles") {
                 Picker("Active Profile", selection: $coordinator.selectedProfileID) {
                     ForEach(ProfileID.allCases, id: \.self) { profile in
                         Text(profile.label).tag(profile)
@@ -17,14 +58,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("Tip: changing any setting manually switches to Custom.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                Text("Refresh frequency is global and no longer tied to the selected profile.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
                 Toggle("Auto-switch by power source", isOn: $coordinator.autoSwitchProfilesEnabled)
 
                 if coordinator.autoSwitchProfilesEnabled {
@@ -33,6 +66,7 @@ struct SettingsView: View {
                             Text(profile.label).tag(profile)
                         }
                     }
+
                     Picker("Battery Profile", selection: $coordinator.autoSwitchBatteryProfile) {
                         ForEach(ProfileID.allCases.filter { $0 != .custom }, id: \.self) { profile in
                             Text(profile.label).tag(profile)
@@ -41,7 +75,7 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Sampling") {
+            settingsCard("Sampling and Units") {
                 HStack {
                     Text("Refresh Frequency")
                     Slider(value: $coordinator.globalSamplingInterval, in: 1...10, step: 1)
@@ -50,25 +84,91 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Toggle("Enable live compositor FPS capture", isOn: $coordinator.liveCompositorFPSEnabled)
-
-                Text("Off by default. Turn this on only if you want true compositor FPS telemetry. macOS may ask for Screen Recording permission when enabled.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Picker("Graph Window", selection: $coordinator.selectedWindow) {
-                    ForEach(TimeWindow.allCases, id: \.self) { window in
-                        Text(window.label).tag(window)
+                Picker("Throughput", selection: $coordinator.throughputUnit) {
+                    ForEach(ThroughputDisplayUnit.allCases, id: \.self) { option in
+                        Text(option.label).tag(option)
                     }
+                }
+
+                Toggle("Start PulseBar at login", isOn: $coordinator.launchAtLoginEnabled)
+
+                if let message = coordinator.launchAtLoginStatusMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            Section("CPU Menu Layout") {
+            settingsCard("Menu Bar Items") {
+                Toggle("CPU", isOn: $coordinator.showCPUInMenu)
+                Toggle("Memory", isOn: $coordinator.showMemoryInMenu)
+                Toggle("Battery", isOn: $coordinator.showBatteryInMenu)
+                Toggle("Network", isOn: $coordinator.showNetworkInMenu)
+                Toggle("Disk", isOn: $coordinator.showDiskInMenu)
+                Toggle("Temperature", isOn: $coordinator.showTemperatureInMenu)
+            }
+        }
+    }
+
+    private var chartsSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Appearance") {
+                HStack {
+                    Text("Area Opacity")
+                    Slider(value: $coordinator.chartAreaOpacity, in: 0.05...0.5, step: 0.01)
+                    Text(String(format: "%.2f", coordinator.chartAreaOpacity))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Detached charts support click-drag zoom in both axes and double-click reset.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            settingsCard("Visible Chart Windows") {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                    ForEach(ChartWindow.allCases, id: \.self) { window in
+                        Button {
+                            toggleChartWindow(window)
+                        } label: {
+                            HStack {
+                                Image(systemName: coordinator.visibleChartWindows.contains(window) ? "checkmark.circle.fill" : "circle")
+                                Text(window.accessibilityLabel)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(coordinator.visibleChartWindows.contains(window) ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text("These windows appear on every chart picker in the app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var cpuSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Process and Layout") {
                 Stepper(
                     "CPU Processes: \(coordinator.cpuProcessCount)",
                     value: $coordinator.cpuProcessCount,
                     in: 3...12
                 )
+
+                Toggle("Enable live compositor FPS capture", isOn: $coordinator.liveCompositorFPSEnabled)
+
+                Text("Turn this on only if you want true compositor FPS telemetry. macOS may ask for Screen Recording permission.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 ForEach(Array(coordinator.cpuMenuLayout.orderedSections.enumerated()), id: \.element) { index, section in
                     HStack {
@@ -94,8 +194,12 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
 
-            Section("Memory Menu Layout") {
+    private var memorySection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Process and Layout") {
                 Stepper(
                     "Memory Processes: \(coordinator.memoryProcessCount)",
                     value: $coordinator.memoryProcessCount,
@@ -126,18 +230,14 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
 
-            Section("Menu Bar Items") {
-                Toggle("CPU", isOn: $coordinator.showCPUInMenu)
-                Toggle("Memory", isOn: $coordinator.showMemoryInMenu)
-                Toggle("Battery", isOn: $coordinator.showBatteryInMenu)
-                Toggle("Network", isOn: $coordinator.showNetworkInMenu)
-                Toggle("Disk", isOn: $coordinator.showDiskInMenu)
-                Toggle("Temperature", isOn: $coordinator.showTemperatureInMenu)
-            }
-
-            Section("Temperature") {
+    private var temperatureSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Sampling") {
                 Toggle("Enable privileged temperature sampling", isOn: $coordinator.privilegedTemperatureEnabled)
+
                 if let modeDescription = temperatureModeDescription {
                     Text(modeDescription)
                         .font(.caption)
@@ -167,79 +267,43 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(coordinator.fanParityGateBlocked ? .red : .secondary)
                 }
-
-                if !coordinator.privilegedActiveSourceChain.isEmpty {
-                    Text("Active source chain: \(coordinator.privilegedActiveSourceChain.joined(separator: " -> "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
+        }
+    }
 
-            Section("Units") {
-                Picker("Throughput", selection: $coordinator.throughputUnit) {
-                    ForEach(ThroughputDisplayUnit.allCases, id: \.self) { option in
-                        Text(option.label).tag(option)
-                    }
-                }
-            }
-
-            Section("Launch At Login") {
-                Toggle("Start PulseBar at login", isOn: $coordinator.launchAtLoginEnabled)
-                if let message = coordinator.launchAtLoginStatusMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("CPU Alert") {
-                Toggle("Enable CPU threshold alert", isOn: $coordinator.cpuAlertEnabled)
-
-                HStack {
-                    Text("Threshold")
+    private var alertsSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            alertCard(
+                "CPU Alert",
+                enabled: $coordinator.cpuAlertEnabled,
+                thresholdText: "\(Int(coordinator.cpuAlertThreshold))%",
+                thresholdControl: AnyView(
                     Slider(value: $coordinator.cpuAlertThreshold, in: 1...100, step: 1)
-                    Text("\(Int(coordinator.cpuAlertThreshold))%")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
+                ),
+                duration: $coordinator.cpuAlertDuration
+            )
 
-                Stepper("Duration: \(coordinator.cpuAlertDuration)s", value: $coordinator.cpuAlertDuration, in: 5...600, step: 5)
-            }
-
-            Section("Temperature Alert") {
-                Toggle("Enable temperature threshold alert", isOn: $coordinator.temperatureAlertEnabled)
-
-                HStack {
-                    Text("Threshold")
+            alertCard(
+                "Temperature Alert",
+                enabled: $coordinator.temperatureAlertEnabled,
+                thresholdText: "\(Int(coordinator.temperatureAlertThreshold)) C",
+                thresholdControl: AnyView(
                     Slider(value: $coordinator.temperatureAlertThreshold, in: 40...110, step: 1)
-                    Text("\(Int(coordinator.temperatureAlertThreshold)) C")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
+                ),
+                duration: $coordinator.temperatureAlertDuration
+            )
 
-                Stepper("Duration: \(coordinator.temperatureAlertDuration)s", value: $coordinator.temperatureAlertDuration, in: 5...600, step: 5)
-            }
-
-            Section("Memory Alert") {
-                Toggle("Enable memory pressure alert", isOn: $coordinator.memoryPressureAlertEnabled)
-
-                HStack {
-                    Text("Threshold")
+            alertCard(
+                "Memory Alert",
+                enabled: $coordinator.memoryPressureAlertEnabled,
+                thresholdText: "\(Int(coordinator.memoryPressureAlertThreshold))%",
+                thresholdControl: AnyView(
                     Slider(value: $coordinator.memoryPressureAlertThreshold, in: 1...100, step: 1)
-                    Text("\(Int(coordinator.memoryPressureAlertThreshold))%")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
+                ),
+                duration: $coordinator.memoryPressureAlertDuration
+            )
 
-                Stepper(
-                    "Duration: \(coordinator.memoryPressureAlertDuration)s",
-                    value: $coordinator.memoryPressureAlertDuration,
-                    in: 5...600,
-                    step: 5
-                )
-            }
-
-            Section("Disk Free Alert") {
+            settingsCard("Disk Free Alert") {
                 Toggle("Enable low disk free-space alert", isOn: $coordinator.diskFreeAlertEnabled)
 
                 HStack {
@@ -265,7 +329,7 @@ struct SettingsView: View {
                 )
             }
 
-            Section("Recent Alerts") {
+            settingsCard("Recent Alerts") {
                 if coordinator.recentAlerts.isEmpty {
                     Text("No alerts fired yet in this session.")
                         .font(.caption)
@@ -286,7 +350,112 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private var diagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Provider Failures") {
+                if coordinator.recentProviderFailures.isEmpty {
+                    Text("No provider failures recorded in this session.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(coordinator.recentProviderFailures) { failure in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(failure.providerID)
+                                .font(.subheadline.weight(.semibold))
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(failure.timestamp.formatted(date: .omitted, time: .standard))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            settingsCard("Runtime Status") {
+                diagnosticsRow("Metric history", coordinator.historyStoreStatusMessage)
+                diagnosticsRow("Memory history", coordinator.memoryHistoryStoreStatusMessage)
+                diagnosticsRow("Temperature history", coordinator.temperatureHistoryStoreStatusMessage)
+                diagnosticsRow("CPU processes", coordinator.cpuProcessesStatusMessage)
+                diagnosticsRow("Memory processes", coordinator.memoryProcessesStatusMessage)
+                diagnosticsRow("Temperature", coordinator.privilegedTemperatureStatusMessage)
+            }
+
+            settingsCard("Performance Counters") {
+                diagnosticsRow("CPU process polls/min", "\(diagnosticsStore.snapshot.cpuProcessPollsPerMinute)")
+                diagnosticsRow("Memory process polls/min", "\(diagnosticsStore.snapshot.memoryProcessPollsPerMinute)")
+                diagnosticsRow("Compact history reloads/min", "\(diagnosticsStore.snapshot.compactChartReloadsPerMinute)")
+                diagnosticsRow("Detached pane queries/min", "\(diagnosticsStore.snapshot.detachedPaneQueriesPerMinute)")
+                diagnosticsRow("GPU snapshot reads/min", "\(diagnosticsStore.snapshot.gpuSnapshotReadsPerMinute)")
+                diagnosticsRow("FPS status refreshes/min", "\(diagnosticsStore.snapshot.fpsStatusRefreshesPerMinute)")
+                diagnosticsRow("Privileged status refreshes/min", "\(diagnosticsStore.snapshot.privilegedStatusRefreshesPerMinute)")
+                diagnosticsRow("Disk fallbacks/min", "\(diagnosticsStore.snapshot.diskFallbacksPerMinute)")
+                diagnosticsRow("Chart prep avg", millisecondsText(diagnosticsStore.snapshot.averageChartPreparationMilliseconds))
+                diagnosticsRow("Chart prep last", millisecondsText(diagnosticsStore.snapshot.lastChartPreparationMilliseconds))
+                diagnosticsRow("Batch handler avg", millisecondsText(diagnosticsStore.snapshot.averageBatchHandlerMilliseconds))
+                diagnosticsRow("Batch handler last", millisecondsText(diagnosticsStore.snapshot.lastBatchHandlerMilliseconds))
+                diagnosticsRow("Active surfaces", diagnosticsStore.snapshot.surfaceActivitySummary)
+            }
+        }
+    }
+
+    private func settingsCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+            content()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+        )
+    }
+
+    private func alertCard(
+        _ title: String,
+        enabled: Binding<Bool>,
+        thresholdText: String,
+        thresholdControl: AnyView,
+        duration: Binding<Int>
+    ) -> some View {
+        settingsCard(title) {
+            Toggle("Enabled", isOn: enabled)
+            HStack {
+                Text("Threshold")
+                thresholdControl
+                Text(thresholdText)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Stepper("Duration: \(duration.wrappedValue)s", value: duration, in: 5...600, step: 5)
+        }
+    }
+
+    @ViewBuilder
+    private func diagnosticsRow(_ title: String, _ value: String?) -> some View {
+        HStack(alignment: .top) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value ?? "OK")
+                .multilineTextAlignment(.trailing)
+        }
+        .font(.caption)
+    }
+
+    private func toggleChartWindow(_ window: ChartWindow) {
+        var windows = coordinator.visibleChartWindows
+        if let index = windows.firstIndex(of: window) {
+            guard windows.count > 1 else { return }
+            windows.remove(at: index)
+        } else {
+            windows.append(window)
+        }
+        coordinator.visibleChartWindows = ChartWindow.allCases.filter { windows.contains($0) }
     }
 
     private var profileExplanation: String {
@@ -307,10 +476,9 @@ struct SettingsView: View {
             if coordinator.privilegedTemperatureHealthy {
                 return "Privileged mode is enabled and active. Celsius readings come from IOHID sensors with powermetrics fallback."
             }
-            // Avoid duplicate/conflicting text when a specific status/error message is already shown below.
             return nil
         }
-        return "Standard mode uses macOS thermal state (qualitative). Enable privileged mode for Celsius readings."
+        return "Standard mode uses macOS thermal state. Enable privileged mode for Celsius and fan RPM history."
     }
 
     private func isCPUSectionVisible(_ section: CPUMenuSectionID) -> Bool {
@@ -355,5 +523,59 @@ struct SettingsView: View {
         layout.orderedSections.swapAt(index, destination)
         layout.reconcile()
         coordinator.memoryMenuLayout = layout
+    }
+
+    private func millisecondsText(_ value: Double) -> String {
+        String(format: "%.2f ms", value)
+    }
+}
+
+private enum SettingsSection: String, CaseIterable, Identifiable {
+    case general
+    case charts
+    case cpu
+    case memory
+    case temperature
+    case alerts
+    case diagnostics
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general:
+            return "General"
+        case .charts:
+            return "Charts"
+        case .cpu:
+            return "CPU"
+        case .memory:
+            return "Memory"
+        case .temperature:
+            return "Temperature"
+        case .alerts:
+            return "Alerts"
+        case .diagnostics:
+            return "Diagnostics"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general:
+            return "slider.horizontal.3"
+        case .charts:
+            return "chart.xyaxis.line"
+        case .cpu:
+            return "cpu"
+        case .memory:
+            return "memorychip"
+        case .temperature:
+            return "thermometer.medium"
+        case .alerts:
+            return "bell"
+        case .diagnostics:
+            return "stethoscope"
+        }
     }
 }

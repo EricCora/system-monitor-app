@@ -90,7 +90,7 @@ final class TemperatureHistoryStoreTests: XCTestCase {
         let points = await store.series(
             sensorID: sensorID,
             channelType: .temperatureCelsius,
-            window: .twentyFourHours,
+            window: .oneDay,
             now: base.addingTimeInterval(120),
             maxPoints: 100
         )

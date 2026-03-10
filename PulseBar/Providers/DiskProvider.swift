@@ -6,9 +6,17 @@ public actor DiskProvider: MetricProvider {
 
     private var previousByteSnapshot: (timestamp: Date, readBytes: UInt64, writeBytes: UInt64)?
     private var cachedSMARTStatus: (timestamp: Date, statusCode: Double)?
+    private var cachedFallbackThroughput: (timestamp: Date, bytesPerSecond: Double)?
+    private var lastFallbackAttemptAt: Date?
     private let smartStatusCacheTTL: TimeInterval = 300
+    private let fallbackThrottleInterval: TimeInterval = 30
+    private var onFallbackInvocation: (@Sendable () -> Void)?
 
     public init() {}
+
+    public func setOnFallbackInvocation(_ handler: (@Sendable () -> Void)?) {
+        onFallbackInvocation = handler
+    }
 
     public func sample(at date: Date) async throws -> [MetricSample] {
         let freeBytes = readFreeSpaceBytes()
@@ -47,7 +55,7 @@ public actor DiskProvider: MetricProvider {
             return samples
         }
 
-        let combinedThroughputBytesPerSec = (try? readCombinedThroughputBytesPerSecond()) ?? 0
+        let combinedThroughputBytesPerSec = readDeferredCombinedThroughputBytesPerSecond(now: date)
         samples.append(
             MetricSample(
                 metricID: .diskThroughputBytesPerSec,
@@ -57,6 +65,24 @@ public actor DiskProvider: MetricProvider {
             )
         )
         return samples
+    }
+
+    private func readDeferredCombinedThroughputBytesPerSecond(now: Date) -> Double {
+        if let cachedFallbackThroughput,
+           now.timeIntervalSince(cachedFallbackThroughput.timestamp) < fallbackThrottleInterval {
+            return cachedFallbackThroughput.bytesPerSecond
+        }
+
+        if let lastFallbackAttemptAt,
+           now.timeIntervalSince(lastFallbackAttemptAt) < fallbackThrottleInterval {
+            return cachedFallbackThroughput?.bytesPerSecond ?? 0
+        }
+
+        lastFallbackAttemptAt = now
+        onFallbackInvocation?()
+        let throughput = (try? readCombinedThroughputBytesPerSecond()) ?? (cachedFallbackThroughput?.bytesPerSecond ?? 0)
+        cachedFallbackThroughput = (now, throughput)
+        return throughput
     }
 
     private func readFreeSpaceBytes() -> Double {

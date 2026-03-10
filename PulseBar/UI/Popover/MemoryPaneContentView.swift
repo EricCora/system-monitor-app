@@ -12,14 +12,22 @@ struct MemoryPaneContentView: View {
     @State private var pageInHistory: [MetricHistoryPoint] = []
     @State private var pageOutHistory: [MetricHistoryPoint] = []
     @State private var hoveredDate: Date?
+    @State private var viewport = ChartViewport()
+    @State private var zoomSelectionRect: CGRect?
+    @State private var lastRefreshContextID = ""
+    @State private var compositionChartModel: PreparedMemoryCompositionChartModel?
+    @State private var pressureChartModel: PreparedMetricLineChartModel?
+    @State private var swapChartModel: PreparedMetricLineChartModel?
+    @State private var pagesChartModel: PreparedMetricLineChartModel?
+    @State private var deferredRefreshTriggerID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HistoryWindowSegmentedControl(
-                options: MemoryHistoryWindow.allCases,
+            ChartWindowPicker(
+                options: coordinator.visibleChartWindows,
                 selection: $coordinator.selectedMemoryHistoryWindow,
                 paneController: paneController,
-                label: \.label
+                style: .detached
             )
 
             HStack(alignment: .top, spacing: 8) {
@@ -39,6 +47,15 @@ struct MemoryPaneContentView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if viewport.isZoomed {
+                    Button("Reset Zoom") {
+                        viewport.reset()
+                        zoomSelectionRect = nil
+                        hoveredDate = nil
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
 
             chartBody
@@ -51,23 +68,25 @@ struct MemoryPaneContentView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
         )
-        .task {
+        .task(id: refreshTriggerID) {
+            if lastRefreshContextID != contextRefreshID {
+                hoveredDate = nil
+                viewport.reset()
+                zoomSelectionRect = nil
+                lastRefreshContextID = contextRefreshID
+            }
+            if isInteractionActive {
+                deferredRefreshTriggerID = refreshTriggerID
+                return
+            }
             await refresh()
         }
-        .onChange(of: paneController.hoveredTarget) { _ in
-            hoveredDate = nil
-            Task { await refresh() }
-        }
-        .onChange(of: paneController.pinnedTarget) { _ in
-            hoveredDate = nil
-            Task { await refresh() }
-        }
-        .onChange(of: coordinator.selectedMemoryHistoryWindow) { _ in
-            hoveredDate = nil
-            Task { await refresh() }
-        }
-        .onReceive(coordinator.$latestSamples) { _ in
-            Task { await refresh() }
+        .onChange(of: isInteractionActive) { isActive in
+            guard !isActive, deferredRefreshTriggerID != nil else { return }
+            deferredRefreshTriggerID = nil
+            Task {
+                await refresh()
+            }
         }
     }
 
@@ -86,8 +105,11 @@ struct MemoryPaneContentView: View {
                 emptyState("Collecting memory history")
             } else {
                 MemoryCompositionChart(
-                    history: compositionHistory,
-                    hoveredDate: $hoveredDate
+                    model: compositionChartModel ?? PreparedMemoryCompositionChartModel.empty,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         case .pressure:
@@ -95,9 +117,12 @@ struct MemoryPaneContentView: View {
                 emptyState("Collecting pressure history")
             } else {
                 MetricLinePaneChart(
-                    primarySeries: pressureHistory,
-                    primaryColor: .cyan,
-                    hoveredDate: $hoveredDate
+                    model: pressureChartModel ?? PreparedMetricLineChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         case .swap:
@@ -105,9 +130,12 @@ struct MemoryPaneContentView: View {
                 emptyState("Collecting swap history")
             } else {
                 MetricLinePaneChart(
-                    primarySeries: swapHistory,
-                    primaryColor: .cyan,
-                    hoveredDate: $hoveredDate
+                    model: swapChartModel ?? PreparedMetricLineChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         case .pages:
@@ -115,13 +143,12 @@ struct MemoryPaneContentView: View {
                 emptyState("Collecting paging history")
             } else {
                 MetricLinePaneChart(
-                    primarySeries: pageInHistory,
-                    primaryLabel: "Page Ins",
-                    primaryColor: .cyan,
-                    secondarySeries: pageOutHistory,
-                    secondaryLabel: "Page Outs",
-                    secondaryColor: .orange,
-                    hoveredDate: $hoveredDate
+                    model: pagesChartModel ?? PreparedMetricLineChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         }
@@ -215,23 +242,93 @@ struct MemoryPaneContentView: View {
     }
 
     private func refresh() async {
-        compositionHistory = ChartSeriesSanitizer.memoryHistory(await coordinator.memoryHistorySeries(
-            window: coordinator.selectedMemoryHistoryWindow,
-            maxPoints: 900
-        ))
-        let historyWindow = coordinator.selectedMemoryHistoryWindow.asMetricHistoryWindow
-        pressureHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .memoryPressureLevel, window: historyWindow, maxPoints: 900)
-        )
-        swapHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .memorySwapUsedBytes, window: historyWindow, maxPoints: 900)
-        )
-        pageInHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .memoryPageInsBytesPerSec, window: historyWindow, maxPoints: 900)
-        )
-        pageOutHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .memoryPageOutsBytesPerSec, window: historyWindow, maxPoints: 900)
-        )
+        coordinator.performanceDiagnosticsStore.recordDetachedPaneQuery()
+        let start = ContinuousClock.now
+        let window = coordinator.selectedMemoryHistoryWindow
+        let maxPoints = 360
+
+        switch activeChart {
+        case .composition:
+            compositionHistory = await coordinator.memoryHistorySeries(window: window, maxPoints: maxPoints)
+            pressureHistory = []
+            swapHistory = []
+            pageInHistory = []
+            pageOutHistory = []
+
+            compositionChartModel = PreparedMemoryCompositionChartModel(history: compositionHistory)
+            pressureChartModel = nil
+            swapChartModel = nil
+            pagesChartModel = nil
+
+        case .pressure:
+            pressureHistory = await coordinator.metricHistorySeries(for: .memoryPressureLevel, window: window, maxPoints: maxPoints)
+            compositionHistory = []
+            swapHistory = []
+            pageInHistory = []
+            pageOutHistory = []
+
+            pressureChartModel = PreparedMetricLineChartModel(
+                series: [ChartMetricSeriesDescriptor(key: "Series", label: "Series", color: .cyan, samples: pressureHistory)],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+            )
+            compositionChartModel = nil
+            swapChartModel = nil
+            pagesChartModel = nil
+
+        case .swap:
+            swapHistory = await coordinator.metricHistorySeries(for: .memorySwapUsedBytes, window: window, maxPoints: maxPoints)
+            compositionHistory = []
+            pressureHistory = []
+            pageInHistory = []
+            pageOutHistory = []
+
+            swapChartModel = PreparedMetricLineChartModel(
+                series: [ChartMetricSeriesDescriptor(key: "Series", label: "Series", color: .cyan, samples: swapHistory)],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+            )
+            compositionChartModel = nil
+            pressureChartModel = nil
+            pagesChartModel = nil
+
+        case .pages:
+            async let pageIns = coordinator.metricHistorySeries(for: .memoryPageInsBytesPerSec, window: window, maxPoints: maxPoints)
+            async let pageOuts = coordinator.metricHistorySeries(for: .memoryPageOutsBytesPerSec, window: window, maxPoints: maxPoints)
+
+            pageInHistory = await pageIns
+            pageOutHistory = await pageOuts
+            compositionHistory = []
+            pressureHistory = []
+            swapHistory = []
+
+            pagesChartModel = PreparedMetricLineChartModel(
+                series: [
+                    ChartMetricSeriesDescriptor(key: "Page Ins", label: "Page Ins", color: .cyan, samples: pageInHistory),
+                    ChartMetricSeriesDescriptor(key: "Page Outs", label: "Page Outs", color: .orange, samples: pageOutHistory)
+                ],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+            )
+            compositionChartModel = nil
+            pressureChartModel = nil
+            swapChartModel = nil
+        }
+        let elapsed = start.duration(to: ContinuousClock.now)
+        coordinator.performanceDiagnosticsStore.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
+    }
+
+    private var contextRefreshID: String {
+        "\(activeChart.rawValue)-\(coordinator.selectedMemoryHistoryWindow.rawValue)"
+    }
+
+    private var historyRefreshID: String {
+        "\(contextRefreshID)-\(coordinator.metricHistoryRevision)-\(coordinator.memoryHistoryRevision)"
+    }
+
+    private var refreshTriggerID: String {
+        historyRefreshID
+    }
+
+    private var isInteractionActive: Bool {
+        hoveredDate != nil || zoomSelectionRect != nil
     }
 }
 
@@ -263,45 +360,22 @@ private extension MemoryPaneChart {
     }
 }
 
-private extension MemoryHistoryWindow {
-    var asMetricHistoryWindow: MetricHistoryWindow {
-        switch self {
-        case .oneHour:
-            return .oneHour
-        case .twentyFourHours:
-            return .twentyFourHours
-        case .sevenDays:
-            return .sevenDays
-        case .thirtyDays:
-            return .thirtyDays
-        }
-    }
-}
-
 private struct MemoryCompositionChart: View {
-    let history: [MemoryHistoryPoint]
+    let model: PreparedMemoryCompositionChartModel
+    let paneController: DetachedMetricsPaneController
     @Binding var hoveredDate: Date?
-
-    private var chartPoints: [MemoryCompositionSeriesPoint] {
-        ChartSeriesSanitizer.memoryHistory(history).flatMap { point in
-            let total = max(1, point.totalBytes)
-            return [
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .wired, percent: min(max((point.wiredBytes / total) * 100, 0), 100)),
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .active, percent: min(max((point.activeBytes / total) * 100, 0), 100)),
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .compressed, percent: min(max((point.compressedBytes / total) * 100, 0), 100)),
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .free, percent: min(max((point.freeBytes / total) * 100, 0), 100))
-            ]
-        }
-    }
+    @Binding var viewport: ChartViewport
+    @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart(chartPoints) { point in
+        Chart(model.points) { point in
             AreaMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Percent", point.percent),
+                series: .value("Segment", point.continuityKey),
                 stacking: .standard
             )
-            .foregroundStyle(by: .value("Component", point.component.rawValue))
+            .foregroundStyle(point.component.color)
             .interpolationMethod(.linear)
 
             if let hoveredDate {
@@ -310,13 +384,8 @@ private struct MemoryCompositionChart: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .chartXScale(domain: viewport.xDomain ?? model.xDomain)
         .chartYScale(domain: 0...100)
-        .chartForegroundStyleScale([
-            MemoryCompositionSeriesPoint.Component.wired.rawValue: Color.cyan,
-            MemoryCompositionSeriesPoint.Component.active.rawValue: Color.red,
-            MemoryCompositionSeriesPoint.Component.compressed.rawValue: Color.purple,
-            MemoryCompositionSeriesPoint.Component.free.rawValue: Color.gray.opacity(0.55)
-        ])
         .chartYAxis {
             AxisMarks(position: .leading, values: [0, 25, 50, 75, 100]) { value in
                 AxisGridLine()
@@ -330,66 +399,49 @@ private struct MemoryCompositionChart: View {
         }
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            let xPosition = location.x - geometry[proxy.plotAreaFrame].origin.x
-                            guard xPosition >= 0,
-                                  xPosition <= proxy.plotAreaSize.width,
-                                  let date: Date = proxy.value(atX: xPosition, as: Date.self) else {
-                                hoveredDate = nil
-                                return
-                            }
-                            hoveredDate = date
-                        case .ended:
-                            hoveredDate = nil
-                        }
-                    }
+                DetachedChartInteractionOverlay(
+                    proxy: proxy,
+                    geometry: geometry,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    selectionRect: $zoomSelectionRect
+                )
             }
         }
+        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
         .frame(height: 300)
     }
 }
 
 private struct MetricLinePaneChart: View {
-    let primarySeries: [MetricHistoryPoint]
-    var primaryLabel: String = "Series"
-    let primaryColor: Color
-    var secondarySeries: [MetricHistoryPoint] = []
-    var secondaryLabel: String = ""
-    var secondaryColor: Color = .secondary
+    let model: PreparedMetricLineChartModel
+    let areaOpacity: Double
+    let paneController: DetachedMetricsPaneController
     @Binding var hoveredDate: Date?
-
-    private var sanitizedPrimarySeries: [MetricHistoryPoint] {
-        ChartSeriesSanitizer.metricHistory(primarySeries)
-    }
-
-    private var sanitizedSecondarySeries: [MetricHistoryPoint] {
-        ChartSeriesSanitizer.metricHistory(secondarySeries)
-    }
+    @Binding var viewport: ChartViewport
+    @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart {
-            ForEach(sanitizedPrimarySeries, id: \.timestamp) { point in
-                LineMark(
-                    x: .value("Time", point.timestamp),
-                    y: .value(primaryLabel, point.value)
-                )
-                .interpolationMethod(.linear)
-                .foregroundStyle(primaryColor)
-            }
+        Chart(model.points) { point in
+            AreaMark(
+                x: .value("Time", point.timestamp),
+                yStart: .value("Baseline", model.scale.renderedAreaBaseline(viewport: viewport)),
+                yEnd: .value("Value", point.value),
+                series: .value("Segment", point.continuityKey)
+            )
+            .foregroundStyle(point.color)
+            .opacity(areaOpacity)
+            .interpolationMethod(.linear)
 
-            ForEach(sanitizedSecondarySeries, id: \.timestamp) { point in
-                LineMark(
-                    x: .value("Time", point.timestamp),
-                    y: .value(secondaryLabel, point.value)
-                )
-                .interpolationMethod(.linear)
-                .foregroundStyle(secondaryColor)
-            }
+            LineMark(
+                x: .value("Time", point.timestamp),
+                y: .value("Value", point.value),
+                series: .value("Segment", point.continuityKey)
+            )
+            .foregroundStyle(point.color)
+            .lineStyle(StrokeStyle(lineWidth: 2))
+            .interpolationMethod(.linear)
 
             if let hoveredDate {
                 RuleMark(x: .value("Hover", hoveredDate))
@@ -397,43 +449,22 @@ private struct MetricLinePaneChart: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .chartYScale(domain: yDomain)
+        .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
+        .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            let xPosition = location.x - geometry[proxy.plotAreaFrame].origin.x
-                            guard xPosition >= 0,
-                                  xPosition <= proxy.plotAreaSize.width,
-                                  let date: Date = proxy.value(atX: xPosition, as: Date.self) else {
-                                hoveredDate = nil
-                                return
-                            }
-                            hoveredDate = date
-                        case .ended:
-                            hoveredDate = nil
-                        }
-                    }
+                DetachedChartInteractionOverlay(
+                    proxy: proxy,
+                    geometry: geometry,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    selectionRect: $zoomSelectionRect
+                )
             }
         }
+        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
         .frame(height: 300)
-    }
-
-    private var yDomain: ClosedRange<Double> {
-        let values = (sanitizedPrimarySeries + sanitizedSecondarySeries).map(\.value)
-        guard let minValue = values.min(), let maxValue = values.max() else {
-            return 0...1
-        }
-        if minValue == maxValue {
-            let delta = max(1, abs(minValue * 0.1))
-            return max(0, minValue - delta)...(maxValue + delta)
-        }
-        let padding = (maxValue - minValue) * 0.12
-        return max(0, minValue - padding)...(maxValue + padding)
     }
 }
 
@@ -443,11 +474,79 @@ private struct MemoryCompositionSeriesPoint: Identifiable {
         case active
         case compressed
         case free
+
+        var color: Color {
+            switch self {
+            case .wired:
+                return .cyan
+            case .active:
+                return .red
+            case .compressed:
+                return .purple
+            case .free:
+                return Color.gray.opacity(0.55)
+            }
+        }
     }
 
     let timestamp: Date
     let component: Component
+    let continuityKey: String
     let percent: Double
 
-    var id: String { "\(timestamp.timeIntervalSince1970)-\(component.rawValue)" }
+    var id: String { "\(continuityKey)-\(timestamp.timeIntervalSince1970)" }
+}
+
+private struct PreparedMemoryCompositionChartModel {
+    let points: [MemoryCompositionSeriesPoint]
+    let xDomain: ClosedRange<Date>
+
+    init(history: [MemoryHistoryPoint]) {
+        let sanitizedHistory = ChartSeriesPipeline.sanitize(history, timestamp: \.timestamp)
+        let continuityKeys = ChartSeriesPipeline.continuityKeys(for: sanitizedHistory, seriesKey: "memory.composition", timestamp: \.timestamp)
+        points = zip(sanitizedHistory, continuityKeys).flatMap { point, continuityKey in
+            let total = max(1, point.totalBytes)
+            return [
+                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .wired, continuityKey: "\(continuityKey).wired", percent: min(max((point.wiredBytes / total) * 100, 0), 100)),
+                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .active, continuityKey: "\(continuityKey).active", percent: min(max((point.activeBytes / total) * 100, 0), 100)),
+                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .compressed, continuityKey: "\(continuityKey).compressed", percent: min(max((point.compressedBytes / total) * 100, 0), 100)),
+                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .free, continuityKey: "\(continuityKey).free", percent: min(max((point.freeBytes / total) * 100, 0), 100))
+            ]
+        }
+        xDomain = Self.makeXDomain(from: points.map(\.timestamp))
+    }
+
+    static let empty = PreparedMemoryCompositionChartModel(history: [])
+
+    private static func makeXDomain(from dates: [Date]) -> ClosedRange<Date> {
+        let minDate = dates.min() ?? Date()
+        let maxDate = dates.max() ?? minDate.addingTimeInterval(1)
+        if minDate == maxDate {
+            return minDate.addingTimeInterval(-30)...maxDate.addingTimeInterval(30)
+        }
+        return minDate...maxDate
+    }
+}
+
+private struct PreparedMetricLineChartModel {
+    let points: [TimeSeriesChartPoint]
+    let scale: ChartScale
+    let fallbackXDomain: ClosedRange<Date>
+
+    init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy) {
+        points = ChartSeriesPipeline.metricHistory(series: series.filter { !$0.label.isEmpty })
+        scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
+        fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
+    }
+
+    static let empty = PreparedMetricLineChartModel(series: [], baseline: .zero())
+
+    private static func makeXDomain(from dates: [Date]) -> ClosedRange<Date> {
+        let minDate = dates.min() ?? Date()
+        let maxDate = dates.max() ?? minDate.addingTimeInterval(1)
+        if minDate == maxDate {
+            return minDate.addingTimeInterval(-30)...maxDate.addingTimeInterval(30)
+        }
+        return minDate...maxDate
+    }
 }

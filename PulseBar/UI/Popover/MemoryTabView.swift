@@ -2,8 +2,9 @@ import SwiftUI
 import PulseBarCore
 
 struct MemoryTabView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    let coordinator: AppCoordinator
     @ObservedObject var paneController: DetachedMetricsPaneController
+    @ObservedObject var featureStore: MemoryFeatureStore
     @State private var hostWindow: NSWindow?
 
     var body: some View {
@@ -31,7 +32,7 @@ struct MemoryTabView: View {
                 }
             }
 
-            if let processStatus = coordinator.memoryProcessesStatusMessage {
+            if let processStatus = featureStore.processesStatusMessage {
                 Text(processStatus)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -79,7 +80,6 @@ struct MemoryTabView: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            coordinator.selectedMemoryPaneChart = chart
             if hovering {
                 if let parentWindow = currentParentWindow {
                     paneController.preview(target, coordinator: coordinator, parentWindow: parentWindow)
@@ -94,12 +94,12 @@ struct MemoryTabView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("PROCESSES")
 
-            if coordinator.topMemoryProcesses.isEmpty {
+            if featureStore.topProcesses.isEmpty {
                 Text("Collecting process memory")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(coordinator.topMemoryProcesses.prefix(coordinator.memoryProcessCount)) { process in
+                ForEach(featureStore.topProcesses.prefix(coordinator.memoryProcessCount)) { process in
                     HStack(spacing: 8) {
                         Text(process.name)
                             .lineLimit(1)
@@ -176,7 +176,7 @@ struct MemoryTabView: View {
             keyValueRow(
                 title: "Page Ins",
                 value: UnitsFormatter.format(
-                    coordinator.latestValue(for: .memoryPageInsBytesPerSec)?.value ?? 0,
+                    featureStore.pageInsBytesPerSecond,
                     unit: .bytesPerSecond,
                     throughputUnit: coordinator.throughputUnit
                 )
@@ -184,7 +184,7 @@ struct MemoryTabView: View {
             keyValueRow(
                 title: "Page Outs",
                 value: UnitsFormatter.format(
-                    coordinator.latestValue(for: .memoryPageOutsBytesPerSec)?.value ?? 0,
+                    featureStore.pageOutsBytesPerSecond,
                     unit: .bytesPerSecond,
                     throughputUnit: coordinator.throughputUnit
                 )
@@ -193,23 +193,23 @@ struct MemoryTabView: View {
     }
 
     private var pressurePercent: Double {
-        coordinator.latestValue(for: .memoryPressureLevel)?.value ?? 0
+        featureStore.pressurePercent
     }
 
     private var wiredBytes: Double {
-        coordinator.latestValue(for: .memoryWiredBytes)?.value ?? 0
+        featureStore.wiredBytes
     }
 
     private var activeBytes: Double {
-        coordinator.latestValue(for: .memoryActiveBytes)?.value ?? 0
+        featureStore.activeBytes
     }
 
     private var compressedBytes: Double {
-        coordinator.latestValue(for: .memoryCompressedBytes)?.value ?? 0
+        featureStore.compressedBytes
     }
 
     private var freeBytes: Double {
-        coordinator.latestValue(for: .memoryFreeBytes)?.value ?? 0
+        featureStore.freeBytes
     }
 
     private var totalMemoryBytes: Double {
@@ -233,11 +233,11 @@ struct MemoryTabView: View {
     }
 
     private var swapUsedBytes: Double {
-        coordinator.latestValue(for: .memorySwapUsedBytes)?.value ?? 0
+        featureStore.swapUsedBytes
     }
 
     private var swapTotalBytes: Double {
-        max(swapUsedBytes, coordinator.latestValue(for: .memorySwapTotalBytes)?.value ?? 0)
+        featureStore.swapTotalBytes
     }
 
     private var swapUsedFraction: Double {
@@ -295,6 +295,19 @@ struct MemoryTabView: View {
     }
 
     private func latestBytes(_ metricID: MetricID) -> String {
-        UnitsFormatter.format(coordinator.latestValue(for: metricID)?.value ?? 0, unit: .bytes)
+        let value: Double
+        switch metricID {
+        case .memoryAppBytes:
+            value = featureStore.appBytes
+        case .memoryWiredBytes:
+            value = featureStore.wiredBytes
+        case .memoryCompressedBytes:
+            value = featureStore.compressedBytes
+        case .memoryCacheBytes:
+            value = featureStore.cacheBytes
+        default:
+            value = 0
+        }
+        return UnitsFormatter.format(value, unit: .bytes)
     }
 }

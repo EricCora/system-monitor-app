@@ -6,16 +6,19 @@ struct MetricChartView: View {
     let title: String
     let samples: [MetricSample]
     let throughputUnit: ThroughputDisplayUnit
+    var areaOpacity: Double = 0.18
+    var diagnosticsStore: PerformanceDiagnosticsStore?
 
     @State private var hoveredSample: MetricSample?
     @State private var isHoveringChart = false
+    @State private var chartModel = PreparedMetricChartModel.empty
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.headline)
 
-            if samples.isEmpty {
+            if chartModel.sanitizedSamples.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "chart.xyaxis.line")
                         .font(.title2)
@@ -26,12 +29,25 @@ struct MetricChartView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
             } else {
-                Chart(samples, id: \.timestamp) { sample in
-                    LineMark(
-                        x: .value("Time", sample.timestamp),
-                        y: .value("Value", sample.value)
+                Chart(chartModel.chartPoints) { point in
+                    AreaMark(
+                        x: .value("Time", point.timestamp),
+                        yStart: .value("Baseline", chartModel.chartScale.areaBaseline),
+                        yEnd: .value("Value", point.value),
+                        series: .value("Segment", point.continuityKey)
                     )
-                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(point.color)
+                    .opacity(areaOpacity)
+                    .interpolationMethod(.linear)
+
+                    LineMark(
+                        x: .value("Time", point.timestamp),
+                        y: .value("Value", point.value),
+                        series: .value("Segment", point.continuityKey)
+                    )
+                    .foregroundStyle(point.color)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .interpolationMethod(.linear)
 
                     if let hoveredSample {
                         RuleMark(x: .value("Hover Time", hoveredSample.timestamp))
@@ -39,7 +55,7 @@ struct MetricChartView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .chartYScale(domain: yDomain)
+                .chartYScale(domain: chartModel.chartScale.yDomain)
                 .chartYAxis {
                     if isThermalStateChart {
                         AxisMarks(position: .leading, values: [0, 1, 2, 3]) { value in
@@ -92,43 +108,34 @@ struct MetricChartView: View {
                 hoverSummaryRow
             }
         }
+        .task(id: chartRefreshID) {
+            rebuildChartModel()
+        }
     }
 
     private var isThermalStateChart: Bool {
-        samples.first?.metricID == .thermalStateLevel
+        chartModel.sanitizedSamples.first?.metricID == .thermalStateLevel
     }
 
     private var isBatteryChargeChart: Bool {
-        samples.first?.metricID == .batteryChargePercent
+        chartModel.sanitizedSamples.first?.metricID == .batteryChargePercent
     }
 
-    private var yDomain: ClosedRange<Double> {
+    private var baselinePolicy: ChartBaselinePolicy {
         if isThermalStateChart {
-            return 0...3
+            return .fixed(0...3)
         }
         if isBatteryChargeChart {
-            return 0...100
+            return .fixed(0...100)
         }
-
-        let values = samples.map(\.value)
-        guard let minValue = values.min(), let maxValue = values.max() else {
-            return 0...1
-        }
-
-        if minValue == maxValue {
-            let delta = max(1, abs(minValue * 0.1))
-            return (minValue - delta)...(maxValue + delta)
-        }
-
-        let padding = (maxValue - minValue) * 0.1
-        return max(0, minValue - padding)...(maxValue + padding)
+        return .zero(minimumSpan: 1, paddingFraction: 0.1)
     }
 
     private var summarySample: MetricSample? {
         if isHoveringChart {
-            return hoveredSample ?? samples.last
+            return hoveredSample ?? chartModel.sanitizedSamples.last
         }
-        return samples.last
+        return chartModel.sanitizedSamples.last
     }
 
     @ViewBuilder
@@ -154,13 +161,13 @@ struct MetricChartView: View {
     }
 
     private func nearestSample(to date: Date) -> MetricSample? {
-        samples.min(by: {
+        chartModel.sanitizedSamples.min(by: {
             abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
         })
     }
 
     private func axisLabel(for value: Double) -> String {
-        guard let unit = samples.first?.unit else {
+        guard let unit = chartModel.sanitizedSamples.first?.unit else {
             return String(format: "%.0f", value)
         }
 
@@ -175,6 +182,8 @@ struct MetricChartView: View {
             return String(format: "%.0f C", value)
         case .milliamps:
             return String(format: "%.0f mA", value)
+        case .watts:
+            return String(format: "%.1f W", value)
         case .minutes:
             return UnitsFormatter.format(value, unit: .minutes)
         case .seconds:
@@ -186,4 +195,41 @@ struct MetricChartView: View {
             return String(format: "%.1f", value)
         }
     }
+
+    private var chartRefreshID: String {
+        let first = samples.first?.timestamp.timeIntervalSince1970 ?? 0
+        let last = samples.last?.timestamp.timeIntervalSince1970 ?? 0
+        let lastValue = samples.last?.value ?? 0
+        return "\(title)-\(samples.count)-\(first)-\(last)-\(lastValue)"
+    }
+
+    private func rebuildChartModel() {
+        let start = ContinuousClock.now
+        chartModel = PreparedMetricChartModel(
+            samples: samples,
+            title: title,
+            baselinePolicy: baselinePolicy
+        )
+        let elapsed = start.duration(to: ContinuousClock.now)
+        diagnosticsStore?.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
+    }
+}
+
+private struct PreparedMetricChartModel {
+    let sanitizedSamples: [MetricSample]
+    let chartPoints: [TimeSeriesChartPoint]
+    let chartScale: ChartScale
+
+    init(samples: [MetricSample], title: String, baselinePolicy: ChartBaselinePolicy) {
+        sanitizedSamples = ChartSeriesPipeline.sanitize(samples, timestamp: \.timestamp)
+        chartPoints = ChartSeriesPipeline.metricSamples(
+            sanitizedSamples,
+            key: title,
+            label: title,
+            color: .cyan
+        )
+        chartScale = ChartSeriesPipeline.scale(for: chartPoints, baseline: baselinePolicy)
+    }
+
+    static let empty = PreparedMetricChartModel(samples: [], title: "", baselinePolicy: .zero())
 }

@@ -16,14 +16,22 @@ struct CPUPaneContentView: View {
     @State private var gpuMemoryHistory: [MetricHistoryPoint] = []
     @State private var fpsHistory: [MetricHistoryPoint] = []
     @State private var hoveredDate: Date?
+    @State private var viewport = ChartViewport()
+    @State private var zoomSelectionRect: CGRect?
+    @State private var lastRefreshContextID = ""
+    @State private var usageChartModel: PreparedCPUUsageChartModel?
+    @State private var loadAverageChartModel: PreparedCPUMetricChartModel?
+    @State private var gpuChartModel: PreparedCPUMetricChartModel?
+    @State private var fpsChartModel: PreparedCPUMetricChartModel?
+    @State private var deferredRefreshTriggerID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HistoryWindowSegmentedControl(
-                options: MetricHistoryWindow.allCases,
+            ChartWindowPicker(
+                options: coordinator.visibleChartWindows,
                 selection: $coordinator.selectedCPUHistoryWindow,
                 paneController: paneController,
-                label: \.label
+                style: .detached
             )
 
             HStack(alignment: .top, spacing: 8) {
@@ -43,6 +51,15 @@ struct CPUPaneContentView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if viewport.isZoomed {
+                    Button("Reset Zoom") {
+                        viewport.reset()
+                        zoomSelectionRect = nil
+                        hoveredDate = nil
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
 
             chartBody
@@ -55,23 +72,25 @@ struct CPUPaneContentView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
         )
-        .task {
+        .task(id: refreshTriggerID) {
+            if lastRefreshContextID != contextRefreshID {
+                hoveredDate = nil
+                viewport.reset()
+                zoomSelectionRect = nil
+                lastRefreshContextID = contextRefreshID
+            }
+            if isInteractionActive {
+                deferredRefreshTriggerID = refreshTriggerID
+                return
+            }
             await refresh()
         }
-        .onChange(of: paneController.hoveredTarget) { _ in
-            hoveredDate = nil
-            Task { await refresh() }
-        }
-        .onChange(of: paneController.pinnedTarget) { _ in
-            hoveredDate = nil
-            Task { await refresh() }
-        }
-        .onChange(of: coordinator.selectedCPUHistoryWindow) { _ in
-            hoveredDate = nil
-            Task { await refresh() }
-        }
-        .onReceive(coordinator.$latestSamples) { _ in
-            Task { await refresh() }
+        .onChange(of: isInteractionActive) { isActive in
+            guard !isActive, deferredRefreshTriggerID != nil else { return }
+            deferredRefreshTriggerID = nil
+            Task {
+                await refresh()
+            }
         }
     }
 
@@ -90,9 +109,12 @@ struct CPUPaneContentView: View {
                 emptyState("Collecting CPU history")
             } else {
                 CPUUsagePaneChart(
-                    userHistory: userHistory,
-                    systemHistory: systemHistory,
-                    hoveredDate: $hoveredDate
+                    model: usageChartModel ?? PreparedCPUUsageChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         case .loadAverage:
@@ -100,12 +122,12 @@ struct CPUPaneContentView: View {
                 emptyState("Collecting load average history")
             } else {
                 MultiSeriesLinePaneChart(
-                    series: [
-                        ("1 Minute", load1History, Color.cyan),
-                        ("5 Minute", load5History, Color.red),
-                        ("15 Minute", load15History, Color.gray)
-                    ],
-                    hoveredDate: $hoveredDate
+                    model: loadAverageChartModel ?? PreparedCPUMetricChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         case .gpu:
@@ -113,11 +135,12 @@ struct CPUPaneContentView: View {
                 emptyState(coordinator.latestGPUSummary?.statusMessage ?? "GPU telemetry unavailable")
             } else {
                 MultiSeriesLinePaneChart(
-                    series: [
-                        ("Processor", gpuProcessorHistory, Color.cyan),
-                        ("Memory", gpuMemoryHistory, Color.blue)
-                    ],
-                    hoveredDate: $hoveredDate
+                    model: gpuChartModel ?? PreparedCPUMetricChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         case .framesPerSecond:
@@ -125,8 +148,12 @@ struct CPUPaneContentView: View {
                 emptyState("Collecting frames-per-second history")
             } else {
                 MultiSeriesLinePaneChart(
-                    series: [("FPS", fpsHistory, Color.cyan)],
-                    hoveredDate: $hoveredDate
+                    model: fpsChartModel ?? PreparedCPUMetricChartModel.empty,
+                    areaOpacity: coordinator.chartAreaOpacity,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
                 )
             }
         }
@@ -225,33 +252,120 @@ struct CPUPaneContentView: View {
     }
 
     private func refresh() async {
-        userHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .cpuUserPercent, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        systemHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .cpuSystemPercent, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        idleHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .cpuIdlePercent, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        load1History = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .cpuLoadAverage1, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        load5History = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .cpuLoadAverage5, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        load15History = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .cpuLoadAverage15, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        gpuProcessorHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .gpuProcessorPercent, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        gpuMemoryHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .gpuMemoryPercent, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
-        fpsHistory = ChartSeriesSanitizer.metricHistory(
-            await coordinator.metricHistorySeries(for: .framesPerSecond, window: coordinator.selectedCPUHistoryWindow, maxPoints: 900)
-        )
+        coordinator.performanceDiagnosticsStore.recordDetachedPaneQuery()
+        let start = ContinuousClock.now
+        let window = coordinator.selectedCPUHistoryWindow
+        let maxPoints = 360
+
+        switch activeChart {
+        case .usage:
+            async let user = coordinator.metricHistorySeries(for: .cpuUserPercent, window: window, maxPoints: maxPoints)
+            async let system = coordinator.metricHistorySeries(for: .cpuSystemPercent, window: window, maxPoints: maxPoints)
+
+            userHistory = await user
+            systemHistory = await system
+            idleHistory = []
+            load1History = []
+            load5History = []
+            load15History = []
+            gpuProcessorHistory = []
+            gpuMemoryHistory = []
+            fpsHistory = []
+
+            usageChartModel = PreparedCPUUsageChartModel(userHistory: userHistory, systemHistory: systemHistory)
+            loadAverageChartModel = nil
+            gpuChartModel = nil
+            fpsChartModel = nil
+
+        case .loadAverage:
+            async let load1 = coordinator.metricHistorySeries(for: .cpuLoadAverage1, window: window, maxPoints: maxPoints)
+            async let load5 = coordinator.metricHistorySeries(for: .cpuLoadAverage5, window: window, maxPoints: maxPoints)
+            async let load15 = coordinator.metricHistorySeries(for: .cpuLoadAverage15, window: window, maxPoints: maxPoints)
+
+            load1History = await load1
+            load5History = await load5
+            load15History = await load15
+            userHistory = []
+            systemHistory = []
+            idleHistory = []
+            gpuProcessorHistory = []
+            gpuMemoryHistory = []
+            fpsHistory = []
+
+            loadAverageChartModel = PreparedCPUMetricChartModel(
+                series: [
+                    ChartMetricSeriesDescriptor(key: "load.1", label: "1 Minute", color: .cyan, samples: load1History),
+                    ChartMetricSeriesDescriptor(key: "load.5", label: "5 Minute", color: .red, samples: load5History),
+                    ChartMetricSeriesDescriptor(key: "load.15", label: "15 Minute", color: .gray, samples: load15History)
+                ],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+            )
+            usageChartModel = nil
+            gpuChartModel = nil
+            fpsChartModel = nil
+
+        case .gpu:
+            async let gpuProcessor = coordinator.metricHistorySeries(for: .gpuProcessorPercent, window: window, maxPoints: maxPoints)
+            async let gpuMemory = coordinator.metricHistorySeries(for: .gpuMemoryPercent, window: window, maxPoints: maxPoints)
+
+            gpuProcessorHistory = await gpuProcessor
+            gpuMemoryHistory = await gpuMemory
+            userHistory = []
+            systemHistory = []
+            idleHistory = []
+            load1History = []
+            load5History = []
+            load15History = []
+            fpsHistory = []
+
+            gpuChartModel = PreparedCPUMetricChartModel(
+                series: [
+                    ChartMetricSeriesDescriptor(key: "gpu.processor", label: "Processor", color: .cyan, samples: gpuProcessorHistory),
+                    ChartMetricSeriesDescriptor(key: "gpu.memory", label: "Memory", color: .blue, samples: gpuMemoryHistory)
+                ],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+            )
+            usageChartModel = nil
+            loadAverageChartModel = nil
+            fpsChartModel = nil
+
+        case .framesPerSecond:
+            fpsHistory = await coordinator.metricHistorySeries(for: .framesPerSecond, window: window, maxPoints: maxPoints)
+            userHistory = []
+            systemHistory = []
+            idleHistory = []
+            load1History = []
+            load5History = []
+            load15History = []
+            gpuProcessorHistory = []
+            gpuMemoryHistory = []
+
+            fpsChartModel = PreparedCPUMetricChartModel(
+                series: [ChartMetricSeriesDescriptor(key: "fps", label: "FPS", color: .cyan, samples: fpsHistory)],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+            )
+            usageChartModel = nil
+            loadAverageChartModel = nil
+            gpuChartModel = nil
+        }
+        let elapsed = start.duration(to: ContinuousClock.now)
+        coordinator.performanceDiagnosticsStore.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
+    }
+
+    private var contextRefreshID: String {
+        "\(activeChart.rawValue)-\(coordinator.selectedCPUHistoryWindow.rawValue)"
+    }
+
+    private var historyRefreshID: String {
+        "\(contextRefreshID)-\(coordinator.metricHistoryRevision)"
+    }
+
+    private var refreshTriggerID: String {
+        historyRefreshID
+    }
+
+    private var isInteractionActive: Bool {
+        hoveredDate != nil || zoomSelectionRect != nil
     }
 }
 
@@ -284,28 +398,23 @@ private extension CPUPaneChart {
 }
 
 private struct CPUUsagePaneChart: View {
-    let userHistory: [MetricHistoryPoint]
-    let systemHistory: [MetricHistoryPoint]
+    let model: PreparedCPUUsageChartModel
+    let areaOpacity: Double
+    let paneController: DetachedMetricsPaneController
     @Binding var hoveredDate: Date?
-
-    private var chartPoints: [CPUUsageSeriesPoint] {
-        let sanitizedUserHistory = ChartSeriesSanitizer.metricHistory(userHistory)
-        let sanitizedSystemHistory = ChartSeriesSanitizer.metricHistory(systemHistory)
-        var output: [CPUUsageSeriesPoint] = []
-        output.reserveCapacity(userHistory.count + systemHistory.count)
-        output.append(contentsOf: sanitizedUserHistory.map { CPUUsageSeriesPoint(timestamp: $0.timestamp, series: .user, value: $0.value) })
-        output.append(contentsOf: sanitizedSystemHistory.map { CPUUsageSeriesPoint(timestamp: $0.timestamp, series: .system, value: $0.value) })
-        return output.sorted { $0.timestamp < $1.timestamp }
-    }
+    @Binding var viewport: ChartViewport
+    @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart(chartPoints) { point in
+        Chart(model.points) { point in
             AreaMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Percent", point.value),
+                series: .value("Segment", point.continuityKey),
                 stacking: .standard
             )
-            .foregroundStyle(by: .value("Series", point.series.rawValue))
+            .foregroundStyle(point.series.color)
+            .opacity(areaOpacity)
             .interpolationMethod(.linear)
 
             if let hoveredDate {
@@ -314,63 +423,53 @@ private struct CPUUsagePaneChart: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .chartYScale(domain: 0...100)
-        .chartForegroundStyleScale([
-            CPUUsageSeriesPoint.Series.user.rawValue: Color.cyan,
-            CPUUsageSeriesPoint.Series.system.rawValue: Color.red
-        ])
+        .chartXScale(domain: viewport.xDomain ?? model.xDomain)
+        .chartYScale(domain: viewport.yDomain ?? (0...100))
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            let xPosition = location.x - geometry[proxy.plotAreaFrame].origin.x
-                            guard xPosition >= 0,
-                                  xPosition <= proxy.plotAreaSize.width,
-                                  let date: Date = proxy.value(atX: xPosition, as: Date.self) else {
-                                hoveredDate = nil
-                                return
-                            }
-                            hoveredDate = date
-                        case .ended:
-                            hoveredDate = nil
-                        }
-                    }
+                DetachedChartInteractionOverlay(
+                    proxy: proxy,
+                    geometry: geometry,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    selectionRect: $zoomSelectionRect
+                )
             }
         }
+        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
         .frame(height: 300)
     }
 }
 
 private struct MultiSeriesLinePaneChart: View {
-    let series: [(label: String, points: [MetricHistoryPoint], color: Color)]
+    let model: PreparedCPUMetricChartModel
+    let areaOpacity: Double
+    let paneController: DetachedMetricsPaneController
     @Binding var hoveredDate: Date?
-
-    private var sanitizedSeries: [(label: String, points: [MetricHistoryPoint], color: Color)] {
-        series.map { seriesEntry in
-            (
-                label: seriesEntry.label,
-                points: ChartSeriesSanitizer.metricHistory(seriesEntry.points),
-                color: seriesEntry.color
-            )
-        }
-    }
+    @Binding var viewport: ChartViewport
+    @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart {
-            ForEach(Array(sanitizedSeries.enumerated()), id: \.offset) { _, seriesEntry in
-                ForEach(seriesEntry.points, id: \.timestamp) { point in
-                    LineMark(
-                        x: .value("Time", point.timestamp),
-                        y: .value(seriesEntry.label, point.value)
-                    )
-                    .interpolationMethod(.linear)
-                    .foregroundStyle(seriesEntry.color)
-                }
-            }
+        Chart(model.points) { point in
+            AreaMark(
+                x: .value("Time", point.timestamp),
+                yStart: .value("Baseline", model.scale.renderedAreaBaseline(viewport: viewport)),
+                yEnd: .value("Value", point.value),
+                series: .value("Segment", point.continuityKey)
+            )
+            .foregroundStyle(point.color)
+            .opacity(areaOpacity)
+            .interpolationMethod(.linear)
+
+            LineMark(
+                x: .value("Time", point.timestamp),
+                y: .value("Value", point.value),
+                series: .value("Segment", point.continuityKey)
+            )
+            .foregroundStyle(point.color)
+            .lineStyle(StrokeStyle(lineWidth: 2))
+            .interpolationMethod(.linear)
 
             if let hoveredDate {
                 RuleMark(x: .value("Hover", hoveredDate))
@@ -378,43 +477,22 @@ private struct MultiSeriesLinePaneChart: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .chartYScale(domain: yDomain)
+        .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
+        .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            let xPosition = location.x - geometry[proxy.plotAreaFrame].origin.x
-                            guard xPosition >= 0,
-                                  xPosition <= proxy.plotAreaSize.width,
-                                  let date: Date = proxy.value(atX: xPosition, as: Date.self) else {
-                                hoveredDate = nil
-                                return
-                            }
-                            hoveredDate = date
-                        case .ended:
-                            hoveredDate = nil
-                        }
-                    }
+                DetachedChartInteractionOverlay(
+                    proxy: proxy,
+                    geometry: geometry,
+                    paneController: paneController,
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    selectionRect: $zoomSelectionRect
+                )
             }
         }
+        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
         .frame(height: 300)
-    }
-
-    private var yDomain: ClosedRange<Double> {
-        let values = sanitizedSeries.flatMap { $0.points.map(\.value) }
-        guard let minValue = values.min(), let maxValue = values.max() else {
-            return 0...1
-        }
-        if minValue == maxValue {
-            let delta = max(1, abs(minValue * 0.1))
-            return max(0, minValue - delta)...(maxValue + delta)
-        }
-        let padding = (maxValue - minValue) * 0.12
-        return max(0, minValue - padding)...(maxValue + padding)
     }
 }
 
@@ -422,11 +500,77 @@ private struct CPUUsageSeriesPoint: Identifiable {
     enum Series: String {
         case user
         case system
+
+        var color: Color {
+            switch self {
+            case .user:
+                return .cyan
+            case .system:
+                return .red
+            }
+        }
     }
 
     let timestamp: Date
     let series: Series
+    let continuityKey: String
     let value: Double
 
-    var id: String { "\(timestamp.timeIntervalSince1970)-\(series.rawValue)" }
+    var id: String { "\(continuityKey)-\(timestamp.timeIntervalSince1970)" }
+}
+
+private struct PreparedCPUUsageChartModel {
+    let points: [CPUUsageSeriesPoint]
+    let xDomain: ClosedRange<Date>
+
+    init(userHistory: [MetricHistoryPoint], systemHistory: [MetricHistoryPoint]) {
+        let sanitizedUserHistory = ChartSeriesPipeline.sanitize(userHistory, timestamp: \.timestamp)
+        let sanitizedSystemHistory = ChartSeriesPipeline.sanitize(systemHistory, timestamp: \.timestamp)
+        let userKeys = ChartSeriesPipeline.continuityKeys(for: sanitizedUserHistory, seriesKey: "cpu.user", timestamp: \.timestamp)
+        let systemKeys = ChartSeriesPipeline.continuityKeys(for: sanitizedSystemHistory, seriesKey: "cpu.system", timestamp: \.timestamp)
+        var output: [CPUUsageSeriesPoint] = []
+        output.reserveCapacity(userHistory.count + systemHistory.count)
+        output.append(contentsOf: zip(sanitizedUserHistory, userKeys).map {
+            CPUUsageSeriesPoint(timestamp: $0.0.timestamp, series: .user, continuityKey: $0.1, value: $0.0.value)
+        })
+        output.append(contentsOf: zip(sanitizedSystemHistory, systemKeys).map {
+            CPUUsageSeriesPoint(timestamp: $0.0.timestamp, series: .system, continuityKey: $0.1, value: $0.0.value)
+        })
+        points = output.sorted { $0.timestamp < $1.timestamp }
+        xDomain = Self.makeXDomain(from: points.map(\.timestamp))
+    }
+
+    static let empty = PreparedCPUUsageChartModel(userHistory: [], systemHistory: [])
+
+    private static func makeXDomain(from dates: [Date]) -> ClosedRange<Date> {
+        let minDate = dates.min() ?? Date()
+        let maxDate = dates.max() ?? minDate.addingTimeInterval(1)
+        if minDate == maxDate {
+            return minDate.addingTimeInterval(-30)...maxDate.addingTimeInterval(30)
+        }
+        return minDate...maxDate
+    }
+}
+
+private struct PreparedCPUMetricChartModel {
+    let points: [TimeSeriesChartPoint]
+    let scale: ChartScale
+    let fallbackXDomain: ClosedRange<Date>
+
+    init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy) {
+        points = ChartSeriesPipeline.metricHistory(series: series)
+        scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
+        fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
+    }
+
+    static let empty = PreparedCPUMetricChartModel(series: [], baseline: .zero())
+
+    private static func makeXDomain(from dates: [Date]) -> ClosedRange<Date> {
+        let minDate = dates.min() ?? Date()
+        let maxDate = dates.max() ?? minDate.addingTimeInterval(1)
+        if minDate == maxDate {
+            return minDate.addingTimeInterval(-30)...maxDate.addingTimeInterval(30)
+        }
+        return minDate...maxDate
+    }
 }

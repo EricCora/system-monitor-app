@@ -13,7 +13,7 @@ final class ChartSeriesSanitizerTests: XCTestCase {
             MetricHistoryPoint(timestamp: late, value: 3, unit: .percent)
         ]
 
-        let sanitized = ChartSeriesSanitizer.metricHistory(points)
+        let sanitized = ChartSeriesPipeline.sanitize(points, timestamp: \.timestamp)
 
         XCTAssertEqual(sanitized.map(\.timestamp), [early, late])
         XCTAssertEqual(sanitized.map(\.value), [1, 3])
@@ -29,7 +29,7 @@ final class ChartSeriesSanitizerTests: XCTestCase {
             MetricSample(metricID: .cpuLoadAverage1, timestamp: late, value: 3, unit: .scalar)
         ]
 
-        let sanitized = ChartSeriesSanitizer.metricSamples(samples)
+        let sanitized = ChartSeriesPipeline.sanitize(samples, timestamp: \.timestamp)
 
         XCTAssertEqual(sanitized.map(\.timestamp), [early, late])
         XCTAssertEqual(sanitized.map(\.value), [1, 3])

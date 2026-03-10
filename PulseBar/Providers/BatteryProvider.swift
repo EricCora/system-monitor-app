@@ -24,6 +24,7 @@ public struct BatteryProvider: MetricProvider {
             let enriched = BatterySnapshot(
                 chargePercent: snapshot.chargePercent,
                 currentMilliAmps: snapshot.currentMilliAmps,
+                voltageMilliVolts: snapshot.voltageMilliVolts ?? supplemental.voltageMilliVolts,
                 timeRemainingMinutes: snapshot.timeRemainingMinutes,
                 healthPercent: snapshot.healthPercent ?? supplemental.healthPercent,
                 cycleCount: snapshot.cycleCount ?? supplemental.cycleCount,
@@ -52,13 +53,24 @@ public struct BatteryProvider: MetricProvider {
             )
         ]
 
-        if let currentMilliAmps = snapshot.currentMilliAmps {
+        if let currentMilliAmps = snapshot.signedCurrentMilliAmps {
             samples.append(
                 MetricSample(
                     metricID: .batteryCurrentMilliAmps,
                     timestamp: date,
                     value: currentMilliAmps,
                     unit: .milliamps
+                )
+            )
+        }
+
+        if let powerWatts = snapshot.signedPowerWatts {
+            samples.append(
+                MetricSample(
+                    metricID: .batteryPowerWatts,
+                    timestamp: date,
+                    value: powerWatts,
+                    unit: .watts
                 )
             )
         }
@@ -123,6 +135,10 @@ public struct BatteryProvider: MetricProvider {
             kIOPSCurrentKey as String,
             "Current"
         ], in: description)
+        let voltageMilliVolts = number(forAnyKey: [
+            kIOPSVoltageKey as String,
+            "Voltage"
+        ], in: description)
 
         let timeToEmpty = number(forAnyKey: [
             kIOPSTimeToEmptyKey as String,
@@ -160,6 +176,7 @@ public struct BatteryProvider: MetricProvider {
         return BatterySnapshot(
             chargePercent: min(max((currentCapacity / maxCapacity) * 100.0, 0), 100),
             currentMilliAmps: currentMilliAmps,
+            voltageMilliVolts: voltageMilliVolts,
             timeRemainingMinutes: timeRemainingMinutes,
             healthPercent: healthPercent,
             cycleCount: cycleCount,
@@ -186,23 +203,28 @@ public struct BatteryProvider: MetricProvider {
         return nil
     }
 
-    private func readRegistrySupplement() -> (healthPercent: Double?, cycleCount: Double?) {
+    private func readRegistrySupplement() -> (healthPercent: Double?, cycleCount: Double?, voltageMilliVolts: Double?) {
         let smartBattery = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
         guard smartBattery != 0 else {
-            return (nil, nil)
+            return (nil, nil, nil)
         }
         defer { IOObjectRelease(smartBattery) }
 
         guard let properties = IORegistryEntryCreateCFPropertiesDictionary(smartBattery) as? [String: Any] else {
-            return (nil, nil)
+            return (nil, nil, nil)
         }
         return Self.parseRegistrySupplement(from: properties)
     }
 
-    static func parseRegistrySupplement(from properties: [String: Any]) -> (healthPercent: Double?, cycleCount: Double?) {
+    static func parseRegistrySupplement(from properties: [String: Any]) -> (healthPercent: Double?, cycleCount: Double?, voltageMilliVolts: Double?) {
         let cycleCount = number(forAnyKey: [
             "CycleCount",
             "Cycle Count"
+        ], in: properties)
+
+        let voltageMilliVolts = number(forAnyKey: [
+            "Voltage",
+            "DesignVoltage"
         ], in: properties)
 
         let maxCapacity = number(forAnyKey: [
@@ -222,17 +244,36 @@ public struct BatteryProvider: MetricProvider {
             healthPercent = nil
         }
 
-        return (healthPercent, cycleCount)
+        return (healthPercent, cycleCount, voltageMilliVolts)
     }
 }
 
 struct BatterySnapshot: Equatable {
     let chargePercent: Double
     let currentMilliAmps: Double?
+    let voltageMilliVolts: Double?
     let timeRemainingMinutes: Double?
     let healthPercent: Double?
     let cycleCount: Double?
     let isCharging: Bool
+
+    var signedCurrentMilliAmps: Double? {
+        guard let currentMilliAmps else {
+            return nil
+        }
+
+        let magnitude = abs(currentMilliAmps)
+        return isCharging ? magnitude : -magnitude
+    }
+
+    var signedPowerWatts: Double? {
+        guard let currentMilliAmps, let voltageMilliVolts else {
+            return nil
+        }
+
+        let magnitude = abs(currentMilliAmps * voltageMilliVolts) / 1_000_000
+        return isCharging ? magnitude : -magnitude
+    }
 }
 
 private func IORegistryEntryCreateCFPropertiesDictionary(_ entry: io_registry_entry_t) -> CFDictionary? {

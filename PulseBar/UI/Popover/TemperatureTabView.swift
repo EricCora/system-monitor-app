@@ -3,21 +3,22 @@ import SwiftUI
 import PulseBarCore
 
 struct TemperatureTabView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    let coordinator: AppCoordinator
     @ObservedObject var paneController: DetachedMetricsPaneController
+    @ObservedObject var featureStore: TemperatureFeatureStore
     @State private var hostWindow: NSWindow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let gateMessage = coordinator.fanParityGateMessage {
+            if let gateMessage = featureStore.fanParityGateMessage {
                 Text(gateMessage)
                     .font(.caption)
-                    .foregroundStyle(coordinator.fanParityGateBlocked ? .red : .secondary)
+                    .foregroundStyle(featureStore.fanParityGateBlocked ? .red : .secondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill((coordinator.fanParityGateBlocked ? Color.red : Color.secondary).opacity(0.12))
+                            .fill((featureStore.fanParityGateBlocked ? Color.red : Color.secondary).opacity(0.12))
                     )
             }
 
@@ -35,10 +36,7 @@ struct TemperatureTabView: View {
         .task {
             synchronizeSelectionAndPane()
         }
-        .onReceive(coordinator.$latestSensorChannels) { _ in
-            synchronizeSelectionAndPane()
-        }
-        .onChange(of: coordinator.hiddenTemperatureSensorIDs) { _ in
+        .task(id: featureStore.visibleSensors.map(\.id).joined(separator: ",")) {
             synchronizeSelectionAndPane()
         }
         .onDisappear {
@@ -55,7 +53,7 @@ struct TemperatureTabView: View {
 
                 Spacer()
 
-                Text("\(visibleSensors.count)")
+                Text("\(featureStore.visibleSensors.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -68,7 +66,7 @@ struct TemperatureTabView: View {
                 .buttonStyle(.bordered)
             }
 
-            if visibleSensors.isEmpty {
+            if featureStore.visibleSensors.isEmpty {
                 Text(emptyStateText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -76,7 +74,7 @@ struct TemperatureTabView: View {
                     .padding(.vertical, 6)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(groupedSensors) { group in
+                    ForEach(featureStore.groupedSensors) { group in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(group.category.label.uppercased())
                                 .font(.caption2.weight(.semibold))
@@ -149,12 +147,12 @@ struct TemperatureTabView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            if coordinator.privilegedSourceDiagnostics.isEmpty {
+            if featureStore.privilegedSourceDiagnostics.isEmpty {
                 Text("No diagnostics yet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(Array(coordinator.privilegedSourceDiagnostics.enumerated()), id: \.offset) { _, diagnostic in
+                ForEach(Array(featureStore.privilegedSourceDiagnostics.enumerated()), id: \.offset) { _, diagnostic in
                     HStack(alignment: .firstTextBaseline) {
                         Circle()
                             .fill(diagnostic.healthy ? Color.green : Color.red)
@@ -166,7 +164,7 @@ struct TemperatureTabView: View {
                 }
             }
 
-            if let historyStatus = coordinator.temperatureHistoryStoreStatusMessage {
+            if let historyStatus = featureStore.temperatureHistoryStoreStatusMessage {
                 Text(historyStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -174,32 +172,8 @@ struct TemperatureTabView: View {
         }
     }
 
-    private var visibleSensors: [SensorReading] {
-        coordinator.visibleSensorChannels()
-    }
-
-    private var groupedSensors: [SensorGroup] {
-        let grouped = Dictionary(grouping: visibleSensors, by: \.category)
-        return grouped
-            .map { category, channels in
-                SensorGroup(
-                    category: category,
-                    channels: channels.sorted { lhs, rhs in
-                        if lhs.channelType != rhs.channelType {
-                            return lhs.channelType.rawValue < rhs.channelType.rawValue
-                        }
-                        if lhs.value != rhs.value {
-                            return lhs.value > rhs.value
-                        }
-                        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-                    }
-                )
-            }
-            .sorted { $0.category.label < $1.category.label }
-    }
-
     private var emptyStateText: String {
-        if coordinator.privilegedTemperatureEnabled && !coordinator.privilegedTemperatureHealthy {
+        if coordinator.privilegedTemperatureEnabled && !featureStore.privilegedTemperatureHealthy {
             return "Privileged mode is unavailable right now. Falling back to standard thermal state."
         }
         if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
@@ -214,11 +188,11 @@ struct TemperatureTabView: View {
 
     private func synchronizeSelectionAndPane() {
         if coordinator.selectedSensorReading() == nil {
-            coordinator.selectedTemperatureSensorID = visibleSensors.first?.id ?? ""
+            coordinator.selectedTemperatureSensorID = featureStore.visibleSensors.first?.id ?? ""
         }
 
-        paneController.reconcileTemperatureSensors(Set(visibleSensors.map(\.id)))
-        if visibleSensors.isEmpty {
+        paneController.reconcileTemperatureSensors(Set(featureStore.visibleSensors.map(\.id)))
+        if featureStore.visibleSensors.isEmpty {
             paneController.closePanel(clearSelection: false)
         }
     }
@@ -234,27 +208,9 @@ struct TemperatureTabView: View {
     }
 
     private func barWidth(for channel: SensorReading, totalWidth: CGFloat) -> CGFloat {
-        let sameTypeValues = visibleSensors
-            .filter { $0.channelType == channel.channelType }
-            .map(\.value)
-
-        let maxValue: Double
-        switch channel.channelType {
-        case .temperatureCelsius:
-            maxValue = max(50, sameTypeValues.max() ?? 50)
-        case .fanRPM:
-            maxValue = max(1000, sameTypeValues.max() ?? 1000)
+        guard let group = featureStore.groupedSensors.first(where: { $0.category == channel.category }) else {
+            return 0
         }
-
-        guard maxValue > 0 else { return 0 }
-        let ratio = max(0, min(1, channel.value / maxValue))
-        return totalWidth * ratio
+        return totalWidth * group.barWidthRatio(for: channel)
     }
-}
-
-private struct SensorGroup: Identifiable {
-    let category: SensorCategory
-    let channels: [SensorReading]
-
-    var id: String { category.rawValue }
 }

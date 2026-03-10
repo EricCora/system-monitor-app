@@ -7,6 +7,7 @@ public actor GPUStatsProvider: MetricProvider {
 
     private let snapshotReader: SnapshotReader
     private var lastSnapshot: GPUSummarySnapshot
+    private var onSnapshotRead: (@Sendable () -> Void)?
 
     public init() {
         self.snapshotReader = { GPUStatsProvider.readSnapshot() }
@@ -18,7 +19,12 @@ public actor GPUStatsProvider: MetricProvider {
         self.lastSnapshot = snapshotReader()
     }
 
+    public func setOnSnapshotRead(_ handler: (@Sendable () -> Void)?) {
+        onSnapshotRead = handler
+    }
+
     public func currentSnapshot() -> GPUSummarySnapshot {
+        onSnapshotRead?()
         let snapshot = snapshotReader()
         lastSnapshot = snapshot
         return snapshot

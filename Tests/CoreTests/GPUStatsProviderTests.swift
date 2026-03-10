@@ -55,4 +55,28 @@ final class GPUStatsProviderTests: XCTestCase {
         XCTAssertEqual(samples.first?.metricID, .gpuProcessorPercent)
         XCTAssertEqual(samples.first?.value ?? -1, 42, accuracy: 0.001)
     }
+
+    func testSnapshotReadCallbackFiresForExplicitReads() async throws {
+        let provider = GPUStatsProvider(
+            snapshotReader: {
+                GPUSummarySnapshot(
+                    processorPercent: 21,
+                    memoryPercent: 33,
+                    deviceName: "Apple M4",
+                    available: true
+                )
+            }
+        )
+
+        let expectation = expectation(description: "snapshot reads")
+        expectation.expectedFulfillmentCount = 2
+        await provider.setOnSnapshotRead {
+            expectation.fulfill()
+        }
+
+        _ = await provider.currentSnapshot()
+        _ = try await provider.sample(at: Date())
+
+        await fulfillment(of: [expectation], timeout: 1)
+    }
 }

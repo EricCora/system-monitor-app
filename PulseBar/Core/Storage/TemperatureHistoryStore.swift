@@ -69,7 +69,7 @@ public actor TemperatureHistoryStore {
     public func series(
         sensorID: String,
         channelType: SensorChannelType,
-        window: TemperatureHistoryWindow,
+        window: ChartWindow,
         now: Date = Date(),
         maxPoints: Int = 900
     ) -> [TemperatureHistoryPoint] {

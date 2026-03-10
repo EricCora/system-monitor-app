@@ -3,6 +3,7 @@ import PulseBarCore
 
 struct DashboardView: View {
     @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var statusStore: DashboardStatusStore
     @StateObject private var paneController = DetachedMetricsPaneController()
     @State private var selectedTab: DashboardTab = .cpu
 
@@ -23,7 +24,7 @@ struct DashboardView: View {
 
                     Spacer()
 
-                    Text(coordinator.currentPowerSourceDescription)
+                    Text(statusStore.snapshot.currentPowerSourceDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -46,53 +47,62 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     switch selectedTab {
                     case .cpu:
-                        CPUTabView(coordinator: coordinator, paneController: paneController)
+                        CPUTabView(
+                            coordinator: coordinator,
+                            paneController: paneController,
+                            usageStore: coordinator.cpuUsageSurfaceStore,
+                            loadStore: coordinator.cpuLoadSurfaceStore,
+                            processesStore: coordinator.cpuProcessesSurfaceStore,
+                            gpuStore: coordinator.cpuGPUSurfaceStore,
+                            fpsStore: coordinator.cpuFPSSurfaceStore
+                        )
                     case .memory:
-                        MemoryTabView(coordinator: coordinator, paneController: paneController)
+                        MemoryTabView(
+                            coordinator: coordinator,
+                            paneController: paneController,
+                            featureStore: coordinator.memoryFeatureStore
+                        )
                     case .battery:
-                        BatteryTabView(coordinator: coordinator)
+                        BatteryTabView(
+                            coordinator: coordinator,
+                            featureStore: coordinator.batteryFeatureStore
+                        )
                     case .network:
-                        NetworkTabView(coordinator: coordinator)
+                        NetworkTabView(
+                            coordinator: coordinator,
+                            featureStore: coordinator.networkFeatureStore
+                        )
                     case .temperature:
-                        TemperatureTabView(coordinator: coordinator, paneController: paneController)
+                        TemperatureTabView(
+                            coordinator: coordinator,
+                            paneController: paneController,
+                            featureStore: coordinator.temperatureFeatureStore
+                        )
                     case .disk:
-                        DiskTabView(coordinator: coordinator)
+                        DiskTabView(
+                            coordinator: coordinator,
+                            featureStore: coordinator.diskFeatureStore
+                        )
                     case .settings:
-                        SettingsView(coordinator: coordinator)
+                        QuickSettingsView(
+                            coordinator: coordinator,
+                            statusStore: statusStore,
+                            diagnosticsStore: coordinator.performanceDiagnosticsStore
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .padding()
-    }
-}
-
-private enum DashboardTab: CaseIterable {
-    case cpu
-    case memory
-    case battery
-    case network
-    case temperature
-    case disk
-    case settings
-
-    var title: String {
-        switch self {
-        case .cpu:
-            return "CPU"
-        case .memory:
-            return "Memory"
-        case .battery:
-            return "Battery"
-        case .network:
-            return "Network"
-        case .temperature:
-            return "Temperature"
-        case .disk:
-            return "Disk"
-        case .settings:
-            return "Settings"
+        .onAppear {
+            coordinator.setActiveDashboardTab(selectedTab)
+        }
+        .onChange(of: selectedTab) { newValue in
+            coordinator.setActiveDashboardTab(newValue)
+        }
+        .onDisappear {
+            coordinator.setActiveDashboardTab(nil)
         }
     }
 }

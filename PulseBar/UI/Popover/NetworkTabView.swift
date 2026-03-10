@@ -2,20 +2,26 @@ import SwiftUI
 import PulseBarCore
 
 struct NetworkTabView: View {
-    @ObservedObject var coordinator: AppCoordinator
-
-    @State private var inboundSamples: [MetricSample] = []
-    @State private var outboundSamples: [MetricSample] = []
+    let coordinator: AppCoordinator
+    @ObservedObject var featureStore: NetworkFeatureStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            ChartWindowPicker(
+                options: coordinator.visibleChartWindows,
+                selection: Binding(
+                    get: { coordinator.networkChartWindow },
+                    set: { coordinator.networkChartWindow = $0 }
+                )
+            )
+
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Inbound")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(UnitsFormatter.format(
-                        coordinator.latestValue(for: .networkInBytesPerSec)?.value ?? 0,
+                        featureStore.inboundBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
@@ -29,7 +35,7 @@ struct NetworkTabView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(UnitsFormatter.format(
-                        coordinator.latestValue(for: .networkOutBytesPerSec)?.value ?? 0,
+                        featureStore.outboundBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
@@ -39,14 +45,18 @@ struct NetworkTabView: View {
 
             MetricChartView(
                 title: "Inbound Throughput",
-                samples: inboundSamples,
-                throughputUnit: coordinator.throughputUnit
+                samples: featureStore.inboundSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: "Outbound Throughput",
-                samples: outboundSamples,
-                throughputUnit: coordinator.throughputUnit
+                samples: featureStore.outboundSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             if !interfaceRates.isEmpty {
@@ -76,19 +86,14 @@ struct NetworkTabView: View {
             }
         }
         .task {
-            await refresh()
+            coordinator.refreshNetworkSurface()
         }
-        .onReceive(coordinator.$latestSamples) { _ in
-            Task { await refresh() }
+        .task(id: coordinator.networkChartWindow.rawValue) {
+            coordinator.refreshNetworkSurface()
         }
-    }
-
-    private func refresh() async {
-        inboundSamples = await coordinator.series(for: .networkInBytesPerSec)
-        outboundSamples = await coordinator.series(for: .networkOutBytesPerSec)
     }
 
     private var interfaceRates: [NetworkInterfaceRate] {
-        coordinator.latestNetworkInterfaces()
+        featureStore.interfaceRates
     }
 }

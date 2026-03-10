@@ -28,7 +28,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
     public var showDiskInMenu: Bool
     public var showTemperatureInMenu: Bool
     public var throughputUnit: ThroughputDisplayUnit
-    public var selectedWindow: TimeWindow
+    public var chartAreaOpacity: Double
 
     public var cpuAlertEnabled: Bool
     public var cpuAlertThreshold: Double
@@ -54,7 +54,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         showDiskInMenu: Bool,
         showTemperatureInMenu: Bool,
         throughputUnit: ThroughputDisplayUnit,
-        selectedWindow: TimeWindow,
+        chartAreaOpacity: Double,
         cpuAlertEnabled: Bool,
         cpuAlertThreshold: Double,
         cpuAlertDuration: Int,
@@ -75,7 +75,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         self.showDiskInMenu = showDiskInMenu
         self.showTemperatureInMenu = showTemperatureInMenu
         self.throughputUnit = throughputUnit
-        self.selectedWindow = selectedWindow
+        self.chartAreaOpacity = chartAreaOpacity.clamped(to: 0.05...0.5)
         self.cpuAlertEnabled = cpuAlertEnabled
         self.cpuAlertThreshold = cpuAlertThreshold
         self.cpuAlertDuration = cpuAlertDuration
@@ -98,7 +98,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         case showDiskInMenu
         case showTemperatureInMenu
         case throughputUnit
-        case selectedWindow
+        case chartAreaOpacity
         case cpuAlertEnabled
         case cpuAlertThreshold
         case cpuAlertDuration
@@ -123,7 +123,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         showDiskInMenu = try container.decode(Bool.self, forKey: .showDiskInMenu)
         showTemperatureInMenu = try container.decode(Bool.self, forKey: .showTemperatureInMenu)
         throughputUnit = try container.decode(ThroughputDisplayUnit.self, forKey: .throughputUnit)
-        selectedWindow = try container.decode(TimeWindow.self, forKey: .selectedWindow)
+        chartAreaOpacity = (try container.decodeIfPresent(Double.self, forKey: .chartAreaOpacity) ?? 0.18).clamped(to: 0.05...0.5)
 
         cpuAlertEnabled = try container.decode(Bool.self, forKey: .cpuAlertEnabled)
         cpuAlertThreshold = try container.decode(Double.self, forKey: .cpuAlertThreshold)
@@ -149,7 +149,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         try container.encode(showDiskInMenu, forKey: .showDiskInMenu)
         try container.encode(showTemperatureInMenu, forKey: .showTemperatureInMenu)
         try container.encode(throughputUnit, forKey: .throughputUnit)
-        try container.encode(selectedWindow, forKey: .selectedWindow)
+        try container.encode(chartAreaOpacity, forKey: .chartAreaOpacity)
         try container.encode(cpuAlertEnabled, forKey: .cpuAlertEnabled)
         try container.encode(cpuAlertThreshold, forKey: .cpuAlertThreshold)
         try container.encode(cpuAlertDuration, forKey: .cpuAlertDuration)
@@ -172,7 +172,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         showDiskInMenu: false,
         showTemperatureInMenu: true,
         throughputUnit: .bytesPerSecond,
-        selectedWindow: .fifteenMinutes,
+        chartAreaOpacity: 0.18,
         cpuAlertEnabled: false,
         cpuAlertThreshold: 90,
         cpuAlertDuration: 45,
@@ -195,7 +195,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         showDiskInMenu: false,
         showTemperatureInMenu: true,
         throughputUnit: .bytesPerSecond,
-        selectedWindow: .oneHour,
+        chartAreaOpacity: 0.18,
         cpuAlertEnabled: false,
         cpuAlertThreshold: 85,
         cpuAlertDuration: 30,
@@ -218,7 +218,7 @@ public struct ProfileSettings: Codable, Sendable, Equatable {
         showDiskInMenu: true,
         showTemperatureInMenu: true,
         throughputUnit: .bytesPerSecond,
-        selectedWindow: .oneHour,
+        chartAreaOpacity: 0.18,
         cpuAlertEnabled: false,
         cpuAlertThreshold: 92,
         cpuAlertDuration: 20,
@@ -261,6 +261,7 @@ public struct LegacySettingsSnapshot: Sendable, Equatable {
     public var showDiskInMenu: Bool
     public var showTemperatureInMenu: Bool
     public var throughputUnit: ThroughputDisplayUnit
+    public var chartAreaOpacity: Double
     public var selectedWindow: TimeWindow
 
     public var cpuAlertEnabled: Bool
@@ -288,6 +289,7 @@ public struct LegacySettingsSnapshot: Sendable, Equatable {
         showDiskInMenu: Bool,
         showTemperatureInMenu: Bool,
         throughputUnit: ThroughputDisplayUnit,
+        chartAreaOpacity: Double,
         selectedWindow: TimeWindow,
         cpuAlertEnabled: Bool,
         cpuAlertThreshold: Double,
@@ -310,6 +312,7 @@ public struct LegacySettingsSnapshot: Sendable, Equatable {
         self.showDiskInMenu = showDiskInMenu
         self.showTemperatureInMenu = showTemperatureInMenu
         self.throughputUnit = throughputUnit
+        self.chartAreaOpacity = chartAreaOpacity.clamped(to: 0.05...0.5)
         self.selectedWindow = selectedWindow
         self.cpuAlertEnabled = cpuAlertEnabled
         self.cpuAlertThreshold = cpuAlertThreshold
@@ -334,7 +337,7 @@ public struct LegacySettingsSnapshot: Sendable, Equatable {
             showDiskInMenu: showDiskInMenu,
             showTemperatureInMenu: showTemperatureInMenu,
             throughputUnit: throughputUnit,
-            selectedWindow: selectedWindow,
+            chartAreaOpacity: chartAreaOpacity,
             cpuAlertEnabled: cpuAlertEnabled,
             cpuAlertThreshold: cpuAlertThreshold,
             cpuAlertDuration: cpuAlertDuration,

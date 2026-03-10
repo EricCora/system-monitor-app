@@ -1,55 +1,67 @@
-import Charts
+import AppKit
 import SwiftUI
 import PulseBarCore
 
 struct CPUTabView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    let coordinator: AppCoordinator
     @ObservedObject var paneController: DetachedMetricsPaneController
+    let usageStore: CPUUsageSurfaceStore
+    let loadStore: CPULoadSurfaceStore
+    let processesStore: CPUProcessesSurfaceStore
+    let gpuStore: CPUGPUSurfaceStore
+    let fpsStore: CPUFPSSurfaceStore
     @State private var hostWindow: NSWindow?
-    @State private var userSamples: [MetricSample] = []
-    @State private var systemSamples: [MetricSample] = []
-    @State private var loadSamples: [MetricSample] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if showsCompactChartWindowPicker {
+                ChartWindowPicker(
+                    options: coordinator.visibleChartWindows,
+                    selection: Binding(
+                        get: { coordinator.compactCPUChartWindow },
+                        set: { coordinator.compactCPUChartWindow = $0 }
+                    )
+                )
+            }
+
             ForEach(coordinator.cpuMenuLayout.visibleSections, id: \.self) { section in
                 switch section {
                 case .usage:
                     hoverableSection(chart: .usage) {
-                        usageSection
+                        CPUUsageSection(store: usageStore, areaOpacity: coordinator.chartAreaOpacity)
                     }
                 case .processes:
-                    processesSection
+                    CPUProcessesSection(store: processesStore, processCount: coordinator.cpuProcessCount)
                 case .appleSilicon:
                     hoverableSection(chart: .gpu) {
-                        appleSiliconSection
+                        CPUGPUSection(store: gpuStore)
                     }
                 case .framesPerSecond:
                     hoverableSection(chart: .framesPerSecond) {
-                        framesPerSecondSection
+                        CPUFPSSection(store: fpsStore)
                     }
                 case .loadAverage:
                     hoverableSection(chart: .loadAverage) {
-                        loadAverageSection
+                        CPULoadSection(store: loadStore, areaOpacity: coordinator.chartAreaOpacity)
                     }
                 case .uptime:
-                    uptimeSection
+                    CPUUptimeSection(store: usageStore)
                 }
             }
 
-            if let processStatus = coordinator.cpuProcessesStatusMessage {
+            if let processStatus = processesStore.snapshot.statusMessage {
                 Text(processStatus)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
-            if let gpuStatus = coordinator.latestGPUSummary?.statusMessage, coordinator.latestGPUSummary?.available == false {
+            if let gpuStatus = gpuStore.snapshot.summary?.statusMessage, gpuStore.snapshot.summary?.available == false {
                 Text(gpuStatus)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
-            if let fpsStatus = coordinator.fpsStatusMessage {
+            if let fpsStatus = fpsStore.snapshot.statusMessage {
                 Text(fpsStatus)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -70,10 +82,10 @@ struct CPUTabView: View {
             }
         )
         .task {
-            await refresh()
+            coordinator.refreshCPUCompactSurface(forceReload: false)
         }
-        .onReceive(coordinator.$latestSamples) { _ in
-            Task { await refresh() }
+        .task(id: coordinator.compactCPUChartWindow.rawValue) {
+            coordinator.refreshCPUCompactSurface(forceReload: true)
         }
         .onHover { hovering in
             paneController.setMainListHovering(hovering)
@@ -103,7 +115,6 @@ struct CPUTabView: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            coordinator.selectedCPUPaneChart = chart
             if hovering {
                 if let parentWindow = currentParentWindow {
                     paneController.preview(target, coordinator: coordinator, parentWindow: parentWindow)
@@ -114,35 +125,57 @@ struct CPUTabView: View {
         }
     }
 
-    private var usageSection: some View {
-        let summary = coordinator.cpuSummarySnapshot()
-        return VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("CPU")
+    private var currentParentWindow: NSWindow? {
+        hostWindow ?? NSApp.keyWindow
+    }
+
+    private var showsCompactChartWindowPicker: Bool {
+        coordinator.cpuMenuLayout.visibleSections.contains(.usage)
+            || coordinator.cpuMenuLayout.visibleSections.contains(.loadAverage)
+    }
+}
+
+private struct CPUUsageSection: View {
+    @ObservedObject var store: CPUUsageSurfaceStore
+    let areaOpacity: Double
+
+    var body: some View {
+        let snapshot = store.snapshot
+        VStack(alignment: .leading, spacing: 8) {
+            CPUSectionTitle("CPU")
 
             HStack(alignment: .top, spacing: 8) {
-                CompactCPUUsageChart(userSamples: userSamples, systemSamples: systemSamples)
-                    .frame(height: 92)
+                CompactCPUUsageCanvasChart(
+                    model: snapshot.renderModel,
+                    areaOpacity: areaOpacity
+                )
+                .frame(height: 92)
 
-                CompactCPUBars(coreSamples: coordinator.latestCPUCores())
+                CompactCPUBars(coreSamples: snapshot.coreSamples)
                     .frame(width: 78, height: 92)
             }
 
-            cpuLegendRow(title: "User", color: .cyan, value: summary.userPercent)
-            cpuLegendRow(title: "System", color: .red, value: summary.systemPercent)
-            cpuLegendRow(title: "Idle", color: .gray, value: summary.idlePercent)
+            CPULegendRow(title: "User", color: .cyan, value: snapshot.summary.userPercent)
+            CPULegendRow(title: "System", color: .red, value: snapshot.summary.systemPercent)
+            CPULegendRow(title: "Idle", color: .gray, value: snapshot.summary.idlePercent)
         }
     }
+}
 
-    private var processesSection: some View {
+private struct CPUProcessesSection: View {
+    @ObservedObject var store: CPUProcessesSurfaceStore
+    let processCount: Int
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("PROCESSES")
+            CPUSectionTitle("PROCESSES")
 
-            if coordinator.topCPUProcesses.isEmpty {
+            if store.snapshot.entries.isEmpty {
                 Text("Collecting CPU processes")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(coordinator.topCPUProcesses.prefix(coordinator.cpuProcessCount)) { process in
+                ForEach(store.snapshot.entries.prefix(processCount)) { process in
                     HStack(spacing: 8) {
                         Text(process.name)
                             .lineLimit(1)
@@ -160,33 +193,41 @@ struct CPUTabView: View {
                 .fill(Color.primary.opacity(0.05))
         )
     }
+}
 
-    private var appleSiliconSection: some View {
-        let gpu = coordinator.latestGPUSummary
+private struct CPUGPUSection: View {
+    @ObservedObject var store: CPUGPUSurfaceStore
+
+    var body: some View {
+        let gpu = store.snapshot.summary
         return VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(gpu?.deviceName.uppercased() ?? "APPLE SILICON")
+            CPUSectionTitle(gpu?.deviceName.uppercased() ?? "APPLE SILICON")
 
             if let gpu, gpu.available {
-                cpuMetricBarRow(title: "Processor", value: gpu.processorPercent ?? 0, color: .cyan)
-                cpuMetricBarRow(title: "Memory", value: gpu.memoryPercent ?? 0, color: .blue)
+                CPUMetricBarRow(title: "Processor", value: gpu.processorPercent ?? 0, color: .cyan)
+                CPUMetricBarRow(title: "Memory", value: gpu.memoryPercent ?? 0, color: .blue)
             } else {
-                cpuMetricBarRow(title: "Processor", value: 0, color: .cyan)
-                cpuMetricBarRow(title: "Memory", value: 0, color: .blue)
+                CPUMetricBarRow(title: "Processor", value: 0, color: .cyan)
+                CPUMetricBarRow(title: "Memory", value: 0, color: .blue)
                 Text(gpu?.statusMessage ?? "GPU telemetry unavailable")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
     }
+}
 
-    private var framesPerSecondSection: some View {
+private struct CPUFPSSection: View {
+    @ObservedObject var store: CPUFPSSurfaceStore
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("FRAMES PER SECOND")
+            CPUSectionTitle("FRAMES PER SECOND")
             HStack {
                 Text("Frames Per Second")
                     .foregroundStyle(.secondary)
                 Spacer()
-                if let fps = coordinator.latestValue(for: .framesPerSecond)?.value {
+                if let fps = store.snapshot.framesPerSecond {
                     Text(String(format: "%.1f", fps))
                         .font(.body.monospacedDigit())
                 } else {
@@ -197,27 +238,39 @@ struct CPUTabView: View {
             .font(.subheadline)
         }
     }
+}
 
-    private var loadAverageSection: some View {
-        let summary = coordinator.cpuSummarySnapshot()
-        return VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("LOAD AVERAGE")
+private struct CPULoadSection: View {
+    @ObservedObject var store: CPULoadSurfaceStore
+    let areaOpacity: Double
 
-            CompactLoadAverageChart(samples: loadSamples)
-                .frame(height: 92)
+    var body: some View {
+        let snapshot = store.snapshot
+        VStack(alignment: .leading, spacing: 8) {
+            CPUSectionTitle("LOAD AVERAGE")
+
+            CompactCPULoadCanvasChart(
+                model: snapshot.renderModel,
+                areaOpacity: areaOpacity
+            )
+            .frame(height: 92)
 
             HStack(spacing: 12) {
-                loadBadge(value: summary.loadAverages.one, color: .cyan)
-                loadBadge(value: summary.loadAverages.five, color: .red)
-                loadBadge(value: summary.loadAverages.fifteen, color: .gray)
+                CPULoadBadge(value: snapshot.loadAverages.one, color: .cyan)
+                CPULoadBadge(value: snapshot.loadAverages.five, color: .red)
+                CPULoadBadge(value: snapshot.loadAverages.fifteen, color: .gray)
             }
         }
     }
+}
 
-    private var uptimeSection: some View {
+private struct CPUUptimeSection: View {
+    @ObservedObject var store: CPUUsageSurfaceStore
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("UPTIME")
-            Text(UnitsFormatter.format(coordinator.cpuSummarySnapshot().uptimeSeconds, unit: .seconds))
+            CPUSectionTitle("UPTIME")
+            Text(UnitsFormatter.format(store.snapshot.summary.uptimeSeconds, unit: .seconds))
                 .font(.body.monospacedDigit())
         }
         .padding(10)
@@ -226,25 +279,29 @@ struct CPUTabView: View {
                 .fill(Color.primary.opacity(0.05))
         )
     }
+}
 
-    private var currentParentWindow: NSWindow? {
-        hostWindow ?? NSApp.keyWindow
+private struct CPUSectionTitle: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
     }
 
-    private func refresh() async {
-        userSamples = await coordinator.series(for: .cpuUserPercent, maxPoints: 60)
-        systemSamples = await coordinator.series(for: .cpuSystemPercent, maxPoints: 60)
-        loadSamples = await coordinator.series(for: .cpuLoadAverage1, maxPoints: 60)
-    }
-
-    private func sectionTitle(_ text: String) -> some View {
+    var body: some View {
         Text(text)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.cyan)
             .frame(maxWidth: .infinity, alignment: .center)
     }
+}
 
-    private func cpuLegendRow(title: String, color: Color, value: Double) -> some View {
+private struct CPULegendRow: View {
+    let title: String
+    let color: Color
+    let value: Double
+
+    var body: some View {
         HStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
@@ -257,8 +314,14 @@ struct CPUTabView: View {
         }
         .font(.subheadline)
     }
+}
 
-    private func cpuMetricBarRow(title: String, value: Double, color: Color) -> some View {
+private struct CPUMetricBarRow: View {
+    let title: String
+    let value: Double
+    let color: Color
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
@@ -279,8 +342,13 @@ struct CPUTabView: View {
             .frame(height: 12)
         }
     }
+}
 
-    private func loadBadge(value: Double, color: Color) -> some View {
+private struct CPULoadBadge: View {
+    let value: Double
+    let color: Color
+
+    var body: some View {
         HStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
@@ -291,36 +359,98 @@ struct CPUTabView: View {
     }
 }
 
-private struct CompactCPUUsageChart: View {
-    let userSamples: [MetricSample]
-    let systemSamples: [MetricSample]
-
-    private var points: [CompactCPUUsagePoint] {
-        let sanitizedUserSamples = ChartSeriesSanitizer.metricSamples(userSamples)
-        let sanitizedSystemSamples = ChartSeriesSanitizer.metricSamples(systemSamples)
-        var output: [CompactCPUUsagePoint] = []
-        output.append(contentsOf: sanitizedUserSamples.map { CompactCPUUsagePoint(timestamp: $0.timestamp, series: .user, value: $0.value) })
-        output.append(contentsOf: sanitizedSystemSamples.map { CompactCPUUsagePoint(timestamp: $0.timestamp, series: .system, value: $0.value) })
-        return output.sorted { $0.timestamp < $1.timestamp }
-    }
+private struct CompactCPUUsageCanvasChart: View {
+    let model: CompactCPUUsageRenderModel
+    let areaOpacity: Double
 
     var body: some View {
-        Chart(points) { point in
-            AreaMark(
-                x: .value("Time", point.timestamp),
-                y: .value("Percent", point.value),
-                stacking: .standard
-            )
-            .foregroundStyle(by: .value("Series", point.series.rawValue))
-            .interpolationMethod(.linear)
+        GeometryReader { proxy in
+            Canvas(rendersAsynchronously: true) { context, size in
+                drawCPUUsage(in: &context, size: size)
+            }
         }
-        .chartYScale(domain: 0...100)
-        .chartForegroundStyleScale([
-            CompactCPUUsagePoint.Series.user.rawValue: Color.cyan,
-            CompactCPUUsagePoint.Series.system.rawValue: Color.red
-        ])
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
+    }
+
+    private func drawCPUUsage(in context: inout GraphicsContext, size: CGSize) {
+        guard let xDomain = model.xDomain else { return }
+        let yDomain = 0.0...100.0
+
+        for segment in model.segments where segment.points.count >= 2 {
+            let totalArea = areaPath(
+                points: segment.points,
+                timestamp: \.timestamp,
+                value: \.totalValue,
+                baseline: yDomain.lowerBound,
+                xDomain: xDomain,
+                yDomain: yDomain,
+                size: size
+            )
+            context.fill(totalArea, with: .color(.red.opacity(areaOpacity)))
+
+            let userArea = areaPath(
+                points: segment.points,
+                timestamp: \.timestamp,
+                value: \.userValue,
+                baseline: yDomain.lowerBound,
+                xDomain: xDomain,
+                yDomain: yDomain,
+                size: size
+            )
+            context.fill(userArea, with: .color(.cyan.opacity(areaOpacity)))
+
+            context.stroke(
+                linePath(points: segment.points, timestamp: \.timestamp, value: \.totalValue, xDomain: xDomain, yDomain: yDomain, size: size),
+                with: .color(.red.opacity(0.9)),
+                lineWidth: 1.5
+            )
+            context.stroke(
+                linePath(points: segment.points, timestamp: \.timestamp, value: \.userValue, xDomain: xDomain, yDomain: yDomain, size: size),
+                with: .color(.cyan.opacity(0.95)),
+                lineWidth: 1.5
+            )
+        }
+    }
+}
+
+private struct CompactCPULoadCanvasChart: View {
+    let model: CompactCPULoadRenderModel
+    let areaOpacity: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            Canvas(rendersAsynchronously: true) { context, size in
+                drawSeries(segments: model.fifteenMinuteSegments, color: .gray, context: &context, size: size)
+                drawSeries(segments: model.fiveMinuteSegments, color: .red, context: &context, size: size)
+                drawSeries(segments: model.oneMinuteSegments, color: .cyan, context: &context, size: size)
+            }
+        }
+    }
+
+    private func drawSeries(
+        segments: [CompactChartSegment<CompactChartPoint>],
+        color: Color,
+        context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        guard let xDomain = model.xDomain else { return }
+
+        for segment in segments where segment.points.count >= 2 {
+            let area = areaPath(
+                points: segment.points,
+                timestamp: \.timestamp,
+                value: \.value,
+                baseline: model.areaBaseline,
+                xDomain: xDomain,
+                yDomain: model.yDomain,
+                size: size
+            )
+            context.fill(area, with: .color(color.opacity(areaOpacity)))
+            context.stroke(
+                linePath(points: segment.points, timestamp: \.timestamp, value: \.value, xDomain: xDomain, yDomain: model.yDomain, size: size),
+                with: .color(color.opacity(0.95)),
+                lineWidth: 1.5
+            )
+        }
     }
 }
 
@@ -346,32 +476,69 @@ private struct CompactCPUBars: View {
     }
 }
 
-private struct CompactLoadAverageChart: View {
-    let samples: [MetricSample]
+private func areaPath<Point>(
+    points: [Point],
+    timestamp: KeyPath<Point, Date>,
+    value: KeyPath<Point, Double>,
+    baseline: Double,
+    xDomain: ClosedRange<Date>,
+    yDomain: ClosedRange<Double>,
+    size: CGSize
+) -> Path where Point: Equatable {
+    guard let first = points.first, let last = points.last else { return Path() }
 
-    var body: some View {
-        Chart(ChartSeriesSanitizer.metricSamples(samples), id: \.timestamp) { sample in
-            LineMark(
-                x: .value("Time", sample.timestamp),
-                y: .value("Load", sample.value)
-            )
-            .interpolationMethod(.linear)
-            .foregroundStyle(.cyan)
-        }
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
+    var path = Path()
+    let baselineY = yPosition(for: baseline, domain: yDomain, height: size.height)
+    path.move(to: CGPoint(x: xPosition(for: first[keyPath: timestamp], domain: xDomain, width: size.width), y: baselineY))
+
+    for point in points {
+        path.addLine(to: CGPoint(
+            x: xPosition(for: point[keyPath: timestamp], domain: xDomain, width: size.width),
+            y: yPosition(for: point[keyPath: value], domain: yDomain, height: size.height)
+        ))
     }
+
+    path.addLine(to: CGPoint(
+        x: xPosition(for: last[keyPath: timestamp], domain: xDomain, width: size.width),
+        y: baselineY
+    ))
+    path.closeSubpath()
+    return path
 }
 
-private struct CompactCPUUsagePoint: Identifiable {
-    enum Series: String {
-        case user
-        case system
+private func linePath<Point>(
+    points: [Point],
+    timestamp: KeyPath<Point, Date>,
+    value: KeyPath<Point, Double>,
+    xDomain: ClosedRange<Date>,
+    yDomain: ClosedRange<Double>,
+    size: CGSize
+) -> Path where Point: Equatable {
+    guard let first = points.first else { return Path() }
+    var path = Path()
+    path.move(to: CGPoint(
+        x: xPosition(for: first[keyPath: timestamp], domain: xDomain, width: size.width),
+        y: yPosition(for: first[keyPath: value], domain: yDomain, height: size.height)
+    ))
+    for point in points.dropFirst() {
+        path.addLine(to: CGPoint(
+            x: xPosition(for: point[keyPath: timestamp], domain: xDomain, width: size.width),
+            y: yPosition(for: point[keyPath: value], domain: yDomain, height: size.height)
+        ))
     }
+    return path
+}
 
-    let timestamp: Date
-    let series: Series
-    let value: Double
+private func xPosition(for timestamp: Date, domain: ClosedRange<Date>, width: CGFloat) -> CGFloat {
+    let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
+    guard span > 0 else { return width / 2 }
+    let offset = timestamp.timeIntervalSince(domain.lowerBound)
+    return CGFloat(min(max(offset / span, 0), 1)) * width
+}
 
-    var id: String { "\(timestamp.timeIntervalSince1970)-\(series.rawValue)" }
+private func yPosition(for value: Double, domain: ClosedRange<Double>, height: CGFloat) -> CGFloat {
+    let span = domain.upperBound - domain.lowerBound
+    guard span > 0 else { return height / 2 }
+    let normalized = (value - domain.lowerBound) / span
+    return height - (CGFloat(min(max(normalized, 0), 1)) * height)
 }

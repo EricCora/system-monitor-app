@@ -44,8 +44,8 @@ final class MemoryHistoryStoreTests: XCTestCase {
             )
         }
 
-        let bucketed = await store.series(window: .twentyFourHours, now: now, maxPoints: 900)
-        let downsampled = await store.series(window: .twentyFourHours, now: now, maxPoints: 8)
+        let bucketed = await store.series(window: .oneDay, now: now, maxPoints: 900)
+        let downsampled = await store.series(window: .oneDay, now: now, maxPoints: 8)
 
         XCTAssertFalse(bucketed.isEmpty)
         XCTAssertLessThan(bucketed.count, 121)

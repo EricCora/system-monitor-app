@@ -17,25 +17,23 @@ public actor TimeSeriesStore {
         }
     }
 
-    public func series(for metricID: MetricID, window: TimeWindow) -> [MetricSample] {
+    public func series(for metricID: MetricID, window: ChartWindow) -> [MetricSample] {
         guard let buffer = buffers[metricID] else {
             return []
         }
 
         let cutoff = Date().addingTimeInterval(-window.seconds)
-        return buffer
-            .allElementsInOrder()
-            .filter { $0.timestamp >= cutoff }
+        return buffer.suffixInOrder { $0.timestamp >= cutoff }
     }
 
     public func latest(for metricID: MetricID) -> MetricSample? {
-        buffers[metricID]?.allElementsInOrder().last
+        buffers[metricID]?.last
     }
 
     public func latestByMetric() -> [MetricID: MetricSample] {
         var output: [MetricID: MetricSample] = [:]
         for (metricID, buffer) in buffers {
-            if let sample = buffer.allElementsInOrder().last {
+            if let sample = buffer.last {
                 output[metricID] = sample
             }
         }

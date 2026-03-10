@@ -6,6 +6,7 @@ public enum MetricUnit: String, Codable, Sendable {
     case bytesPerSecond
     case celsius
     case milliamps
+    case watts
     case minutes
     case seconds
     case scalar
@@ -21,6 +22,100 @@ public enum ThroughputDisplayUnit: String, Codable, CaseIterable, Sendable {
             return "Bytes/s"
         case .bitsPerSecond:
             return "Bits/s"
+        }
+    }
+}
+
+public enum ChartWindow: String, CaseIterable, Codable, Sendable {
+    case fifteenMinutes
+    case oneHour
+    case sixHours
+    case oneDay
+    case oneWeek
+    case oneMonth
+
+    public var seconds: TimeInterval {
+        switch self {
+        case .fifteenMinutes:
+            return 15 * 60
+        case .oneHour:
+            return 60 * 60
+        case .sixHours:
+            return 6 * 60 * 60
+        case .oneDay:
+            return 24 * 60 * 60
+        case .oneWeek:
+            return 7 * 24 * 60 * 60
+        case .oneMonth:
+            return 30 * 24 * 60 * 60
+        }
+    }
+
+    public var bucketSeconds: Int {
+        switch self {
+        case .fifteenMinutes, .oneHour:
+            return 1
+        case .sixHours:
+            return 30
+        case .oneDay:
+            return 60
+        case .oneWeek:
+            return 300
+        case .oneMonth:
+            return 1_800
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .fifteenMinutes:
+            return "15m"
+        case .oneHour:
+            return "1h"
+        case .sixHours:
+            return "6h"
+        case .oneDay:
+            return "1d"
+        case .oneWeek:
+            return "1w"
+        case .oneMonth:
+            return "1mo"
+        }
+    }
+
+    public var accessibilityLabel: String {
+        switch self {
+        case .fifteenMinutes:
+            return "15 Minutes"
+        case .oneHour:
+            return "1 Hour"
+        case .sixHours:
+            return "6 Hours"
+        case .oneDay:
+            return "1 Day"
+        case .oneWeek:
+            return "1 Week"
+        case .oneMonth:
+            return "1 Month"
+        }
+    }
+
+    public init(legacyRawValue: String) {
+        switch legacyRawValue {
+        case "fiveMinutes", "fifteenMinutes":
+            self = .fifteenMinutes
+        case "oneHour":
+            self = .oneHour
+        case "sixHours":
+            self = .sixHours
+        case "twentyFourHours", "oneDay":
+            self = .oneDay
+        case "sevenDays", "oneWeek":
+            self = .oneWeek
+        case "thirtyDays", "oneMonth":
+            self = .oneMonth
+        default:
+            self = .oneHour
         }
     }
 }
@@ -51,6 +146,15 @@ public enum TimeWindow: String, CaseIterable, Codable, Sendable {
             return "1h"
         }
     }
+
+    public var chartWindow: ChartWindow {
+        switch self {
+        case .fiveMinutes, .fifteenMinutes:
+            return .fifteenMinutes
+        case .oneHour:
+            return .oneHour
+        }
+    }
 }
 
 public enum UnitsFormatter {
@@ -70,6 +174,8 @@ public enum UnitsFormatter {
             return String(format: "%.1f C", value)
         case .milliamps:
             return String(format: "%.0f mA", value)
+        case .watts:
+            return String(format: "%.1f W", value)
         case .minutes:
             return formatMinutes(value)
         case .seconds:

@@ -5,13 +5,13 @@ public actor SamplingEngine {
     private let store: TimeSeriesStore
     private var intervalSeconds: Double
     private var loopTask: Task<Void, Never>?
-    private var onBatch: (@Sendable ([MetricSample]) async -> Void)?
+    private var onBatch: (@Sendable (SamplingBatch) async -> Void)?
 
     public init(
         providers: [any MetricProvider],
         store: TimeSeriesStore,
         intervalSeconds: Double = 2.0,
-        onBatch: (@Sendable ([MetricSample]) async -> Void)? = nil
+        onBatch: (@Sendable (SamplingBatch) async -> Void)? = nil
     ) {
         self.providers = providers
         self.store = store
@@ -19,7 +19,7 @@ public actor SamplingEngine {
         self.onBatch = onBatch
     }
 
-    public func setOnBatch(_ onBatch: (@Sendable ([MetricSample]) async -> Void)?) {
+    public func setOnBatch(_ onBatch: (@Sendable (SamplingBatch) async -> Void)?) {
         self.onBatch = onBatch
     }
 
@@ -37,6 +37,18 @@ public actor SamplingEngine {
         loopTask = nil
     }
 
+    public func sampleNow() async {
+        let batch = await collect(at: Date())
+
+        if !batch.samples.isEmpty {
+            await store.append(batch.samples)
+        }
+
+        if !batch.isEmpty, let onBatch {
+            await onBatch(batch)
+        }
+    }
+
     public func updateInterval(seconds: Double) async {
         intervalSeconds = min(max(seconds, 1.0), 10.0)
         for provider in providers {
@@ -47,13 +59,14 @@ public actor SamplingEngine {
     private func runLoop() async {
         while !Task.isCancelled {
             let tickStart = Date()
-            let samples = await collect(at: tickStart)
+            let batch = await collect(at: tickStart)
 
-            if !samples.isEmpty {
-                await store.append(samples)
-                if let onBatch {
-                    await onBatch(samples)
-                }
+            if !batch.samples.isEmpty {
+                await store.append(batch.samples)
+            }
+
+            if !batch.isEmpty, let onBatch {
+                await onBatch(batch)
             }
 
             let elapsed = Date().timeIntervalSince(tickStart)
@@ -64,23 +77,47 @@ public actor SamplingEngine {
         }
     }
 
-    private func collect(at date: Date) async -> [MetricSample] {
-        await withTaskGroup(of: [MetricSample].self, returning: [MetricSample].self) { group in
+    private func collect(at date: Date) async -> SamplingBatch {
+        await withTaskGroup(
+            of: Result<[MetricSample], ProviderFailure>.self,
+            returning: SamplingBatch.self
+        ) { group in
             for provider in providers {
                 group.addTask {
                     do {
-                        return try await provider.sample(at: date)
+                        return .success(try await provider.sample(at: date))
                     } catch {
-                        return []
+                        return .failure(
+                            ProviderFailure(
+                                providerID: provider.providerID,
+                                timestamp: date,
+                                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                            )
+                        )
                     }
                 }
             }
 
             var allSamples: [MetricSample] = []
-            for await providerSamples in group {
-                allSamples.append(contentsOf: providerSamples)
+            var failures: [ProviderFailure] = []
+
+            for await result in group {
+                switch result {
+                case .success(let providerSamples):
+                    allSamples.append(contentsOf: providerSamples)
+                case .failure(let failure):
+                    failures.append(failure)
+                }
             }
-            return allSamples
+            return SamplingBatch(timestamp: date, samples: allSamples, failures: failures)
         }
     }
 }
+
+#if DEBUG
+public extension SamplingEngine {
+    func testCollect(at date: Date) async -> SamplingBatch {
+        await collect(at: date)
+    }
+}
+#endif

@@ -2,14 +2,19 @@ import SwiftUI
 import PulseBarCore
 
 struct DiskTabView: View {
-    @ObservedObject var coordinator: AppCoordinator
-
-    @State private var throughputSamples: [MetricSample] = []
-    @State private var readSamples: [MetricSample] = []
-    @State private var writeSamples: [MetricSample] = []
+    let coordinator: AppCoordinator
+    @ObservedObject var featureStore: DiskFeatureStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            ChartWindowPicker(
+                options: coordinator.visibleChartWindows,
+                selection: Binding(
+                    get: { coordinator.diskChartWindow },
+                    set: { coordinator.diskChartWindow = $0 }
+                )
+            )
+
             Text(splitStatusText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -20,7 +25,7 @@ struct DiskTabView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(UnitsFormatter.format(
-                        coordinator.latestValue(for: .diskReadBytesPerSec)?.value ?? 0,
+                        featureStore.readBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
@@ -34,7 +39,7 @@ struct DiskTabView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(UnitsFormatter.format(
-                        coordinator.latestValue(for: .diskWriteBytesPerSec)?.value ?? 0,
+                        featureStore.writeBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
@@ -48,7 +53,7 @@ struct DiskTabView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(UnitsFormatter.format(
-                        coordinator.latestValue(for: .diskFreeBytes)?.value ?? 0,
+                        featureStore.freeBytes,
                         unit: .bytes
                     ))
                     .font(.title3.monospacedDigit())
@@ -61,7 +66,7 @@ struct DiskTabView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(UnitsFormatter.format(
-                        coordinator.latestValue(for: .diskThroughputBytesPerSec)?.value ?? 0,
+                        featureStore.combinedBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
@@ -81,45 +86,45 @@ struct DiskTabView: View {
 
             MetricChartView(
                 title: "Disk Read Throughput",
-                samples: readSamples,
-                throughputUnit: coordinator.throughputUnit
+                samples: featureStore.readSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: "Disk Write Throughput",
-                samples: writeSamples,
-                throughputUnit: coordinator.throughputUnit
+                samples: featureStore.writeSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: "Disk Combined Throughput",
-                samples: throughputSamples,
-                throughputUnit: coordinator.throughputUnit
+                samples: featureStore.throughputSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
         }
         .task {
-            await refresh()
+            coordinator.refreshDiskSurface()
         }
-        .onReceive(coordinator.$latestSamples) { _ in
-            Task { await refresh() }
+        .task(id: coordinator.diskChartWindow.rawValue) {
+            coordinator.refreshDiskSurface()
         }
-    }
-
-    private func refresh() async {
-        readSamples = await coordinator.series(for: .diskReadBytesPerSec)
-        writeSamples = await coordinator.series(for: .diskWriteBytesPerSec)
-        throughputSamples = await coordinator.series(for: .diskThroughputBytesPerSec)
     }
 
     private var splitStatusText: String {
-        if coordinator.latestValue(for: .diskReadBytesPerSec) != nil && coordinator.latestValue(for: .diskWriteBytesPerSec) != nil {
+        if featureStore.readBytesPerSecond > 0 || featureStore.writeBytesPerSecond > 0 {
             return "Disk throughput is split into read/write from IOBlockStorageDriver statistics."
         }
         return "Read/write split unavailable on this host. Showing combined throughput fallback."
     }
 
     private var smartStatusText: String {
-        guard let code = coordinator.latestValue(for: .diskSMARTStatusCode)?.value else {
+        guard let code = featureStore.smartStatusCode else {
             return "Unknown"
         }
         switch code {
@@ -133,4 +138,5 @@ struct DiskTabView: View {
             return "Unknown"
         }
     }
+
 }

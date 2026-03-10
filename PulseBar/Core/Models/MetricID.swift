@@ -18,6 +18,7 @@ public enum MetricID: Hashable, Codable, Sendable {
     case temperatureMaxCelsius
     case batteryChargePercent
     case batteryCurrentMilliAmps
+    case batteryPowerWatts
     case batteryTimeRemainingMinutes
     case batteryHealthPercent
     case batteryCycleCount
@@ -80,6 +81,8 @@ public enum MetricID: Hashable, Codable, Sendable {
             return "Battery Charge"
         case .batteryCurrentMilliAmps:
             return "Battery Current"
+        case .batteryPowerWatts:
+            return "Battery Power"
         case .batteryTimeRemainingMinutes:
             return "Battery Time Remaining"
         case .batteryHealthPercent:
@@ -150,6 +153,8 @@ public enum MetricID: Hashable, Codable, Sendable {
             return .percent
         case .batteryCurrentMilliAmps:
             return .milliamps
+        case .batteryPowerWatts:
+            return .watts
         case .batteryTimeRemainingMinutes:
             return .minutes
         case .batteryCycleCount, .batteryIsCharging:
@@ -206,6 +211,8 @@ public enum MetricID: Hashable, Codable, Sendable {
             return "batteryChargePercent"
         case .batteryCurrentMilliAmps:
             return "batteryCurrentMilliAmps"
+        case .batteryPowerWatts:
+            return "batteryPowerWatts"
         case .batteryTimeRemainingMinutes:
             return "batteryTimeRemainingMinutes"
         case .batteryHealthPercent:
@@ -300,6 +307,8 @@ public enum MetricID: Hashable, Codable, Sendable {
             self = .batteryChargePercent
         case "batteryCurrentMilliAmps":
             self = .batteryCurrentMilliAmps
+        case "batteryPowerWatts":
+            self = .batteryPowerWatts
         case "batteryTimeRemainingMinutes":
             self = .batteryTimeRemainingMinutes
         case "batteryHealthPercent":

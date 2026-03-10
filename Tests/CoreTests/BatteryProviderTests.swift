@@ -10,6 +10,7 @@ final class BatteryProviderTests: XCTestCase {
             kIOPSMaxCapacityKey as String: 100,
             kIOPSIsChargingKey as String: true,
             kIOPSCurrentKey as String: 1200,
+            kIOPSVoltageKey as String: 12000,
             kIOPSTimeToFullChargeKey as String: 45,
             "DesignCapacity": 110,
             "Cycle Count": 330
@@ -18,7 +19,9 @@ final class BatteryProviderTests: XCTestCase {
         let snapshot = BatteryProvider.parseBatterySnapshot(from: description)
         XCTAssertNotNil(snapshot)
         XCTAssertEqual(snapshot?.chargePercent, 75)
-        XCTAssertEqual(snapshot?.currentMilliAmps, 1200)
+        XCTAssertEqual(snapshot?.signedCurrentMilliAmps, 1200)
+        XCTAssertEqual(snapshot?.voltageMilliVolts, 12000)
+        XCTAssertEqual(snapshot?.signedPowerWatts, 14.4)
         XCTAssertEqual(snapshot?.timeRemainingMinutes, 45)
         XCTAssertEqual(snapshot?.cycleCount, 330)
         XCTAssertEqual(snapshot?.isCharging, true)
@@ -28,6 +31,7 @@ final class BatteryProviderTests: XCTestCase {
         let snapshot = BatterySnapshot(
             chargePercent: 55,
             currentMilliAmps: nil,
+            voltageMilliVolts: nil,
             timeRemainingMinutes: nil,
             healthPercent: nil,
             cycleCount: nil,
@@ -43,12 +47,47 @@ final class BatteryProviderTests: XCTestCase {
         let properties: [String: Any] = [
             "AppleRawMaxCapacity": 4415,
             "DesignCapacity": 5103,
-            "CycleCount": 247
+            "CycleCount": 247,
+            "Voltage": 11876
         ]
 
         let supplemental = BatteryProvider.parseRegistrySupplement(from: properties)
         XCTAssertEqual(supplemental.cycleCount, 247)
         XCTAssertNotNil(supplemental.healthPercent)
         XCTAssertEqual(round((supplemental.healthPercent ?? 0) * 10) / 10, 86.5)
+        XCTAssertEqual(supplemental.voltageMilliVolts, 11876)
+    }
+
+    func testMetricSampleMappingIncludesPowerWhenCurrentAndVoltageAvailable() {
+        let snapshot = BatterySnapshot(
+            chargePercent: 80,
+            currentMilliAmps: 1500,
+            voltageMilliVolts: 12000,
+            timeRemainingMinutes: nil,
+            healthPercent: nil,
+            cycleCount: nil,
+            isCharging: false
+        )
+
+        let samples = BatteryProvider.metricSamples(from: snapshot, date: Date())
+
+        XCTAssertTrue(samples.contains(where: {
+            $0.metricID == .batteryPowerWatts && $0.unit == .watts && $0.value == -18
+        }))
+    }
+
+    func testDischargingSnapshotProducesNegativeCurrentAndPower() {
+        let snapshot = BatterySnapshot(
+            chargePercent: 42,
+            currentMilliAmps: 1750,
+            voltageMilliVolts: 11800,
+            timeRemainingMinutes: 120,
+            healthPercent: nil,
+            cycleCount: nil,
+            isCharging: false
+        )
+
+        XCTAssertEqual(snapshot.signedCurrentMilliAmps, -1750)
+        XCTAssertEqual(round((snapshot.signedPowerWatts ?? 0) * 100) / 100, -20.65)
     }
 }

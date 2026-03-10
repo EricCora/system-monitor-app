@@ -67,7 +67,7 @@ public actor MemoryHistoryStore {
     }
 
     public func series(
-        window: MemoryHistoryWindow,
+        window: ChartWindow,
         now: Date = Date(),
         maxPoints: Int = 900
     ) -> [MemoryHistoryPoint] {

@@ -9,6 +9,7 @@ final class MetricIDTests: XCTestCase {
             .cpuIdlePercent,
             .batteryChargePercent,
             .batteryCurrentMilliAmps,
+            .batteryPowerWatts,
             .batteryTimeRemainingMinutes,
             .batteryHealthPercent,
             .batteryCycleCount,
@@ -42,6 +43,7 @@ final class MetricIDTests: XCTestCase {
     func testStorageKeyRoundTripForStaticAndAssociatedCases() {
         let metricIDs: [MetricID] = [
             .cpuUserPercent,
+            .batteryPowerWatts,
             .cpuCorePercent(3),
             .networkInterfaceInBytesPerSec("en0"),
             .networkInterfaceOutBytesPerSec("bridge100"),

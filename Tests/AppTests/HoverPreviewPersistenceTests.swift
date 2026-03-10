@@ -30,20 +30,28 @@ final class HoverPreviewPersistenceTests: XCTestCase {
         let coordinator = AppCoordinator(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
         let timeSeriesStore = try XCTUnwrap(mirrorChild(named: "store", in: coordinator) as? TimeSeriesStore)
+        let metricID = MetricID.networkInterfaceInBytesPerSec("codex-test0")
         let timestamp = Date().addingTimeInterval(30)
 
-        telemetryStore.setHistoryStartupStatus(metric: "History unavailable", memory: nil, temperature: nil)
         await timeSeriesStore.append([
-            MetricSample(metricID: .cpuLoadAverage1, timestamp: timestamp, value: 4.2, unit: .scalar)
+            MetricSample(metricID: metricID, timestamp: timestamp, value: 4.2, unit: .bytesPerSecond)
         ])
 
-        let history = await coordinator.metricHistorySeries(for: .cpuLoadAverage1, window: .oneHour, maxPoints: 10)
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            telemetryStore.setHistoryStartupStatus(metric: "History unavailable", memory: nil, temperature: nil)
+            let history = await coordinator.metricHistorySeries(for: metricID, window: .oneHour, maxPoints: 10_000)
+            if history.contains(where: {
+                abs($0.timestamp.timeIntervalSince(timestamp)) < 0.001
+                    && abs($0.value - 4.2) < 0.001
+                    && $0.unit == .bytesPerSecond
+            }) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
 
-        XCTAssertTrue(history.contains(where: {
-            abs($0.timestamp.timeIntervalSince(timestamp)) < 0.001
-                && abs($0.value - 4.2) < 0.001
-                && $0.unit == .scalar
-        }))
+        XCTFail("Expected fallback metric history to include the injected in-memory sample")
     }
 
     private func mirrorChild(named name: String, in value: Any) -> Any? {

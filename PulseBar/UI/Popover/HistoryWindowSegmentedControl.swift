@@ -1,40 +1,39 @@
 import SwiftUI
+import PulseBarCore
 
-struct HistoryWindowSegmentedControl<Option: Hashable>: View {
-    let options: [Option]
-    @Binding var selection: Option
-    @ObservedObject var paneController: DetachedMetricsPaneController
-    let label: (Option) -> String
+struct ChartWindowPicker: View {
+    enum Style {
+        case compact
+        case detached
+    }
+
+    let options: [ChartWindow]
+    @Binding var selection: ChartWindow
+    var paneController: DetachedMetricsPaneController? = nil
+    var style: Style = .compact
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.self) { option in
-                HistoryWindowSegmentButton(
-                    option: option,
-                    selection: $selection,
-                    paneController: paneController,
-                    label: label
-                )
-
-                if option != options.last {
-                    Divider()
-                        .frame(height: 18)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(options, id: \.self) { option in
+                    ChartWindowChip(
+                        option: option,
+                        selection: $selection,
+                        paneController: paneController,
+                        style: style
+                    )
                 }
             }
+            .padding(style == .detached ? 2 : 0)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.08))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
-private struct HistoryWindowSegmentButton<Option: Hashable>: View {
-    let option: Option
-    @Binding var selection: Option
-    @ObservedObject var paneController: DetachedMetricsPaneController
-    let label: (Option) -> String
+private struct ChartWindowChip: View {
+    let option: ChartWindow
+    @Binding var selection: ChartWindow
+    let paneController: DetachedMetricsPaneController?
+    let style: ChartWindowPicker.Style
 
     @State private var interactionStarted = false
 
@@ -42,32 +41,46 @@ private struct HistoryWindowSegmentButton<Option: Hashable>: View {
         Button {
             selection = option
         } label: {
-            Text(label(option))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
-                .padding(.horizontal, 10)
-                .font(.headline)
+            Text(option.label)
+                .font(style == .detached ? .headline : .subheadline.weight(.semibold))
+                .padding(.vertical, style == .detached ? 7 : 6)
+                .padding(.horizontal, style == .detached ? 12 : 10)
+                .background(backgroundColor, in: Capsule())
+                .foregroundStyle(selection == option ? Color.white : Color.primary)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(borderColor, lineWidth: selection == option ? 0 : 1)
+                )
         }
         .buttonStyle(.plain)
-        .background(selection == option ? Color.accentColor : Color.clear)
-        .foregroundStyle(selection == option ? Color.white : Color.primary)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    guard !interactionStarted else { return }
+                    guard let paneController, !interactionStarted else { return }
                     interactionStarted = true
                     paneController.beginPaneInteraction()
                 }
                 .onEnded { _ in
-                    guard interactionStarted else { return }
+                    guard let paneController, interactionStarted else { return }
                     interactionStarted = false
                     paneController.endPaneInteraction()
                 }
         )
         .onDisappear {
-            guard interactionStarted else { return }
+            guard let paneController, interactionStarted else { return }
             interactionStarted = false
             paneController.endPaneInteraction()
         }
+    }
+
+    private var backgroundColor: Color {
+        if selection == option {
+            return .accentColor
+        }
+        return style == .detached ? Color.primary.opacity(0.08) : Color.primary.opacity(0.06)
+    }
+
+    private var borderColor: Color {
+        style == .detached ? Color.primary.opacity(0.08) : Color.primary.opacity(0.12)
     }
 }

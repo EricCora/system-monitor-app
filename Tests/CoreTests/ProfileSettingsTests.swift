@@ -12,6 +12,7 @@ final class ProfileSettingsTests: XCTestCase {
             showDiskInMenu: false,
             showTemperatureInMenu: true,
             throughputUnit: .bitsPerSecond,
+            chartAreaOpacity: 0.22,
             selectedWindow: .fifteenMinutes,
             cpuAlertEnabled: true,
             cpuAlertThreshold: 88,
@@ -33,6 +34,7 @@ final class ProfileSettingsTests: XCTestCase {
         XCTAssertEqual(settings.globalSamplingInterval, 3)
         XCTAssertFalse(settings.liveCompositorFPSEnabled)
         XCTAssertEqual(settings.customProfile.throughputUnit, .bitsPerSecond)
+        XCTAssertEqual(settings.customProfile.chartAreaOpacity, 0.22)
         XCTAssertEqual(settings.customProfile.temperatureAlertThreshold, 95)
         XCTAssertEqual(settings.customProfile.memoryPressureAlertThreshold, 93)
         XCTAssertEqual(settings.customProfile.diskFreeAlertDuration, 45)
@@ -85,7 +87,7 @@ final class ProfileSettingsTests: XCTestCase {
             "showDiskInMenu": false,
             "showTemperatureInMenu": true,
             "throughputUnit": "bytesPerSecond",
-            "selectedWindow": "oneHour",
+            "chartAreaOpacity": 0.18,
             "cpuAlertEnabled": false,
             "cpuAlertThreshold": 85,
             "cpuAlertDuration": 30,
@@ -122,7 +124,6 @@ final class ProfileSettingsTests: XCTestCase {
           "showDiskInMenu": false,
           "showTemperatureInMenu": true,
           "throughputUnit": "bytesPerSecond",
-          "selectedWindow": "oneHour",
           "cpuAlertEnabled": false,
           "cpuAlertThreshold": 85,
           "cpuAlertDuration": 30,
@@ -134,6 +135,7 @@ final class ProfileSettingsTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(ProfileSettings.self, from: Data(legacyJSON.utf8))
         XCTAssertFalse(decoded.showBatteryInMenu)
+        XCTAssertEqual(decoded.chartAreaOpacity, 0.18)
         XCTAssertFalse(decoded.memoryPressureAlertEnabled)
         XCTAssertEqual(decoded.memoryPressureAlertThreshold, 90)
         XCTAssertEqual(decoded.memoryPressureAlertDuration, 30)

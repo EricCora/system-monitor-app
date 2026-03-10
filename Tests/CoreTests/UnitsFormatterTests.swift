@@ -27,6 +27,10 @@ final class UnitsFormatterTests: XCTestCase {
         XCTAssertEqual(UnitsFormatter.format(1234.4, unit: .milliamps), "1234 mA")
     }
 
+    func testWattsFormatting() {
+        XCTAssertEqual(UnitsFormatter.format(18.25, unit: .watts), "18.2 W")
+    }
+
     func testMinutesFormatting() {
         XCTAssertEqual(UnitsFormatter.format(45, unit: .minutes), "45m")
         XCTAssertEqual(UnitsFormatter.format(125, unit: .minutes), "2h 5m")

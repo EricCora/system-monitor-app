@@ -2,19 +2,26 @@ import SwiftUI
 import PulseBarCore
 
 struct BatteryTabView: View {
-    @ObservedObject var coordinator: AppCoordinator
-
-    @State private var chargeSamples: [MetricSample] = []
+    let coordinator: AppCoordinator
+    @ObservedObject var featureStore: BatteryFeatureStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if coordinator.hasBatteryTelemetry() {
+                ChartWindowPicker(
+                    options: coordinator.visibleChartWindows,
+                    selection: Binding(
+                        get: { coordinator.batteryChartWindow },
+                        set: { coordinator.batteryChartWindow = $0 }
+                    )
+                )
+
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Charge")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(UnitsFormatter.format(coordinator.latestValue(for: .batteryChargePercent)?.value ?? 0, unit: .percent))
+                        Text(UnitsFormatter.format(featureStore.chargePercent, unit: .percent))
                             .font(.title3.monospacedDigit())
                     }
                     Spacer()
@@ -32,8 +39,21 @@ struct BatteryTabView: View {
                         Text("Current")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if let sample = coordinator.latestValue(for: .batteryCurrentMilliAmps) {
-                            Text(UnitsFormatter.format(sample.value, unit: .milliamps))
+                        if let current = featureStore.currentMilliamps {
+                            Text(UnitsFormatter.format(current, unit: .milliamps))
+                                .font(.title3.monospacedDigit())
+                        } else {
+                            Text("--")
+                                .font(.title3.monospacedDigit())
+                        }
+                    }
+                    Spacer()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(powerLabelTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let power = featureStore.powerWatts {
+                            Text(UnitsFormatter.format(power, unit: .watts))
                                 .font(.title3.monospacedDigit())
                         } else {
                             Text("--")
@@ -45,8 +65,8 @@ struct BatteryTabView: View {
                         Text("Time Remaining")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if let sample = coordinator.latestValue(for: .batteryTimeRemainingMinutes) {
-                            Text(UnitsFormatter.format(sample.value, unit: .minutes))
+                        if let minutes = featureStore.timeRemainingMinutes {
+                            Text(UnitsFormatter.format(minutes, unit: .minutes))
                                 .font(.title3.monospacedDigit())
                         } else {
                             Text("--")
@@ -60,8 +80,8 @@ struct BatteryTabView: View {
                         Text("Health")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if let sample = coordinator.latestValue(for: .batteryHealthPercent) {
-                            Text(UnitsFormatter.format(sample.value, unit: .percent))
+                        if let health = featureStore.healthPercent {
+                            Text(UnitsFormatter.format(health, unit: .percent))
                                 .font(.title3.monospacedDigit())
                         } else {
                             Text("--")
@@ -73,8 +93,8 @@ struct BatteryTabView: View {
                         Text("Cycle Count")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if let sample = coordinator.latestValue(for: .batteryCycleCount) {
-                            Text(String(format: "%.0f", sample.value))
+                        if let cycleCount = featureStore.cycleCount {
+                            Text(String(format: "%.0f", cycleCount))
                                 .font(.title3.monospacedDigit())
                         } else {
                             Text("--")
@@ -83,11 +103,21 @@ struct BatteryTabView: View {
                     }
                 }
 
-                MetricChartView(
-                    title: "Battery Charge",
-                    samples: chargeSamples,
-                    throughputUnit: coordinator.throughputUnit
-                )
+            MetricChartView(
+                title: "Battery Charge",
+                samples: featureStore.chargeSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
+            )
+
+            MetricChartView(
+                title: powerChartTitle,
+                samples: featureStore.powerSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
+            )
             } else {
                 Text("Battery Unavailable")
                     .font(.headline)
@@ -97,21 +127,26 @@ struct BatteryTabView: View {
             }
         }
         .task {
-            await refresh()
+            coordinator.refreshBatterySurface()
         }
-        .onReceive(coordinator.$latestSamples) { _ in
-            Task { await refresh() }
+        .task(id: coordinator.batteryChartWindow.rawValue) {
+            coordinator.refreshBatterySurface()
         }
     }
 
     private var batteryStateText: String {
-        guard let chargingSample = coordinator.latestValue(for: .batteryIsCharging) else {
-            return "--"
-        }
-        return chargingSample.value >= 0.5 ? "Charging" : "Discharging"
+        featureStore.isCharging ? "Charging" : "Discharging"
     }
 
-    private func refresh() async {
-        chargeSamples = await coordinator.series(for: .batteryChargePercent)
+    private var isCharging: Bool {
+        featureStore.isCharging
+    }
+
+    private var powerLabelTitle: String {
+        isCharging ? "Power Gain" : "Power Use"
+    }
+
+    private var powerChartTitle: String {
+        isCharging ? "Battery Power Gain" : "Battery Power Use"
     }
 }
