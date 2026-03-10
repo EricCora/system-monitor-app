@@ -21,7 +21,7 @@ struct TemperatureTabView: View {
                     )
             }
 
-            sensorListPanel(maxHeight: 500)
+            sensorListPanel
             diagnosticsPanel
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -46,7 +46,7 @@ struct TemperatureTabView: View {
         }
     }
 
-    private func sensorListPanel(maxHeight: CGFloat) -> some View {
+    private var sensorListPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("SENSORS")
@@ -75,30 +75,21 @@ struct TemperatureTabView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 6)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(groupedSensors) { group in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(group.category.label.uppercased())
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(groupedSensors) { group in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.category.label.uppercased())
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
 
-                                ForEach(group.channels, id: \.id) { sensor in
-                                    sensorRow(sensor)
-                                }
+                            ForEach(group.channels, id: \.id) { sensor in
+                                sensorRow(sensor)
                             }
                         }
                     }
-                    .padding(.trailing, 2)
                 }
-                .frame(maxHeight: maxHeight)
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
         .onHover { hovering in
             paneController.setMainListHovering(hovering)
         }
