@@ -15,7 +15,11 @@
 
 - `App/`
   - `PulseBarApp.swift`: `MenuBarExtra` app entry
-  - `AppCoordinator.swift`: runtime orchestration, settings/profile migration, launch-at-login, persistent history hydration, alerts, CPU/memory/temperature parity state
+  - `AppCoordinator.swift`: thin composition root that wires services, providers, sampling, alerts, launch-at-login, persistent history hydration, compact-surface caches, and detached-pane history snapshots
+  - `Services/SettingsController.swift`: profile-controlled settings ownership, per-surface chart-window persistence, visible-window preferences, menu layout, and alert/profile rules
+  - `Services/TelemetryStore.swift`: presentation-layer latest values, revisions, provider failures, process lists, GPU/FPS summaries, alerts, and privileged temperature status
+  - `Services/TemperaturePaneModel.swift`: selected/hidden temperature-sensor state plus detached-pane selection rules
+  - `Services/HistorySnapshots.swift`: grouped detached-pane history snapshot models for CPU and memory panes
   - `AlertDeliveryCenter.swift`: in-app recent-alert log plus system-notification fanout
   - `TemperatureCoordinator.swift`: privileged temperature mode state/status bridge
   - `DetachedMetricsPaneController.swift`: shared detached AppKit panel lifecycle + hover/pin visibility coordination for temperature, memory, and CPU history panes
@@ -23,10 +27,10 @@
   - `PrivilegedHelperTemperatureDataSource.swift`: app-side privileged helper launcher + IPC client
 
 - `Core/`
-  - `Models/`: `MetricID`, `MetricSample`, units, `TimeWindow`, `MetricHistoryWindow`, `TemperatureHistoryWindow`, `MemoryHistoryWindow`, menu layout/config models, CPU summary/process models, temperature channel telemetry models, thermal/profile models (`ThermalStateLevel`, `ProfileSettings`, `AppSettingsV2`, `AppSettingsV3`)
+  - `Models/`: `MetricID`, `MetricSample`, units, shared `ChartWindow`, legacy window migration helpers, menu layout/config models, CPU summary/process models, temperature channel telemetry models, thermal/profile models (`ThermalStateLevel`, `ProfileSettings`, `AppSettingsV2`, `AppSettingsV3`)
   - `Privileged/`: shared privileged IPC contract (`PrivilegedTemperatureRequest`, `PrivilegedTemperatureResponse`)
   - `Storage/`: `RingBuffer`, `TimeSeriesStore`, `TemperatureHistoryStore` (SQLite-backed), `MemoryHistoryStore` (SQLite-backed), `MetricHistoryStore` (SQLite-backed generic chart persistence)
-  - `Sampling/`: scheduler engine + downsampling
+  - `Sampling/`: scheduler engine + downsampling + structured `SamplingBatch`/`ProviderFailure` results
 
 - `Providers/`
   - `CPUProvider`: Mach `host_processor_info` + user/system/idle split + per-core load + `getloadavg(3)` + uptime
@@ -49,21 +53,22 @@
 
 - `Alerts/`
   - `AlertRule`
-  - `AlertEngine` multi-rule threshold evaluator with above/below comparators (CPU, temperature, memory pressure, disk free)
+  - `AlertEngine` multi-rule threshold evaluator with above/below comparators (CPU, temperature, native macOS memory pressure, disk free)
 
 - `UI/`
   - Menu label summary
   - Popover dashboard tabs (CPU/Memory/Battery/Network/Temperature/Disk/Settings)
-  - Temperature tab parity layout with long grouped sensor list in the compact popover plus a detached adjacent history pane (hover-preview + click-pin, hide/reset controls, source diagnostics)
-  - Memory tab parity layout with compact pressure/memory/process/swap/pages summary sections and detached history panes (`1h/24h/7d/30d`)
-  - CPU tab parity layout with compact CPU/process/GPU/FPS/load-average/uptime sections and detached history panes (`1h/24h/7d/30d`)
-  - Shared chart rendering
-  - Settings form (profiles, global refresh frequency, layout config, privileged mode, alerts, recent-alert history)
+  - Temperature tab parity layout with long grouped sensor list in the compact popover plus a detached adjacent history pane (hover-preview + click-pin, hide/reset controls, source diagnostics, drag-to-zoom)
+  - Memory tab parity layout with compact pressure/memory/process/swap/pages summary sections and detached history panes using the shared `ChartWindow` options
+  - CPU tab parity layout with compact CPU/process/GPU/FPS/load-average/uptime sections and detached history panes using the shared `ChartWindow` options
+  - CPU compact usage/load charts render from prepared section-scoped surface models using a cheap canvas/path renderer instead of Swift Charts
+  - Shared chart rendering through `ChartSeriesPipeline` and detached chart viewport overlays (single sanitization boundary, stable series identity, shared y-domain policy, shared hover/zoom interactions)
+  - Split settings UX: quick settings in the popover, full sidebar-based settings window for detailed configuration
 
 ## Data Flow
 
 1. `SamplingEngine` ticks at configured global interval (`1s...10s`, default `2s`).
-2. Providers sample concurrently.
+2. Providers sample concurrently and `SamplingEngine` captures both successful samples and per-provider failures.
 3. Standard thermal-state samples are always available.
 4. If privileged mode is enabled, app-side data source ensures helper availability and requests privileged samples over unix socket IPC.
 5. Helper samples IOHID temperature services, probes AppleSMC fan channels, and falls back to `powermetrics` when temperature channels are still missing.
@@ -71,12 +76,14 @@
 7. Privileged Celsius samples are emitted only when helper transport is healthy.
 8. Privileged enable/retry actions trigger an immediate probe attempt to reduce status latency.
 9. Batch is appended to `TimeSeriesStore` for low-latency in-memory use and to `MetricHistoryStore` for persistent chart history.
-10. `AppCoordinator` snapshots memory composition into `MemoryHistoryStore`, refreshes cached top process CPU/memory entries, refreshes GPU summary state, and publishes FPS capture status for the CPU tab.
-11. Latest privileged channels are persisted into `TemperatureHistoryStore` (SQLite) for long-window sensor chart queries.
-12. Batch is sent to `AlertEngine` for multi-rule evaluation; alert results are mirrored into `AlertDeliveryCenter` so alerts remain visible during `swift run`.
-13. Latest values, hydrated persisted values, privileged status, channel diagnostics, fan parity gate state, recent alerts, and process status are published to UI via `AppCoordinator`.
-14. Tabs request windowed series from persistent stores and downsample for chart efficiency; detached panes render temperature, memory, and CPU long-window history from coordinator state.
-15. `PowerSourceMonitor` transitions can update active profile when auto-switch rules are enabled.
+10. `MetricHistoryStore` maintains a small `latest_metric_samples` cache table so startup hydration can restore newest persisted values without grouping the full metric history table, and applies one-time data cleanup when a metric's stored semantics change.
+11. `AppCoordinator` snapshots memory composition into `MemoryHistoryStore`, updates feature-scoped surface stores, and keeps compact rolling CPU/Battery/Network/Disk series warm without re-querying SQLite on every visible tick.
+12. CPU and memory process polling are driven by actual surface visibility with their own cadence, rather than piggybacking on the global sample loop.
+13. Latest privileged channels are persisted into `TemperatureHistoryStore` (SQLite) for long-window sensor chart queries.
+14. Batch is sent to `AlertEngine` for multi-rule evaluation; alert results are mirrored into `AlertDeliveryCenter` so alerts remain visible during `swift run`.
+15. `TelemetryStore` publishes latest values, provider failures, history revision tokens, privileged status, channel diagnostics, fan parity gate state, recent alerts, and process status.
+16. Compact CPU sections observe narrower surface stores, while detached panes request grouped CPU/memory history snapshots keyed by window/selection/revision and coalesce updates during hover/zoom interaction.
+17. `PowerSourceMonitor` transitions can update the active profile through `SettingsController` auto-switch rules.
 
 ## Thread Model
 
@@ -100,7 +107,8 @@ To add a new metric category:
 ## Profile System Notes
 
 - Built-in profiles: `Quiet`, `Balanced`, `Performance`; user editable profile: `Custom`.
-- Profile-controlled settings include menu visibility, graph window, throughput unit, and alert thresholds (CPU, temperature, memory pressure, disk free).
+- Profile-controlled settings include menu visibility, throughput unit, chart appearance, and alert thresholds (CPU, temperature, memory pressure, disk free).
+- Chart windows are per-surface UI preferences, not profile-controlled settings.
 - Refresh cadence is now global (`AppSettingsV3.globalSamplingInterval`) so profile switches do not silently alter sampling rate.
 - Privileged temperature mode remains a global non-profile setting to avoid silent privilege changes during auto-switch.
 - Legacy settings keys migrate into `AppSettingsV3` (`activeProfile: custom`, auto-switch off by default).

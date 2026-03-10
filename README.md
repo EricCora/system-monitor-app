@@ -8,25 +8,30 @@ It is an original implementation inspired by iStat-style capabilities, with no c
 Implemented in this repo:
 - Menu bar summary (CPU, Memory, Battery, Network, optional Disk/Temperature)
 - Popover dashboard tabs: CPU, Memory, Battery, Network, Temperature, Disk, Settings
-- 5m / 15m / 1h history graphs with dynamic y-scaling and persistent chart history across launches
-- Temperature sensor history windows: 1h / 24h / 7d / 30d (SQLite-backed rollups)
-- Memory composition history windows: 1h / 24h / 7d / 30d (SQLite-backed rollups)
+- Unified chart windows across compact tabs and detached panes: 15m / 1h / 6h / 1d / 1w / 1mo
+- Persistent chart history across launches with shared chart-window rollups for metric, memory, and temperature history
 - Generic metric history persistence: CPU, battery, network, disk, FPS, and other plot-backed samples persist for 30 days while preserving offline gaps between sessions
-- Providers: CPU (Mach user/system/idle + per-core + load average + uptime), Battery (IOKit power sources), Memory (Mach VM stats + swap usage + paging rates), Process CPU (`ps` top list with cache), Process memory (`ps` top list with cache), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback), FPS (ScreenCaptureKit compositor frame stream with display-refresh fallback when screen capture access is unavailable), GPU summary (private IOAccelerator/AGX performance statistics for processor + memory usage)
+- Providers: CPU (Mach user/system/idle + per-core + load average + uptime), Battery (IOKit power sources), Memory (Mach VM stats + native macOS pressure level + swap usage + paging rates), Process CPU (`ps` top list with cache), Process memory (`ps` top list with cache), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback), FPS (ScreenCaptureKit compositor frame stream with display-refresh fallback when screen capture access is unavailable), GPU summary (private IOAccelerator/AGX performance statistics for processor + memory usage)
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
   - privileged mode via helper source chain: IOHID temperature sensors + AppleSMC fan probe + `powermetrics` fallback
-  - iStat-style temperature tab with compact sensor list plus a detached adjacent history pane (hover preview, click pinning, hide/reset sensor controls, long-range trend windows)
+  - iStat-style temperature tab with compact sensor list plus a detached adjacent history pane (hover preview, click pinning, hide/reset sensor controls, shared chart windows, drag-to-zoom, double-click reset)
 - Memory tab parity panel: compact pressure/memory/process/swap/pages summary menu with detached hover-expanded history panes
 - CPU tab parity panel: compact CPU/process/GPU/FPS/load-average/uptime summary menu with detached hover-expanded history panes
+  - compact CPU usage/load charts use prepared rolling render models rather than live Swift Charts rebuilds
+  - startup latest-sample hydration uses a maintained latest-metric cache table instead of grouping the full metric history database on launch
 - Profiles: Quiet / Balanced / Performance / Custom
 - Power-source auto-switch rules (AC and Battery profile mapping)
-- Settings persistence via `UserDefaults` + `settings.v3` migration model
+- Settings persistence via `UserDefaults` + `settings.v3` migration model, including per-surface chart-window memory and visible-window preferences
+- Internal settings ownership now lives in `SettingsController`, while runtime presentation state and provider failures are published via `TelemetryStore`
 - Global refresh frequency (`1s...10s`) that applies uniformly to the sampling engine, privileged temperature sampling, and subprocess-backed providers
 - Launch-at-login toggle using `SMAppService`
 - Multi-rule alerts (CPU, temperature, memory pressure, disk free-space thresholds) with in-app recent alert history plus system notifications when running as an app bundle
 - Powermetrics provider with parser, retry backoff, and status reporting
 - Privileged helper executable (`PulseBarPrivilegedHelper`) with local IPC contract
+- Shared chart preparation pipeline with stable series keys, centralized sanitization, revision-driven chart refreshes, and detached-pane viewport zoom support
+- Feature-scoped presentation stores and diagnostics counters for compact surfaces, process polling, detached panes, and batch-handler timing
+- Provider failure observability surfaced in Settings instead of silently swallowing sampling errors
 
 ## Requirements
 
@@ -121,4 +126,4 @@ swift test
 ```
 
 Covers ring buffer behavior, downsampling logic, units formatting, and alert-rule evaluation.
-Additional tests cover detached-pane placement and hover-delay behavior, thermal-state mapping, temperature-history storage/rollups, memory-history storage/rollups/pruning, generic metric-history persistence, memory provider paging and swap fallback behavior, process-memory parsing/cache fallback behavior, process-CPU parsing, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration/backfill compatibility, metric codable/storage-key coverage (including associated interface metrics), battery/disk parser behavior, CPU user/system/idle samples, privileged IPC payloads (including legacy payload compatibility), and privileged provider channel/status metadata behavior.
+Additional tests cover detached-pane placement and hover-delay behavior, per-surface chart-window persistence, chart-window migration/bucketing rules, thermal-state mapping, temperature-history storage/rollups, memory-history storage/rollups/pruning, generic metric-history persistence, memory provider paging, native-pressure fallback behavior, metric-history migration cleanup for legacy pressure samples, process-memory parsing/cache fallback behavior, process-CPU parsing, composite privileged source fallback behavior, powermetrics parsing, profile-settings migration/backfill compatibility, metric codable/storage-key coverage (including associated interface metrics), battery/disk parser behavior, CPU user/system/idle samples, privileged IPC payloads (including legacy payload compatibility), and privileged provider channel/status metadata behavior.

@@ -18,7 +18,8 @@ final class MemoryProviderTests: XCTestCase {
         )
         let provider = MemoryProvider(
             vmStatsReader: { snapshot },
-            swapUsageReader: { MemorySwapUsageSnapshot(totalBytes: 2_048, usedBytes: 1_024) }
+            swapUsageReader: { MemorySwapUsageSnapshot(totalBytes: 2_048, usedBytes: 1_024) },
+            pressureLevelReader: { 61 }
         )
 
         let samples = try await provider.sample(at: Date())
@@ -36,6 +37,7 @@ final class MemoryProviderTests: XCTestCase {
         XCTAssertTrue(metricIDs.contains(.memoryPressureLevel))
         XCTAssertTrue(metricIDs.contains(.memoryPageInsBytesPerSec))
         XCTAssertTrue(metricIDs.contains(.memoryPageOutsBytesPerSec))
+        XCTAssertEqual(metricValue(.memoryPressureLevel, in: samples), 61, accuracy: 0.001)
     }
 
     func testPageRateDeltaIsZeroOnBootstrapAndComputedOnNextSample() async throws {
@@ -67,7 +69,8 @@ final class MemoryProviderTests: XCTestCase {
         let sequence = SnapshotSequence([first, second])
         let provider = MemoryProvider(
             vmStatsReader: { sequence.next() },
-            swapUsageReader: { nil }
+            swapUsageReader: { nil },
+            pressureLevelReader: { 33 }
         )
 
         let start = Date(timeIntervalSince1970: 1_700_000_000)
@@ -96,13 +99,38 @@ final class MemoryProviderTests: XCTestCase {
         )
         let provider = MemoryProvider(
             vmStatsReader: { snapshot },
-            swapUsageReader: { nil }
+            swapUsageReader: { nil },
+            pressureLevelReader: { 48 }
         )
 
         let samples = try await provider.sample(at: Date())
 
         XCTAssertEqual(metricValue(.memorySwapUsedBytes, in: samples), 0, accuracy: 0.001)
         XCTAssertEqual(metricValue(.memorySwapTotalBytes, in: samples), 0, accuracy: 0.001)
+    }
+
+    func testPressureFallsBackToUsedMemoryRatioWhenNativePressureUnavailable() async throws {
+        let snapshot = MemoryVMStatsSnapshot(
+            pageSizeBytes: 100,
+            totalMemoryBytes: 1_000,
+            freePages: 1,
+            activePages: 2,
+            inactivePages: 3,
+            wiredPages: 1,
+            compressedPages: 1,
+            cachePages: 0,
+            pageIns: 0,
+            pageOuts: 0
+        )
+        let provider = MemoryProvider(
+            vmStatsReader: { snapshot },
+            swapUsageReader: { nil },
+            pressureLevelReader: { nil }
+        )
+
+        let samples = try await provider.sample(at: Date())
+
+        XCTAssertEqual(metricValue(.memoryPressureLevel, in: samples), 70, accuracy: 0.001)
     }
 
     private func metricValue(_ metricID: MetricID, in samples: [MetricSample]) -> Double {
