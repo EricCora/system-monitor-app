@@ -1510,8 +1510,20 @@ final class AppCoordinator: ObservableObject {
                 }
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
+        let deduplicatedChannels = mappedChannels.reduce(into: [SensorReading]()) { channels, channel in
+            let alreadyIncluded = channels.contains {
+                $0.category == channel.category
+                    && $0.channelType == channel.channelType
+                    && (
+                        ($0.category == .battery && $0.channelType == .temperatureCelsius)
+                        || $0.displayName.localizedCaseInsensitiveCompare(channel.displayName) == .orderedSame
+                    )
+            }
+            guard !alreadyIncluded else { return }
+            channels.append(channel)
+        }
 
-        if mappedChannels.isEmpty && !healthy {
+        if deduplicatedChannels.isEmpty && !healthy {
             telemetryStore.updateTemperatureTelemetryStatus(
                 statusMessage: statusMessage,
                 lastSuccessMessage: telemetryStore.privilegedTemperatureLastSuccessMessage,
@@ -1521,7 +1533,7 @@ final class AppCoordinator: ObservableObject {
             return
         }
 
-        let fanChannelCount = mappedChannels.filter { $0.channelType == .fanRPM }.count
+        let fanChannelCount = deduplicatedChannels.filter { $0.channelType == .fanRPM }.count
         let reportedFanCount = reading.fanCount ?? 0
         let fanParityGateBlocked: Bool
         let fanParityGateMessage: String?
@@ -1536,13 +1548,13 @@ final class AppCoordinator: ObservableObject {
             fanParityGateMessage = nil
         }
 
-        let temperatureSensors = mappedChannels
+        let temperatureSensors = deduplicatedChannels
             .filter { $0.channelType == .temperatureCelsius }
             .map { TemperatureSensorReading(name: $0.displayName, celsius: $0.value) }
 
-        temperaturePaneModel.reconcileVisibleSensors(mappedChannels)
+        temperaturePaneModel.reconcileVisibleSensors(deduplicatedChannels)
         telemetryStore.updateTemperatureTelemetry(
-            channels: mappedChannels,
+            channels: deduplicatedChannels,
             temperatureSensors: temperatureSensors,
             statusMessage: statusMessage,
             lastSuccessMessage: lastSuccessMessage,
@@ -1555,10 +1567,10 @@ final class AppCoordinator: ObservableObject {
             fanParityGateMessage: fanParityGateMessage,
             capturedAt: capturedAt
         )
-        if !mappedChannels.isEmpty {
+        if !deduplicatedChannels.isEmpty {
             settingsController.persistLatestTemperatureSnapshot(
                 LatestTemperatureSnapshot(
-                    channels: mappedChannels,
+                    channels: deduplicatedChannels,
                     temperatureSensors: temperatureSensors,
                     lastSuccessMessage: lastSuccessMessage,
                     sourceDiagnostics: sourceDiagnostics,

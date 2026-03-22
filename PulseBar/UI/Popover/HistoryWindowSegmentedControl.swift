@@ -30,6 +30,13 @@ struct ChartWindowPicker: View {
 }
 
 private struct ChartWindowChip: View {
+    private enum Layout {
+        static let compactWidth: CGFloat = 58
+        static let detachedWidth: CGFloat = 74
+        static let compactHeight: CGFloat = 34
+        static let detachedHeight: CGFloat = 42
+    }
+
     let option: ChartWindow
     @Binding var selection: ChartWindow
     let paneController: DetachedMetricsPaneController?
@@ -41,19 +48,23 @@ private struct ChartWindowChip: View {
         Button {
             selection = option
         } label: {
-                Text(option.label)
-                    .font(style == .detached ? .headline : .subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-                    .multilineTextAlignment(.center)
-                    .frame(
-                        minWidth: style == .detached ? 62 : 52,
-                        minHeight: style == .detached ? 42 : 34,
-                        alignment: .center
+            Text(option.label)
+                .font(
+                    .system(
+                        size: style == .detached ? 15 : 13,
+                        weight: .semibold,
+                        design: .rounded
                     )
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, style == .detached ? 8 : 6)
-                    .background(backgroundColor, in: Capsule())
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+                .multilineTextAlignment(.center)
+                .frame(
+                    width: style == .detached ? Layout.detachedWidth : Layout.compactWidth,
+                    height: style == .detached ? Layout.detachedHeight : Layout.compactHeight,
+                    alignment: .center
+                )
+                .background(backgroundColor, in: Capsule())
                 .foregroundStyle(selection == option ? Color.white : DashboardPalette.primaryText)
                 .overlay(
                     Capsule()
@@ -89,6 +100,6 @@ private struct ChartWindowChip: View {
     }
 
     private var borderColor: Color {
-        style == .detached ? DashboardPalette.chromeBorder : DashboardPalette.chromeBorder
+        DashboardPalette.chromeBorder
     }
 }

@@ -124,30 +124,39 @@ struct TemperaturePaneContentView: View {
                             .frame(height: 260)
                             .chartOverlay { proxy in
                                 GeometryReader { geometry in
-                                    DetachedChartInteractionOverlay(
-                                        proxy: proxy,
-                                        geometry: geometry,
-                                        paneController: paneController,
-                                        hoveredDate: Binding(
-                                            get: { hoveredHistoryPoint?.timestamp },
-                                            set: { newDate in
-                                                hoveringHistoryChart = newDate != nil || zoomSelectionRect != nil
-                                                if let newDate {
-                                                    hoveredHistoryPoint = TemperatureHistoryHelpers.nearestPoint(
-                                                        to: newDate,
-                                                        in: sensorHistory
-                                                    )
-                                                } else {
-                                                    hoveredHistoryPoint = nil
+                                    let plotFrame = geometry[proxy.plotAreaFrame]
+
+                                    ZStack(alignment: .topLeading) {
+                                        DetachedChartInteractionOverlay(
+                                            proxy: proxy,
+                                            geometry: geometry,
+                                            paneController: paneController,
+                                            hoveredDate: Binding(
+                                                get: { hoveredHistoryPoint?.timestamp },
+                                                set: { newDate in
+                                                    hoveringHistoryChart = newDate != nil || zoomSelectionRect != nil
+                                                    if let newDate {
+                                                        hoveredHistoryPoint = TemperatureHistoryHelpers.nearestPoint(
+                                                            to: newDate,
+                                                            in: sensorHistory
+                                                        )
+                                                    } else {
+                                                        hoveredHistoryPoint = nil
+                                                    }
                                                 }
-                                            }
-                                        ),
-                                        viewport: $viewport,
-                                        selectionRect: $zoomSelectionRect
-                                    )
+                                            ),
+                                            viewport: $viewport,
+                                            selectionRect: $zoomSelectionRect
+                                        )
+
+                                        ChartZoomSelectionOverlay(
+                                            selectionRect: zoomSelectionRect,
+                                            plotFrame: plotFrame,
+                                            cornerRadius: 14
+                                        )
+                                    }
                                 }
                             }
-                            .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
                         }
 
                         HStack {

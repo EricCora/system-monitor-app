@@ -444,17 +444,26 @@ private struct CPUUsagePaneChart: View {
         }
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                DetachedChartInteractionOverlay(
-                    proxy: proxy,
-                    geometry: geometry,
-                    paneController: paneController,
-                    hoveredDate: $hoveredDate,
-                    viewport: $viewport,
-                    selectionRect: $zoomSelectionRect
-                )
+                let plotFrame = geometry[proxy.plotAreaFrame]
+
+                ZStack(alignment: .topLeading) {
+                    DetachedChartInteractionOverlay(
+                        proxy: proxy,
+                        geometry: geometry,
+                        paneController: paneController,
+                        hoveredDate: $hoveredDate,
+                        viewport: $viewport,
+                        selectionRect: $zoomSelectionRect
+                    )
+
+                    ChartZoomSelectionOverlay(
+                        selectionRect: zoomSelectionRect,
+                        plotFrame: plotFrame,
+                        cornerRadius: 14
+                    )
+                }
             }
         }
-        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
         .frame(height: 300)
     }
 }
@@ -512,17 +521,26 @@ private struct MultiSeriesLinePaneChart: View {
         }
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                DetachedChartInteractionOverlay(
-                    proxy: proxy,
-                    geometry: geometry,
-                    paneController: paneController,
-                    hoveredDate: $hoveredDate,
-                    viewport: $viewport,
-                    selectionRect: $zoomSelectionRect
-                )
+                let plotFrame = geometry[proxy.plotAreaFrame]
+
+                ZStack(alignment: .topLeading) {
+                    DetachedChartInteractionOverlay(
+                        proxy: proxy,
+                        geometry: geometry,
+                        paneController: paneController,
+                        hoveredDate: $hoveredDate,
+                        viewport: $viewport,
+                        selectionRect: $zoomSelectionRect
+                    )
+
+                    ChartZoomSelectionOverlay(
+                        selectionRect: zoomSelectionRect,
+                        plotFrame: plotFrame,
+                        cornerRadius: 14
+                    )
+                }
             }
         }
-        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
         .frame(height: 300)
     }
 }

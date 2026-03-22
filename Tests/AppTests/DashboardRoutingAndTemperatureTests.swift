@@ -74,6 +74,45 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         }
     }
 
+    func testStartupDirectIOHIDDeduplicatesPresentedBatterySensors() async throws {
+        let defaults = makeDefaults()
+        let reading = makeBatteryDuplicateReading()
+        let controller = SettingsController(defaults: defaults)
+        controller.privilegedTemperatureEnabled = true
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+
+            let matched = try await conditionMatches(within: 2) {
+                let batteryChannels = telemetryStore.latestSensorChannels.filter {
+                    $0.category == .battery && $0.displayName == "Battery"
+                }
+                return telemetryStore.privilegedTemperatureHealthy
+                    && batteryChannels.count == 1
+                    && telemetryStore.latestSensorChannels.count == 2
+            }
+
+            let channelSummary = telemetryStore.latestSensorChannels.map {
+                "\($0.displayName) [\($0.id)]"
+            }
+            XCTAssertTrue(
+                matched,
+                "Expected duplicate battery presentation rows to collapse, got channels=\(channelSummary)"
+            )
+
+            await coordinator.shutdown()
+        }
+    }
+
     func testDashboardSectionDefaultsToOverviewAndCardShortcutsOpenDetailSections() async throws {
         try await withUniqueTemporaryDirectory { temporaryRoot in
             let coordinator = AppCoordinator(
@@ -299,6 +338,82 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
                     category: .gpu,
                     channelType: .temperatureCelsius,
                     value: 67,
+                    source: "iohid",
+                    timestamp: timestamp
+                )
+            ],
+            source: "iohid"
+        )
+    }
+
+    private func makeBatteryDuplicateReading() -> PowermetricsTemperatureReading {
+        let timestamp = Date(timeIntervalSince1970: 1_700_010_456)
+        return PowermetricsTemperatureReading(
+            primaryCelsius: 32.1,
+            maxCelsius: 51.9,
+            sensorCount: 6,
+            sensors: [
+                TemperatureSensorReading(name: "Battery", celsius: 32.1),
+                TemperatureSensorReading(name: "CPU Die", celsius: 51.9)
+            ],
+            channels: [
+                SensorReading(
+                    id: "gas-gauge-1",
+                    rawName: "Gas Gauge Battery",
+                    displayName: "Gas Gauge Battery",
+                    category: .battery,
+                    channelType: .temperatureCelsius,
+                    value: 32.1,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "gas-gauge-2",
+                    rawName: "Gas Gauge Battery 2",
+                    displayName: "Gas Gauge Battery 2",
+                    category: .battery,
+                    channelType: .temperatureCelsius,
+                    value: 32.1,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "battery-pack-1",
+                    rawName: "Battery Pack",
+                    displayName: "Battery Pack",
+                    category: .battery,
+                    channelType: .temperatureCelsius,
+                    value: 32.1,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "battery-pack-2",
+                    rawName: "Battery Pack Sensor",
+                    displayName: "Battery Pack Sensor",
+                    category: .battery,
+                    channelType: .temperatureCelsius,
+                    value: 32.1,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "battery-pack-3",
+                    rawName: "Battery Module",
+                    displayName: "Battery Module",
+                    category: .battery,
+                    channelType: .temperatureCelsius,
+                    value: 32.1,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "cpu-die",
+                    rawName: "CPU Die",
+                    displayName: "CPU Die",
+                    category: .cpu,
+                    channelType: .temperatureCelsius,
+                    value: 51.9,
                     source: "iohid",
                     timestamp: timestamp
                 )

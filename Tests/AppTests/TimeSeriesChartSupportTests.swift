@@ -208,6 +208,22 @@ final class TimeSeriesChartSupportTests: XCTestCase {
         XCTAssertEqual(rect.height, plotFrame.height)
     }
 
+    func testSelectionOverlayClipsToPlotBounds() {
+        let plotFrame = CGRect(x: 20, y: 30, width: 300, height: 180)
+        let selectionRect = CGRect(x: 10, y: 20, width: 120, height: 80)
+
+        let clippedRect = ChartZoomSelectionOverlay.clippedSelectionRect(selectionRect, to: plotFrame)
+
+        XCTAssertEqual(clippedRect, CGRect(x: 20, y: 30, width: 110, height: 70))
+    }
+
+    func testSelectionOverlayReturnsNilWhenSelectionMissesPlotBounds() {
+        let plotFrame = CGRect(x: 20, y: 30, width: 300, height: 180)
+        let selectionRect = CGRect(x: 340, y: 240, width: 20, height: 20)
+
+        XCTAssertNil(ChartZoomSelectionOverlay.clippedSelectionRect(selectionRect, to: plotFrame))
+    }
+
     private func makePoint(
         timestamp: Date,
         value: Double,

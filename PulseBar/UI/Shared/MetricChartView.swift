@@ -3,6 +3,10 @@ import SwiftUI
 import PulseBarCore
 
 struct MetricChartView: View {
+    private enum Layout {
+        static let plotCornerRadius: CGFloat = 12
+    }
+
     let title: String
     let samples: [MetricSample]
     let throughputUnit: ThroughputDisplayUnit
@@ -75,8 +79,8 @@ struct MetricChartView: View {
                 }
                 .chartPlotStyle { plot in
                     plot
-                        .background(DashboardPalette.chartPlotBackground(cornerRadius: 12))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(DashboardPalette.chartPlotBackground(cornerRadius: Layout.plotCornerRadius))
+                        .clipShape(RoundedRectangle(cornerRadius: Layout.plotCornerRadius, style: .continuous))
                 }
                 .frame(height: 180)
                 .chartOverlay { proxy in

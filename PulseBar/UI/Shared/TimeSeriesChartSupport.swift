@@ -581,23 +581,47 @@ struct DetachedChartInteractionOverlay: View {
 
 struct ChartZoomSelectionOverlay: View {
     let selectionRect: CGRect?
+    var plotFrame: CGRect? = nil
+    var cornerRadius: CGFloat = 14
 
     var body: some View {
         GeometryReader { _ in
-            if let selectionRect {
-                Rectangle()
-                    .fill(Color.accentColor.opacity(0.12))
-                    .overlay(
+            if let selectionRect,
+               let plotFrame,
+               let clippedRect = Self.clippedSelectionRect(selectionRect, to: plotFrame) {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.clear)
+                    .frame(width: plotFrame.width, height: plotFrame.height)
+                    .overlay(alignment: .topLeading) {
                         Rectangle()
-                            .stroke(Color.accentColor.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    )
-                    .frame(width: selectionRect.width, height: selectionRect.height)
+                            .fill(Color.accentColor.opacity(0.12))
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color.accentColor.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            )
+                            .frame(width: clippedRect.width, height: clippedRect.height)
+                            .offset(
+                                x: clippedRect.minX - plotFrame.minX,
+                                y: clippedRect.minY - plotFrame.minY
+                            )
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .position(
-                        x: selectionRect.midX,
-                        y: selectionRect.midY
+                        x: plotFrame.midX,
+                        y: plotFrame.midY
                     )
             }
         }
         .allowsHitTesting(false)
+    }
+
+    static func clippedSelectionRect(_ selectionRect: CGRect, to plotFrame: CGRect) -> CGRect? {
+        let clippedRect = selectionRect.intersection(plotFrame)
+        guard !clippedRect.isNull,
+              clippedRect.width > 0,
+              clippedRect.height > 0 else {
+            return nil
+        }
+        return clippedRect
     }
 }
