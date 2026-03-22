@@ -89,9 +89,10 @@ struct TemperaturePaneContentView: View {
                         Image(systemName: "chart.xyaxis.line")
                             .font(.title2)
                             .foregroundStyle(DashboardPalette.secondaryText)
-                        Text("Collecting \(activeSensor.displayName) history")
+                        Text(historyEmptyStateText(for: activeSensor))
                             .font(.subheadline)
                             .foregroundStyle(DashboardPalette.secondaryText)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity, minHeight: 280)
                 } else {
@@ -275,6 +276,10 @@ struct TemperaturePaneContentView: View {
 
     private var isInteractionActive: Bool {
         hoveredHistoryPoint != nil || zoomSelectionRect != nil
+    }
+
+    private func historyEmptyStateText(for sensor: SensorReading) -> String {
+        coordinator.temperatureHistoryStoreStatusMessage ?? "Collecting \(sensor.displayName) history"
     }
 }
 

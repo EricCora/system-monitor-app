@@ -31,6 +31,40 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
             matched,
             failureMessage
         )
+
+        await coordinator.shutdown()
+    }
+
+    func testStartupDirectIOHIDProbeAppendsTemperatureHistoryPromptly() async throws {
+        let defaults = makeDefaults()
+        let reading = makeDirectReading()
+        let controller = SettingsController(defaults: defaults)
+        controller.privilegedTemperatureEnabled = true
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
+                helperReachabilityProbe: { false },
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+
+            try await waitUntil {
+                !telemetryStore.latestSensorChannels.isEmpty
+                    && telemetryStore.temperatureHistoryRevision >= 3
+            }
+
+            let points = await coordinator.temperatureHistorySeries(
+                sensorID: "cpu-die",
+                channelType: .temperatureCelsius,
+                window: .oneHour,
+                maxPoints: 20
+            )
+
+            XCTAssertEqual(points.map(\.value), [61])
+            await coordinator.shutdown()
+        }
     }
 
     func testDashboardSectionDefaultsToOverviewAndCardShortcutsOpenDetailSections() {
@@ -69,6 +103,8 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
                     && telemetryStore.latestSensorChannels == snapshot.channels
                     && telemetryStore.privilegedTemperatureStatusMessage?.contains("paused until you retry") == true
             }
+
+            await coordinator.shutdown()
         }
     }
 
@@ -101,6 +137,8 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
                     && telemetryStore.latestTemperatureSensors.isEmpty
                     && settingsController.loadLatestTemperatureSnapshot() == nil
             }
+
+            await coordinator.shutdown()
         }
     }
 

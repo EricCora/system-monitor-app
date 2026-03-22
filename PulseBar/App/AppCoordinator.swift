@@ -24,6 +24,7 @@ final class AppCoordinator: ObservableObject {
     private let alertEngine: AlertEngine
     private let samplingEngine: SamplingEngine
     private let isAppBundleRuntime: Bool
+    private let isRunningTests: Bool
     private let temperatureCoordinator: TemperatureCoordinator
     private let temperatureHistoryStore: TemperatureHistoryStore
     private let memoryHistoryStore: MemoryHistoryStore
@@ -60,6 +61,7 @@ final class AppCoordinator: ObservableObject {
     private var memoryProcessPollingTask: Task<Void, Never>?
     private var fpsStatusPollingTask: Task<Void, Never>?
     private var privilegedTemperatureRefreshTask: Task<Void, Never>?
+    private var startupTask: Task<Void, Never>?
     private var privilegedTemperaturePausedUntilRetry = false
     private var directTemperatureRuntimeState: DirectTemperatureRuntimeState?
 
@@ -70,9 +72,11 @@ final class AppCoordinator: ObservableObject {
         defaults: UserDefaults = .standard,
         privilegedTemperatureDataSource: PrivilegedHelperTemperatureDataSource = PrivilegedHelperTemperatureDataSource(),
         directTemperatureDataSource: any TemperatureDataSource = IOHIDTemperatureDataSource(),
-        helperReachabilityProbe: (@Sendable () async -> Bool)? = nil
+        helperReachabilityProbe: (@Sendable () async -> Bool)? = nil,
+        temperatureHistoryDatabaseURL: URL? = nil
     ) {
         isAppBundleRuntime = Bundle.main.bundleURL.pathExtension == "app"
+        isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         let alertDeliveryCenter = AlertDeliveryCenter(isAppBundleRuntime: Bundle.main.bundleURL.pathExtension == "app")
         self.alertDeliveryCenter = alertDeliveryCenter
 
@@ -94,7 +98,7 @@ final class AppCoordinator: ObservableObject {
         temperatureFeatureStore = TemperatureFeatureStore()
 
         store = TimeSeriesStore(defaultCapacity: 7200)
-        temperatureHistoryStore = TemperatureHistoryStore()
+        temperatureHistoryStore = TemperatureHistoryStore(databaseURL: temperatureHistoryDatabaseURL)
         memoryHistoryStore = MemoryHistoryStore()
         metricHistoryStore = MetricHistoryStore()
         processMemoryProvider = ProcessMemoryProvider(
@@ -150,7 +154,7 @@ final class AppCoordinator: ObservableObject {
         installSettingCallbacks()
         privilegedTemperaturePausedUntilRetry = settingsController.privilegedTemperatureEnabled
 
-        Task {
+        startupTask = Task {
             await gpuStatsProvider.setOnSnapshotRead { [weak self] in
                 Task { @MainActor [weak self] in
                     self?.performanceDiagnosticsStore.recordGPUSnapshotRead()
@@ -171,10 +175,12 @@ final class AppCoordinator: ObservableObject {
                 memory: await memoryHistoryStartupMessage(),
                 temperature: await temperatureHistoryStartupMessage()
             )
+            guard !Task.isCancelled else { return }
 
             await hydrateLatestSamplesFromPersistentHistory()
             hydrateLatestTemperatureSnapshot()
             await restorePrivilegedTemperatureStartupState()
+            guard !Task.isCancelled else { return }
             telemetryStore.recentAlerts = alertDeliveryCenter.recentAlerts
             await alertDeliveryCenter.requestAuthorizationIfNeeded()
             await refreshAlertRules()
@@ -182,9 +188,11 @@ final class AppCoordinator: ObservableObject {
             telemetryStore.latestGPUSummary = await gpuStatsProvider.latestSnapshot()
             syncFeatureStoresFromLatestSamples()
             await refreshNetworkContext(forceReload: true)
+            guard !isRunningTests else { return }
             await powerSourceMonitor.start { [weak self] source in
                 await self?.handlePowerSourceChange(source)
             }
+            guard !Task.isCancelled else { return }
             await samplingEngine.start()
             schedulePrivilegedTemperatureRefresh()
         }
@@ -746,6 +754,21 @@ final class AppCoordinator: ObservableObject {
             await applyImmediatePrivilegedSamples(samples)
             await refreshPrivilegedTemperatureStatus()
         }
+    }
+
+    func shutdown() async {
+        startupTask?.cancel()
+        startupTask = nil
+        privilegedTemperatureRefreshTask?.cancel()
+        privilegedTemperatureRefreshTask = nil
+        cpuProcessPollingTask?.cancel()
+        cpuProcessPollingTask = nil
+        memoryProcessPollingTask?.cancel()
+        memoryProcessPollingTask = nil
+        fpsStatusPollingTask?.cancel()
+        fpsStatusPollingTask = nil
+        await samplingEngine.stop()
+        await powerSourceMonitor.stop()
     }
 
     private func bindServiceChanges() {
@@ -1548,6 +1571,7 @@ final class AppCoordinator: ObservableObject {
         }
         syncTemperatureFeatureStore()
         await temperatureHistoryStore.append(channels: mappedChannels)
+        telemetryStore.recordTemperatureHistoryAppend()
     }
 
     private func isGPUSample(_ sample: MetricSample) -> Bool {

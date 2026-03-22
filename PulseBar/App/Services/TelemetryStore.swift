@@ -79,6 +79,10 @@ final class TelemetryStore: ObservableObject {
         memoryHistoryRevision &+= 1
     }
 
+    func recordTemperatureHistoryAppend() {
+        temperatureHistoryRevision &+= 1
+    }
+
     func updateMemoryProcesses(_ entries: [MemoryProcessEntry], count: Int, status: String?) {
         topMemoryProcesses = Array(entries.prefix(count))
         if let status {
