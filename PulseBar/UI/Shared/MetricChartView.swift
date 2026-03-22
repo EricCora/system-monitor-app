@@ -61,47 +61,22 @@ struct MetricChartView: View {
                 .chartYScale(domain: chartModel.chartScale.yDomain)
                 .chartYAxis {
                     if isThermalStateChart {
-                        AxisMarks(position: .leading, values: [0, 1, 2, 3]) { value in
-                            AxisGridLine().foregroundStyle(DashboardPalette.chartGrid)
-                            AxisTick().foregroundStyle(DashboardPalette.secondaryText)
-                            AxisValueLabel {
-                                if let numericValue = value.as(Double.self) {
-                                    Text(axisLabel(for: numericValue))
-                                        .foregroundStyle(DashboardPalette.secondaryText)
-                                }
-                            }
+                        DashboardChartStyle.leadingNumericAxis(values: [0, 1, 2, 3]) { numericValue in
+                            axisLabel(for: numericValue)
                         }
                     } else {
-                        AxisMarks(position: .leading) { value in
-                            AxisGridLine().foregroundStyle(DashboardPalette.chartGrid)
-                            AxisTick().foregroundStyle(DashboardPalette.secondaryText)
-                            AxisValueLabel {
-                                if let numericValue = value.as(Double.self) {
-                                    Text(axisLabel(for: numericValue))
-                                        .foregroundStyle(DashboardPalette.secondaryText)
-                                }
-                            }
+                        DashboardChartStyle.leadingNumericAxis { numericValue in
+                            axisLabel(for: numericValue)
                         }
                     }
                 }
                 .chartXAxis {
-                    AxisMarks { value in
-                        AxisGridLine().foregroundStyle(DashboardPalette.chartGrid.opacity(0.55))
-                        AxisTick().foregroundStyle(DashboardPalette.secondaryText)
-                        AxisValueLabel {
-                            if let date = value.as(Date.self) {
-                                Text(date.formatted(date: .omitted, time: .shortened))
-                                    .foregroundStyle(DashboardPalette.tertiaryText)
-                            }
-                        }
-                    }
+                    DashboardChartStyle.timeXAxis()
                 }
                 .chartPlotStyle { plot in
                     plot
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(DashboardPalette.insetFill)
-                        )
+                        .background(DashboardPalette.chartPlotBackground(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .frame(height: 180)
                 .chartOverlay { proxy in

@@ -170,7 +170,7 @@ struct SettingsView: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
-                Text("Detached charts support click-drag zoom in both axes and double-click reset.")
+                Text("Detached charts support click-drag horizontal zoom and double-click reset.")
                     .font(.caption)
                     .foregroundStyle(DashboardPalette.secondaryText)
             }

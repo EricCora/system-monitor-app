@@ -32,8 +32,9 @@ struct MemoryPaneContentView: View {
 
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
+                    DashboardSectionLabel(title: "Memory Detail", tint: DashboardPalette.memoryAccent)
                     Text(activeChart.title)
-                        .font(.headline)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
                     Text(activeChart.subtitle)
                         .font(.caption)
                         .foregroundStyle(DashboardPalette.secondaryText)
@@ -57,21 +58,17 @@ struct MemoryPaneContentView: View {
                     .buttonStyle(.bordered)
                 }
             }
+            .padding(12)
+            .dashboardInset(cornerRadius: 16)
 
             chartBody
                 .frame(maxWidth: .infinity, minHeight: 300)
+                .padding(12)
+                .dashboardInset(cornerRadius: 16)
 
             summaryRow
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(DashboardPalette.sectionFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
-                )
-        )
+        .dashboardSurface(padding: 14, cornerRadius: 18)
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
                 hoveredDate = nil
@@ -123,6 +120,7 @@ struct MemoryPaneContentView: View {
                 MetricLinePaneChart(
                     model: pressureChartModel ?? PreparedMetricLineChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
+                    throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
@@ -136,6 +134,7 @@ struct MemoryPaneContentView: View {
                 MetricLinePaneChart(
                     model: swapChartModel ?? PreparedMetricLineChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
+                    throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
@@ -149,6 +148,7 @@ struct MemoryPaneContentView: View {
                 MetricLinePaneChart(
                     model: pagesChartModel ?? PreparedMetricLineChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
+                    throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
@@ -385,21 +385,23 @@ private struct MemoryCompositionChart: View {
             if let hoveredDate {
                 RuleMark(x: .value("Hover", hoveredDate))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.chartRule)
             }
         }
         .chartXScale(domain: viewport.xDomain ?? model.xDomain)
         .chartYScale(domain: 0...100)
         .chartYAxis {
-            AxisMarks(position: .leading, values: [0, 25, 50, 75, 100]) { value in
-                AxisGridLine()
-                AxisTick()
-                AxisValueLabel {
-                    if let percent = value.as(Double.self) {
-                        Text(String(format: "%.0f%%", percent))
-                    }
-                }
+            DashboardChartStyle.leadingNumericAxis(values: [0, 25, 50, 75, 100]) { percent in
+                String(format: "%.0f%%", percent)
             }
+        }
+        .chartXAxis {
+            DashboardChartStyle.timeXAxis()
+        }
+        .chartPlotStyle { plot in
+            plot
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .chartOverlay { proxy in
             GeometryReader { geometry in
@@ -421,6 +423,7 @@ private struct MemoryCompositionChart: View {
 private struct MetricLinePaneChart: View {
     let model: PreparedMetricLineChartModel
     let areaOpacity: Double
+    let throughputUnit: ThroughputDisplayUnit
     let paneController: DetachedMetricsPaneController
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
@@ -450,11 +453,24 @@ private struct MetricLinePaneChart: View {
             if let hoveredDate {
                 RuleMark(x: .value("Hover", hoveredDate))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.chartRule)
             }
         }
         .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
         .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
+        .chartYAxis {
+            DashboardChartStyle.leadingNumericAxis { value in
+                DashboardChartStyle.valueLabel(for: value, unit: model.primaryUnit, throughputUnit: throughputUnit)
+            }
+        }
+        .chartXAxis {
+            DashboardChartStyle.timeXAxis()
+        }
+        .chartPlotStyle { plot in
+            plot
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 DetachedChartInteractionOverlay(
@@ -482,13 +498,13 @@ private struct MemoryCompositionSeriesPoint: Identifiable {
         var color: Color {
             switch self {
             case .wired:
-                return .cyan
+                return DashboardPalette.networkAccent
             case .active:
-                return .red
+                return DashboardPalette.memoryAccent
             case .compressed:
-                return .purple
+                return DashboardPalette.temperatureAccent
             case .free:
-                return Color.gray.opacity(0.55)
+                return DashboardPalette.tertiaryText.opacity(0.7)
             }
         }
     }
@@ -536,11 +552,17 @@ private struct PreparedMetricLineChartModel {
     let points: [TimeSeriesChartPoint]
     let scale: ChartScale
     let fallbackXDomain: ClosedRange<Date>
+    let primaryUnit: MetricUnit?
 
     init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy) {
         points = ChartSeriesPipeline.metricHistory(series: series.filter { !$0.label.isEmpty })
         scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
         fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
+        primaryUnit = series
+            .lazy
+            .flatMap(\.samples)
+            .first?
+            .unit
     }
 
     static let empty = PreparedMetricLineChartModel(series: [], baseline: .zero())

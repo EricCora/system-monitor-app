@@ -49,7 +49,7 @@ struct QuickSettingsView: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
-                Text("Detached charts support drag-to-zoom and double-click reset.")
+                Text("Detached charts support horizontal time-range zoom and double-click reset.")
                     .font(.caption)
                     .foregroundStyle(DashboardPalette.secondaryText)
             }
@@ -91,13 +91,11 @@ struct QuickSettingsView: View {
 
     private func quickCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(DashboardPalette.cpuAccent)
+            DashboardSectionLabel(title: title.uppercased(), tint: DashboardPalette.cpuAccent)
 
             content()
         }
-        .dashboardSurface()
+        .dashboardSurface(padding: 16, cornerRadius: 20)
     }
 
     private var providerFailureSummary: String {

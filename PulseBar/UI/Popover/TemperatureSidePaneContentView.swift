@@ -24,30 +24,7 @@ struct TemperaturePaneContentView: View {
                 style: .detached
             )
 
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(activeSensor?.displayName ?? "Select a sensor")
-                        .font(.headline)
-                        .lineLimit(1)
-                    if let activeSensor {
-                        Text("\(activeSensor.category.label) • \(activeSensor.channelType == .fanRPM ? "Fan RPM" : "Temperature")")
-                            .font(.caption)
-                            .foregroundStyle(DashboardPalette.secondaryText)
-                    }
-                }
-
-                Spacer()
-
-                if paneController.pinnedTarget != nil {
-                    Text("Pinned")
-                        .font(.caption)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                } else {
-                    Text("Hover Preview")
-                        .font(.caption)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                }
-            }
+            paneHeader
 
             HStack(spacing: 8) {
                 if viewport.isZoomed {
@@ -82,6 +59,7 @@ struct TemperaturePaneContentView: View {
                     .buttonStyle(.bordered)
                 }
             }
+            .padding(.bottom, 2)
 
             if let activeSensor {
                 if sensorHistory.isEmpty {
@@ -95,81 +73,100 @@ struct TemperaturePaneContentView: View {
                             .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity, minHeight: 280)
+                    .dashboardInset(cornerRadius: 16)
                 } else {
                     let chartModel = chartModel ?? PreparedTemperatureChartModel.empty
-                    ZStack(alignment: .topLeading) {
-                        Chart(chartModel.points) { point in
-                            AreaMark(
-                                x: .value("Time", point.timestamp),
-                                yStart: .value("Baseline", chartModel.scale.renderedAreaBaseline(viewport: viewport)),
-                                yEnd: .value("Value", point.value),
-                                series: .value("Segment", point.continuityKey)
-                            )
-                            .foregroundStyle(point.color)
-                            .opacity(coordinator.chartAreaOpacity)
-                            .interpolationMethod(.linear)
+                    VStack(alignment: .leading, spacing: 10) {
+                        DashboardSectionLabel(title: "Sensor History", tint: DashboardPalette.secondaryText)
 
-                            LineMark(
-                                x: .value("Time", point.timestamp),
-                                y: .value("Value", point.value),
-                                series: .value("Segment", point.continuityKey)
-                            )
-                            .foregroundStyle(point.color)
-                            .lineStyle(StrokeStyle(lineWidth: 2))
-                            .interpolationMethod(.linear)
-
-                            if let hoveredHistoryPoint {
-                                RuleMark(x: .value("Hover", hoveredHistoryPoint.timestamp))
-                                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                    .foregroundStyle(DashboardPalette.chartRule)
-                            }
-                        }
-                        .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
-                        .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
-                        .frame(height: 260)
-                        .chartOverlay { proxy in
-                            GeometryReader { geometry in
-                                DetachedChartInteractionOverlay(
-                                    proxy: proxy,
-                                    geometry: geometry,
-                                    paneController: paneController,
-                                    hoveredDate: Binding(
-                                        get: { hoveredHistoryPoint?.timestamp },
-                                        set: { newDate in
-                                            hoveringHistoryChart = newDate != nil || zoomSelectionRect != nil
-                                            if let newDate {
-                                                hoveredHistoryPoint = TemperatureHistoryHelpers.nearestPoint(
-                                                    to: newDate,
-                                                    in: sensorHistory
-                                                )
-                                            } else {
-                                                hoveredHistoryPoint = nil
-                                            }
-                                        }
-                                    ),
-                                    viewport: $viewport,
-                                    selectionRect: $zoomSelectionRect
+                        ZStack(alignment: .topLeading) {
+                            Chart(chartModel.points) { point in
+                                AreaMark(
+                                    x: .value("Time", point.timestamp),
+                                    yStart: .value("Baseline", chartModel.scale.renderedAreaBaseline(viewport: viewport)),
+                                    yEnd: .value("Value", point.value),
+                                    series: .value("Segment", point.continuityKey)
                                 )
+                                .foregroundStyle(point.color)
+                                .opacity(coordinator.chartAreaOpacity)
+                                .interpolationMethod(.linear)
+
+                                LineMark(
+                                    x: .value("Time", point.timestamp),
+                                    y: .value("Value", point.value),
+                                    series: .value("Segment", point.continuityKey)
+                                )
+                                .foregroundStyle(point.color)
+                                .lineStyle(StrokeStyle(lineWidth: 2))
+                                .interpolationMethod(.linear)
+
+                                if let hoveredHistoryPoint {
+                                    RuleMark(x: .value("Hover", hoveredHistoryPoint.timestamp))
+                                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                                        .foregroundStyle(DashboardPalette.chartRule)
+                                }
+                            }
+                            .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
+                            .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
+                            .chartYAxis {
+                                DashboardChartStyle.leadingNumericAxis { value in
+                                    axisLabel(for: value, sensor: activeSensor)
+                                }
+                            }
+                            .chartXAxis {
+                                DashboardChartStyle.timeXAxis()
+                            }
+                            .chartPlotStyle { plot in
+                                plot
+                                    .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                            .frame(height: 260)
+                            .chartOverlay { proxy in
+                                GeometryReader { geometry in
+                                    DetachedChartInteractionOverlay(
+                                        proxy: proxy,
+                                        geometry: geometry,
+                                        paneController: paneController,
+                                        hoveredDate: Binding(
+                                            get: { hoveredHistoryPoint?.timestamp },
+                                            set: { newDate in
+                                                hoveringHistoryChart = newDate != nil || zoomSelectionRect != nil
+                                                if let newDate {
+                                                    hoveredHistoryPoint = TemperatureHistoryHelpers.nearestPoint(
+                                                        to: newDate,
+                                                        in: sensorHistory
+                                                    )
+                                                } else {
+                                                    hoveredHistoryPoint = nil
+                                                }
+                                            }
+                                        ),
+                                        viewport: $viewport,
+                                        selectionRect: $zoomSelectionRect
+                                    )
+                                }
+                            }
+                            .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
+                        }
+
+                        HStack {
+                            if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
+                                Text(summaryPoint.timestamp.formatted(date: .omitted, time: .standard))
+                                    .foregroundStyle(DashboardPalette.secondaryText)
+                                Spacer()
+                                Text(TemperatureHistoryHelpers.valueText(for: activeSensor, value: summaryPoint.value))
+                            } else {
+                                Text(" ")
+                                Spacer()
+                                Text(" ")
                             }
                         }
-                        .overlay(ChartZoomSelectionOverlay(selectionRect: zoomSelectionRect))
+                        .font(.caption)
+                        .frame(height: 18)
                     }
-                    .frame(height: 300)
-
-                    HStack {
-                        if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
-                            Text(summaryPoint.timestamp.formatted(date: .omitted, time: .standard))
-                                .foregroundStyle(DashboardPalette.secondaryText)
-                            Spacer()
-                            Text(TemperatureHistoryHelpers.valueText(for: activeSensor, value: summaryPoint.value))
-                        } else {
-                            Text(" ")
-                            Spacer()
-                            Text(" ")
-                        }
-                    }
-                    .font(.caption)
-                    .frame(height: 18)
+                    .padding(12)
+                    .dashboardInset(cornerRadius: 16)
                 }
             } else {
                 VStack(spacing: 8) {
@@ -181,18 +178,12 @@ struct TemperaturePaneContentView: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
                 }
                 .frame(maxWidth: .infinity, minHeight: 280)
+                .dashboardInset(cornerRadius: 16)
             }
         }
         .foregroundStyle(DashboardPalette.primaryText)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(DashboardPalette.sectionFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
-                )
-        )
+        .dashboardSurface(padding: 14, cornerRadius: 18)
+        .animation(.easeInOut(duration: 0.18), value: activeSensor?.id)
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
                 hoveredHistoryPoint = nil
@@ -230,6 +221,43 @@ struct TemperaturePaneContentView: View {
         }
 
         return visibleSensors.first
+    }
+
+    private var paneHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                DashboardSectionLabel(title: "Temperature Detail", tint: DashboardPalette.temperatureAccent)
+                Text(activeSensor?.displayName ?? "Select a sensor")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+
+                if let activeSensor {
+                    Text("\(activeSensor.category.label) • \(activeSensor.channelType == .fanRPM ? "Fan RPM" : "Temperature")")
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(activeSensor.map { TemperatureHistoryHelpers.valueText(for: $0) } ?? "--")
+                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
+
+                Text(paneController.pinnedTarget != nil ? "Pinned" : "Hover Preview")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(DashboardPalette.insetFill)
+                    )
+            }
+        }
+        .padding(12)
+        .dashboardInset(cornerRadius: 16)
     }
 
     private func refreshHistory() async {
@@ -280,6 +308,15 @@ struct TemperaturePaneContentView: View {
 
     private func historyEmptyStateText(for sensor: SensorReading) -> String {
         coordinator.temperatureHistoryStoreStatusMessage ?? "Collecting \(sensor.displayName) history"
+    }
+
+    private func axisLabel(for value: Double, sensor: SensorReading) -> String {
+        switch sensor.channelType {
+        case .temperatureCelsius:
+            return String(format: "%.0f C", value)
+        case .fanRPM:
+            return "\(Int(value.rounded())) rpm"
+        }
     }
 }
 

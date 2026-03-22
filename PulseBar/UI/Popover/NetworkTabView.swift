@@ -16,31 +16,27 @@ struct NetworkTabView: View {
             )
 
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "Inbound", tint: DashboardPalette.secondaryText)
-                    Text(UnitsFormatter.format(
+                DashboardReadoutCell(
+                    title: "Inbound",
+                    value: UnitsFormatter.format(
                         featureStore.inboundBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
-                    ))
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-                }
+                    ),
+                    tint: DashboardPalette.networkAccent
+                )
 
-                Spacer()
-
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "Outbound", tint: DashboardPalette.secondaryText)
-                    Text(UnitsFormatter.format(
+                DashboardReadoutCell(
+                    title: "Outbound",
+                    value: UnitsFormatter.format(
                         featureStore.outboundBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
-                    ))
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-                }
+                    ),
+                    tint: DashboardPalette.cpuAccent
+                )
             }
-            .dashboardSurface()
+            .dashboardSurface(padding: 16, cornerRadius: 20)
 
             MetricChartView(
                 title: "Inbound Throughput",
@@ -87,7 +83,7 @@ struct NetworkTabView: View {
                         }
                     }
                 }
-                .dashboardSurface()
+                .dashboardSurface(padding: 16, cornerRadius: 20)
             }
         }
         .foregroundStyle(DashboardPalette.primaryText)

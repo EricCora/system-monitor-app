@@ -10,29 +10,34 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         let controller = SettingsController(defaults: defaults)
         controller.privilegedTemperatureEnabled = true
 
-        let coordinator = AppCoordinator(
-            defaults: defaults,
-            directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
-            helperReachabilityProbe: { false }
-        )
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
 
-        let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
-        let matched = try await conditionMatches(within: 2) {
-            let visibleNames = Set(telemetryStore.latestSensorChannels.map(\.displayName))
-            return telemetryStore.privilegedTemperatureHealthy
-                && telemetryStore.usingPersistedTemperatureSnapshot == false
-                && visibleNames == Set(["CPU Die", "GPU Die"])
-                && telemetryStore.privilegedSourceDiagnostics.contains(where: { $0.source == "direct-iohid" && $0.healthy })
-                && telemetryStore.privilegedTemperatureStatusMessage?.contains("Direct IOHID") == true
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+            let matched = try await conditionMatches(within: 2) {
+                let visibleNames = Set(telemetryStore.latestSensorChannels.map(\.displayName))
+                return telemetryStore.privilegedTemperatureHealthy
+                    && telemetryStore.usingPersistedTemperatureSnapshot == false
+                    && visibleNames == Set(["CPU Die", "GPU Die"])
+                    && telemetryStore.privilegedSourceDiagnostics.contains(where: { $0.source == "direct-iohid" && $0.healthy })
+                    && telemetryStore.privilegedTemperatureStatusMessage?.contains("Direct IOHID") == true
+            }
+            let directRuntimeState = String(describing: mirrorChild(named: "directTemperatureRuntimeState", in: coordinator))
+            let failureMessage = "Expected direct IOHID startup parity, got enabled=\(coordinator.privilegedTemperatureEnabled), directRuntimeState=\(directRuntimeState), status=\(telemetryStore.privilegedTemperatureStatusMessage ?? "nil"), healthy=\(telemetryStore.privilegedTemperatureHealthy), snapshot=\(telemetryStore.usingPersistedTemperatureSnapshot), channels=\(telemetryStore.latestSensorChannels.map(\.displayName)), diagnostics=\(telemetryStore.privilegedSourceDiagnostics)"
+            XCTAssertTrue(
+                matched,
+                failureMessage
+            )
+
+            await coordinator.shutdown()
         }
-        let directRuntimeState = String(describing: mirrorChild(named: "directTemperatureRuntimeState", in: coordinator))
-        let failureMessage = "Expected direct IOHID startup parity, got enabled=\(coordinator.privilegedTemperatureEnabled), directRuntimeState=\(directRuntimeState), status=\(telemetryStore.privilegedTemperatureStatusMessage ?? "nil"), healthy=\(telemetryStore.privilegedTemperatureHealthy), snapshot=\(telemetryStore.usingPersistedTemperatureSnapshot), channels=\(telemetryStore.latestSensorChannels.map(\.displayName)), diagnostics=\(telemetryStore.privilegedSourceDiagnostics)"
-        XCTAssertTrue(
-            matched,
-            failureMessage
-        )
-
-        await coordinator.shutdown()
     }
 
     func testStartupDirectIOHIDProbeAppendsTemperatureHistoryPromptly() async throws {
@@ -46,6 +51,8 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
                 defaults: defaults,
                 directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
                 helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
                 temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
             )
             let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
@@ -67,26 +74,35 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         }
     }
 
-    func testDashboardSectionDefaultsToOverviewAndCardShortcutsOpenDetailSections() {
-        let coordinator = AppCoordinator(defaults: makeDefaults())
+    func testDashboardSectionDefaultsToOverviewAndCardShortcutsOpenDetailSections() async throws {
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: makeDefaults(),
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
 
-        XCTAssertEqual(coordinator.dashboardSection, .overview)
+            XCTAssertEqual(coordinator.dashboardSection, .overview)
 
-        coordinator.setDashboardSection(.network)
-        XCTAssertEqual(coordinator.dashboardSection, .network)
+            coordinator.setDashboardSection(.network)
+            XCTAssertEqual(coordinator.dashboardSection, .network)
 
-        coordinator.openDashboardDetails(for: .sensors)
-        XCTAssertEqual(coordinator.dashboardSection, .temperature)
+            coordinator.openDashboardDetails(for: .sensors)
+            XCTAssertEqual(coordinator.dashboardSection, .temperature)
 
-        coordinator.resetDashboardSectionForPresentation()
-        XCTAssertEqual(coordinator.dashboardSection, .overview)
+            coordinator.resetDashboardSectionForPresentation()
+            XCTAssertEqual(coordinator.dashboardSection, .overview)
+
+            await coordinator.shutdown()
+        }
     }
 
     func testStartupHydratesLatestTemperatureSnapshotWithoutPrompting() async throws {
         let defaults = makeDefaults()
         let snapshot = makeSnapshot()
 
-        try await withUniqueTemporaryDirectory { _ in
+        try await withUniqueTemporaryDirectory { temporaryRoot in
             let controller = SettingsController(defaults: defaults)
             controller.privilegedTemperatureEnabled = true
             controller.persistLatestTemperatureSnapshot(snapshot)
@@ -94,7 +110,10 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
             let coordinator = AppCoordinator(
                 defaults: defaults,
                 directTemperatureDataSource: FailingTemperatureDataSource(),
-                helperReachabilityProbe: { false }
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
             )
             let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
 
@@ -112,7 +131,7 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         let defaults = makeDefaults()
         let snapshot = makeSnapshot()
 
-        try await withUniqueTemporaryDirectory { _ in
+        try await withUniqueTemporaryDirectory { temporaryRoot in
             let controller = SettingsController(defaults: defaults)
             controller.privilegedTemperatureEnabled = true
             controller.persistLatestTemperatureSnapshot(snapshot)
@@ -120,7 +139,10 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
             let coordinator = AppCoordinator(
                 defaults: defaults,
                 directTemperatureDataSource: FailingTemperatureDataSource(),
-                helperReachabilityProbe: { false }
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
             )
             let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
             let settingsController = try XCTUnwrap(mirrorChild(named: "settingsController", in: coordinator) as? SettingsController)
@@ -142,55 +164,73 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         }
     }
 
-    func testFallbackTemperatureRowsUseAggregateMetricsWhenSensorChannelsAreUnavailable() throws {
-        let coordinator = AppCoordinator(defaults: makeDefaults())
-        let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
-        let timestamp = Date(timeIntervalSince1970: 1_700_001_234)
+    func testFallbackTemperatureRowsUseAggregateMetricsWhenSensorChannelsAreUnavailable() async throws {
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: makeDefaults(),
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+            let timestamp = Date(timeIntervalSince1970: 1_700_001_234)
 
-        telemetryStore.latestSamples[.temperaturePrimaryCelsius] = MetricSample(
-            metricID: .temperaturePrimaryCelsius,
-            timestamp: timestamp,
-            value: 54,
-            unit: .celsius
-        )
-        telemetryStore.latestSamples[.temperatureMaxCelsius] = MetricSample(
-            metricID: .temperatureMaxCelsius,
-            timestamp: timestamp,
-            value: 63,
-            unit: .celsius
-        )
+            telemetryStore.latestSamples[.temperaturePrimaryCelsius] = MetricSample(
+                metricID: .temperaturePrimaryCelsius,
+                timestamp: timestamp,
+                value: 54,
+                unit: .celsius
+            )
+            telemetryStore.latestSamples[.temperatureMaxCelsius] = MetricSample(
+                metricID: .temperatureMaxCelsius,
+                timestamp: timestamp,
+                value: 63,
+                unit: .celsius
+            )
 
-        XCTAssertEqual(
-            coordinator.fallbackTemperatureRows(),
-            [
-                TemperatureSensorReading(name: "Primary", celsius: 54),
-                TemperatureSensorReading(name: "Maximum", celsius: 63)
-            ]
-        )
+            XCTAssertEqual(
+                coordinator.fallbackTemperatureRows(),
+                [
+                    TemperatureSensorReading(name: "Primary", celsius: 54),
+                    TemperatureSensorReading(name: "Maximum", celsius: 63)
+                ]
+            )
+
+            await coordinator.shutdown()
+        }
     }
 
-    func testFallbackTemperatureRowsIgnoreInvalidAggregateMetrics() throws {
-        let coordinator = AppCoordinator(defaults: makeDefaults())
-        let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
-        let timestamp = Date(timeIntervalSince1970: 1_700_001_567)
+    func testFallbackTemperatureRowsIgnoreInvalidAggregateMetrics() async throws {
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: makeDefaults(),
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+            let timestamp = Date(timeIntervalSince1970: 1_700_001_567)
 
-        telemetryStore.latestSamples[.temperaturePrimaryCelsius] = MetricSample(
-            metricID: .temperaturePrimaryCelsius,
-            timestamp: timestamp,
-            value: .nan,
-            unit: .celsius
-        )
-        telemetryStore.latestSamples[.temperatureMaxCelsius] = MetricSample(
-            metricID: .temperatureMaxCelsius,
-            timestamp: timestamp,
-            value: 61,
-            unit: .celsius
-        )
+            telemetryStore.latestSamples[.temperaturePrimaryCelsius] = MetricSample(
+                metricID: .temperaturePrimaryCelsius,
+                timestamp: timestamp,
+                value: .nan,
+                unit: .celsius
+            )
+            telemetryStore.latestSamples[.temperatureMaxCelsius] = MetricSample(
+                metricID: .temperatureMaxCelsius,
+                timestamp: timestamp,
+                value: 61,
+                unit: .celsius
+            )
 
-        XCTAssertEqual(
-            coordinator.fallbackTemperatureRows(),
-            [TemperatureSensorReading(name: "Maximum", celsius: 61)]
-        )
+            XCTAssertEqual(
+                coordinator.fallbackTemperatureRows(),
+                [TemperatureSensorReading(name: "Maximum", celsius: 61)]
+            )
+
+            await coordinator.shutdown()
+        }
     }
 
     private func makeDefaults() -> UserDefaults {

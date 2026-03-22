@@ -73,6 +73,8 @@ final class AppCoordinator: ObservableObject {
         privilegedTemperatureDataSource: PrivilegedHelperTemperatureDataSource = PrivilegedHelperTemperatureDataSource(),
         directTemperatureDataSource: any TemperatureDataSource = IOHIDTemperatureDataSource(),
         helperReachabilityProbe: (@Sendable () async -> Bool)? = nil,
+        metricHistoryDatabaseURL: URL? = nil,
+        memoryHistoryDatabaseURL: URL? = nil,
         temperatureHistoryDatabaseURL: URL? = nil
     ) {
         isAppBundleRuntime = Bundle.main.bundleURL.pathExtension == "app"
@@ -99,8 +101,8 @@ final class AppCoordinator: ObservableObject {
 
         store = TimeSeriesStore(defaultCapacity: 7200)
         temperatureHistoryStore = TemperatureHistoryStore(databaseURL: temperatureHistoryDatabaseURL)
-        memoryHistoryStore = MemoryHistoryStore()
-        metricHistoryStore = MetricHistoryStore()
+        memoryHistoryStore = MemoryHistoryStore(databaseURL: memoryHistoryDatabaseURL)
+        metricHistoryStore = MetricHistoryStore(databaseURL: metricHistoryDatabaseURL)
         processMemoryProvider = ProcessMemoryProvider(
             maxEntries: 12,
             minCollectionInterval: 5

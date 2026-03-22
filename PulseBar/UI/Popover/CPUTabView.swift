@@ -108,12 +108,12 @@ struct CPUTabView: View {
             }
         } label: {
             content()
-                .padding(10)
+                .padding(12)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(paneController.isActive(target) ? DashboardPalette.selectionFill : DashboardPalette.sectionFill)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .strokeBorder(paneController.isActive(target) ? DashboardPalette.cpuAccent.opacity(0.45) : DashboardPalette.chromeBorder, lineWidth: 1)
                         )
                 )
@@ -274,7 +274,7 @@ private struct CPUUptimeSection: View {
             Text(UnitsFormatter.format(store.snapshot.summary.uptimeSeconds, unit: .seconds))
                 .font(.body.monospacedDigit())
         }
-        .dashboardSurface()
+        .dashboardSurface(padding: 16, cornerRadius: 20)
     }
 }
 
@@ -286,10 +286,7 @@ private struct CPUSectionTitle: View {
     }
 
     var body: some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(DashboardPalette.cpuAccent)
-            .frame(maxWidth: .infinity, alignment: .center)
+        DashboardSectionLabel(title: text, tint: DashboardPalette.cpuAccent)
     }
 }
 
@@ -462,12 +459,19 @@ private struct CompactCPUBars: View {
             let totalSpacing = spacing * CGFloat(max(0, barCount - 1))
             let barWidth = max(3, (proxy.size.width - totalSpacing) / CGFloat(barCount))
 
-            HStack(alignment: .bottom, spacing: spacing) {
-                ForEach(coreSamples, id: \.metricID) { sample in
-                    Rectangle()
-                        .fill(DashboardPalette.cpuAccent.opacity(0.95))
-                        .frame(width: barWidth, height: proxy.size.height * CGFloat(min(max(sample.value / 100.0, 0), 1)))
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(DashboardPalette.insetFill.opacity(0.72))
+
+                HStack(alignment: .bottom, spacing: spacing) {
+                    ForEach(coreSamples, id: \.metricID) { sample in
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(DashboardPalette.cpuAccent.opacity(0.95))
+                            .frame(width: barWidth, height: max(4, proxy.size.height * CGFloat(min(max(sample.value / 100.0, 0), 1))))
+                    }
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }

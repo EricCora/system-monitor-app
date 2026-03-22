@@ -21,66 +21,57 @@ struct DiskTabView: View {
                 .dashboardSurface()
 
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "Read", tint: DashboardPalette.secondaryText)
-                    Text(UnitsFormatter.format(
+                DashboardReadoutCell(
+                    title: "Read",
+                    value: UnitsFormatter.format(
                         featureStore.readBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
-                    ))
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-                }
+                    ),
+                    tint: DashboardPalette.diskAccent
+                )
 
-                Spacer()
-
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "Write", tint: DashboardPalette.secondaryText)
-                    Text(UnitsFormatter.format(
+                DashboardReadoutCell(
+                    title: "Write",
+                    value: UnitsFormatter.format(
                         featureStore.writeBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
-                    ))
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-                }
+                    ),
+                    tint: DashboardPalette.cpuAccent
+                )
 
-                Spacer()
-
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "Free Space", tint: DashboardPalette.secondaryText)
-                    Text(UnitsFormatter.format(
+                DashboardReadoutCell(
+                    title: "Free Space",
+                    value: UnitsFormatter.format(
                         featureStore.freeBytes,
                         unit: .bytes
-                    ))
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-                }
+                    ),
+                    tint: DashboardPalette.secondaryText
+                )
             }
-            .dashboardSurface()
+            .dashboardSurface(padding: 16, cornerRadius: 20)
 
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "Combined", tint: DashboardPalette.secondaryText)
-                    Text(UnitsFormatter.format(
+                DashboardReadoutCell(
+                    title: "Combined",
+                    value: UnitsFormatter.format(
                         featureStore.combinedBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
-                    ))
-                    .font(.title3.monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-                }
+                    ),
+                    tint: DashboardPalette.diskAccent
+                )
 
-                Spacer()
+                DashboardReadoutCell(
+                    title: "S.M.A.R.T.",
+                    value: smartStatusText,
+                    tint: DashboardPalette.secondaryText
+                )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    DashboardSectionLabel(title: "S.M.A.R.T.", tint: DashboardPalette.secondaryText)
-                    Text(smartStatusText)
-                        .font(.title3.monospacedDigit())
-                        .foregroundStyle(DashboardPalette.primaryText)
-                }
+                Spacer(minLength: 0)
             }
-            .dashboardSurface()
+            .dashboardSurface(padding: 16, cornerRadius: 20)
 
             MetricChartView(
                 title: "Disk Read Throughput",

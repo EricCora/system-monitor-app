@@ -76,13 +76,37 @@ struct TemperatureTabView: View {
 
     private var headerPanel: some View {
         HStack(alignment: .top, spacing: 18) {
-            summaryMetric(title: "Thermal State", value: coordinator.latestThermalState().label)
-            summaryMetric(title: "Primary Temp", value: latestPrimaryTemperatureText)
-            summaryMetric(title: "Maximum Temp", value: latestMaximumTemperatureText)
-            summaryMetric(title: "Source", value: sourceLabel)
+            VStack(alignment: .leading, spacing: 8) {
+                DashboardSectionLabel(title: "Temperature Focus", tint: DashboardPalette.temperatureAccent)
+                Text(focusSensor?.displayName ?? "Thermal overview")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(DashboardPalette.primaryText)
+                    .lineLimit(1)
+
+                Text(focusSensor.map { TemperatureHistoryHelpers.valueText(for: $0) } ?? latestPrimaryTemperatureText)
+                    .font(.system(size: 38, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
+
+                Text(selectionStatusText)
+                    .font(.subheadline)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 14) {
+                    summaryMetric(title: "Thermal State", value: coordinator.latestThermalState().label)
+                    summaryMetric(title: "Primary Temp", value: latestPrimaryTemperatureText)
+                }
+
+                HStack(alignment: .top, spacing: 14) {
+                    summaryMetric(title: "Maximum Temp", value: latestMaximumTemperatureText)
+                    summaryMetric(title: "Source", value: sourceLabel)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dashboardSurface(padding: 14)
+        .dashboardSurface(padding: 18, cornerRadius: 20)
     }
 
     private var sensorListPanel: some View {
@@ -106,8 +130,13 @@ struct TemperatureTabView: View {
             if !featureStore.visibleSensors.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(featureStore.groupedSensors) { group in
-                        VStack(alignment: .leading, spacing: 4) {
-                            DashboardSectionLabel(title: group.category.label.uppercased(), tint: DashboardPalette.secondaryText)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                DashboardSectionLabel(title: group.category.label.uppercased(), tint: DashboardPalette.secondaryText)
+                                Rectangle()
+                                    .fill(DashboardPalette.divider)
+                                    .frame(height: 1)
+                            }
 
                             ForEach(group.channels, id: \.id) { sensor in
                                 sensorRow(sensor)
@@ -135,7 +164,7 @@ struct TemperatureTabView: View {
                     .padding(.vertical, 6)
             }
         }
-        .dashboardSurface(padding: 14)
+        .dashboardSurface(padding: 16, cornerRadius: 20)
         .onHover { hovering in
             paneController.setMainListHovering(hovering)
         }
@@ -143,6 +172,19 @@ struct TemperatureTabView: View {
 
     private var chartPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    DashboardSectionLabel(title: "History Overview", tint: DashboardPalette.secondaryText)
+                    Text("Primary, maximum, and thermal-state context")
+                        .font(.subheadline)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+                Spacer()
+                Text(coordinator.selectedTemperatureHistoryWindow.label)
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
+            }
+
             MetricChartView(
                 title: "Primary Temperature",
                 samples: primaryTemperatureSamples,
@@ -170,7 +212,7 @@ struct TemperatureTabView: View {
                 seriesColor: DashboardPalette.cpuAccent
             )
         }
-        .dashboardSurface(padding: 14)
+        .dashboardSurface(padding: 16, cornerRadius: 20)
     }
 
     private var diagnosticsPanel: some View {
@@ -200,7 +242,7 @@ struct TemperatureTabView: View {
                     .foregroundStyle(DashboardPalette.secondaryText)
             }
         }
-        .dashboardSurface(padding: 14)
+        .dashboardSurface(padding: 16, cornerRadius: 20)
     }
 
     private var displayedSensorCount: Int {
@@ -212,6 +254,11 @@ struct TemperatureTabView: View {
 
     private var fallbackRows: [TemperatureSensorReading] {
         coordinator.fallbackTemperatureRows()
+    }
+
+    private var focusSensor: SensorReading? {
+        coordinator.selectedSensorReading(includeHidden: true)
+            ?? featureStore.visibleSensors.first
     }
 
     private var latestPrimaryTemperatureText: String {
@@ -236,6 +283,13 @@ struct TemperatureTabView: View {
             return "Privileged"
         }
         return "Standard"
+    }
+
+    private var selectionStatusText: String {
+        if let focusSensor {
+            return "\(focusSensor.category.label) sensor pinned to the detached pane when selected."
+        }
+        return "Select a visible sensor to inspect its live history."
     }
 
     private var emptyStateText: String {
@@ -281,10 +335,20 @@ struct TemperatureTabView: View {
         VStack(alignment: .leading, spacing: 4) {
             DashboardSectionLabel(title: title, tint: DashboardPalette.secondaryText)
             Text(value)
-                .font(.title3.monospacedDigit())
+                .font(.title3.monospacedDigit().weight(.semibold))
                 .foregroundStyle(DashboardPalette.primaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(DashboardPalette.insetFill.opacity(0.9))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+                )
+        )
     }
 
     private func sensorRow(_ sensor: SensorReading) -> some View {
@@ -295,6 +359,10 @@ struct TemperatureTabView: View {
             }
         } label: {
             HStack(spacing: 8) {
+                Circle()
+                    .fill(sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent)
+                    .frame(width: 8, height: 8)
+
                 Text(sensor.displayName)
                     .font(.subheadline)
                     .foregroundStyle(DashboardPalette.primaryText)
@@ -319,10 +387,14 @@ struct TemperatureTabView: View {
                 .frame(width: 90, height: 10)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(backgroundColor(for: sensor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(borderColor(for: sensor), lineWidth: 1)
+                    )
             )
         }
         .buttonStyle(.plain)
@@ -339,6 +411,10 @@ struct TemperatureTabView: View {
 
     private func fallbackSensorRow(_ sensor: TemperatureSensorReading) -> some View {
         HStack(spacing: 8) {
+            Circle()
+                .fill(DashboardPalette.temperatureAccent)
+                .frame(width: 8, height: 8)
+
             Text(sensor.name)
                 .font(.subheadline)
                 .foregroundStyle(DashboardPalette.primaryText)
@@ -363,10 +439,14 @@ struct TemperatureTabView: View {
             .frame(width: 90, height: 10)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(DashboardPalette.insetFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+                )
         )
     }
 
@@ -382,6 +462,16 @@ struct TemperatureTabView: View {
             return DashboardPalette.hoverFill
         }
         return DashboardPalette.insetFill
+    }
+
+    private func borderColor(for sensor: SensorReading) -> Color {
+        if paneController.isActive(.temperature(sensorID: sensor.id)) {
+            return (sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent).opacity(0.55)
+        }
+        if sensor.id == coordinator.selectedTemperatureSensorID {
+            return DashboardPalette.cpuAccent.opacity(0.30)
+        }
+        return DashboardPalette.divider
     }
 
     private func barWidth(for channel: SensorReading, totalWidth: CGFloat) -> CGFloat {

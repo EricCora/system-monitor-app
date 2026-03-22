@@ -182,6 +182,32 @@ final class TimeSeriesChartSupportTests: XCTestCase {
         )
     }
 
+    func testHorizontalDetachedZoomIgnoresVerticalDistance() {
+        let decision = DetachedChartInteractionOverlay.zoomDecision(
+            horizontalDistance: 48,
+            verticalDistance: 96,
+            zoomMode: .horizontal
+        )
+
+        XCTAssertTrue(decision.shouldZoomX)
+        XCTAssertFalse(decision.shouldZoomY)
+    }
+
+    func testHorizontalDetachedZoomSelectionSpansPlotHeight() {
+        let plotFrame = CGRect(x: 20, y: 30, width: 300, height: 180)
+        let rect = DetachedChartInteractionOverlay.selectionRect(
+            for: CGPoint(x: 80, y: 60),
+            current: CGPoint(x: 180, y: 140),
+            plotFrame: plotFrame,
+            zoomMode: .horizontal
+        )
+
+        XCTAssertEqual(rect.minX, 80)
+        XCTAssertEqual(rect.width, 100)
+        XCTAssertEqual(rect.minY, plotFrame.minY)
+        XCTAssertEqual(rect.height, plotFrame.height)
+    }
+
     private func makePoint(
         timestamp: Date,
         value: Double,

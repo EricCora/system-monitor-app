@@ -5,6 +5,7 @@ struct DashboardView: View {
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var statusStore: DashboardStatusStore
     @StateObject private var paneController = DetachedMetricsPaneController()
+    @Namespace private var sectionTabsNamespace
 
     private let columns = [
         GridItem(.flexible(minimum: 320), spacing: 18),
@@ -23,16 +24,7 @@ struct DashboardView: View {
 
             contentView
         }
-        .background(
-            LinearGradient(
-                colors: [
-                    DashboardPalette.canvasTop,
-                    DashboardPalette.canvasBottom
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .dashboardCanvasBackground()
         .preferredColorScheme(.light)
         .onAppear {
             coordinator.resetDashboardSectionForPresentation()
@@ -148,10 +140,15 @@ struct DashboardView: View {
 
     private var dashboardHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("LIVE SYSTEM")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .tracking(1.8)
+                        .foregroundStyle(DashboardPalette.temperatureAccent)
+
                     Text("PulseBar")
-                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(DashboardPalette.primaryText)
                     Text("Overview first, deep inspection one tap away.")
                         .font(.subheadline)
@@ -160,30 +157,77 @@ struct DashboardView: View {
 
                 Spacer()
 
-                Picker("Profile", selection: $coordinator.selectedProfileID) {
-                    ForEach(ProfileID.allCases, id: \.self) { profile in
-                        Text(profile.label).tag(profile)
+                VStack(alignment: .trailing, spacing: 10) {
+                    Menu {
+                        ForEach(ProfileID.allCases, id: \.self) { profile in
+                            Button(profile.label) {
+                                coordinator.selectedProfileID = profile
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("Profile")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundStyle(DashboardPalette.secondaryText)
+
+                            Spacer(minLength: 8)
+
+                            Text(coordinator.selectedProfileID.label)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(DashboardPalette.primaryText)
+                                .lineLimit(1)
+
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DashboardPalette.secondaryText)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .frame(width: 220)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.94))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                                )
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+
+                    HStack(spacing: 10) {
+                        headerBadge(
+                            title: "Power",
+                            value: statusStore.snapshot.currentPowerSourceDescription,
+                            tint: DashboardPalette.batteryAccent
+                        )
+                        headerBadge(
+                            title: "Refresh",
+                            value: "\(Int(coordinator.globalSamplingInterval))s",
+                            tint: DashboardPalette.cpuAccent
+                        )
+                        headerBadge(
+                            title: "Thermals",
+                            value: statusStore.snapshot.privilegedTemperatureHealthy ? "Live" : "Fallback",
+                            tint: statusStore.snapshot.privilegedTemperatureHealthy ? DashboardPalette.success : DashboardPalette.warning
+                        )
+                        headerBadge(
+                            title: "Section",
+                            value: coordinator.dashboardSection.label,
+                            tint: accent(for: coordinator.dashboardSection)
+                        )
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(width: 160)
-            }
-
-            HStack(spacing: 14) {
-                headerBadge(title: "Power", value: statusStore.snapshot.currentPowerSourceDescription)
-                headerBadge(title: "Refresh", value: "\(Int(coordinator.globalSamplingInterval))s")
-                headerBadge(
-                    title: "Privileged",
-                    value: statusStore.snapshot.privilegedTemperatureHealthy ? "Healthy" : "Fallback"
-                )
-                headerBadge(title: "Section", value: coordinator.dashboardSection.label)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(DashboardSection.allCases, id: \.self) { section in
                         Button {
-                            coordinator.setDashboardSection(section)
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                coordinator.setDashboardSection(section)
+                            }
                         } label: {
                             Text(section.label)
                                 .font(.subheadline.weight(.semibold))
@@ -192,37 +236,76 @@ struct DashboardView: View {
                                     ? Color.white
                                     : DashboardPalette.primaryText
                                 )
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
                                 .padding(.vertical, 8)
                                 .padding(.horizontal, 14)
+                                .frame(minWidth: 88)
                                 .background(
-                                    Capsule(style: .continuous)
-                                        .fill(
-                                            coordinator.dashboardSection == section
-                                            ? DashboardPalette.cpuAccent
-                                            : Color.white.opacity(0.98)
-                                        )
-                                        .overlay(
+                                    ZStack {
+                                        if coordinator.dashboardSection == section {
                                             Capsule(style: .continuous)
-                                                .strokeBorder(DashboardPalette.chromeBorder, lineWidth: coordinator.dashboardSection == section ? 0 : 1)
-                                        )
+                                                .fill(accent(for: section))
+                                                .matchedGeometryEffect(id: "dashboard-section-pill", in: sectionTabsNamespace)
+                                        } else {
+                                            Capsule(style: .continuous)
+                                                .fill(Color.white.opacity(0.84))
+                                                .overlay(
+                                                    Capsule(style: .continuous)
+                                                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                                                )
+                                        }
+                                    }
                                 )
                         }
                         .buttonStyle(.plain)
                     }
                 }
+                .padding(6)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.white.opacity(0.36))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+                        )
+                )
             }
         }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color.white.opacity(0.50))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                )
+                .shadow(color: DashboardPalette.shadow, radius: 18, x: 0, y: 10)
+        )
     }
 
-    private func headerBadge(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(DashboardPalette.secondaryText)
+    private func headerBadge(title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .center, spacing: 4) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+
+                Text(title.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
             Text(value)
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(DashboardPalette.primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
+        .frame(width: 108, height: 68, alignment: .center)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
@@ -233,6 +316,27 @@ struct DashboardView: View {
                         .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                 )
         )
+    }
+
+    private func accent(for section: DashboardSection) -> Color {
+        switch section {
+        case .overview:
+            return DashboardPalette.cpuAccent
+        case .cpu:
+            return DashboardPalette.cpuAccent
+        case .memory:
+            return DashboardPalette.memoryAccent
+        case .battery:
+            return DashboardPalette.batteryAccent
+        case .network:
+            return DashboardPalette.networkAccent
+        case .temperature:
+            return DashboardPalette.temperatureAccent
+        case .disk:
+            return DashboardPalette.diskAccent
+        case .settings:
+            return DashboardPalette.secondaryText
+        }
     }
 }
 
@@ -297,10 +401,16 @@ private struct CPUDashboardCard: View {
 
                 HStack(spacing: 6) {
                     ForEach(coordinator.latestCPUCores(), id: \.metricID) { sample in
-                        VStack(spacing: 4) {
-                            Capsule()
-                                .fill(sample.value > 70 ? DashboardPalette.memoryAccent : DashboardPalette.cpuAccent)
-                                .frame(width: 12, height: CGFloat(max(14, sample.value)))
+                        VStack(spacing: 6) {
+                            ZStack(alignment: .bottom) {
+                                Capsule()
+                                    .fill(DashboardPalette.insetFill)
+                                    .frame(width: 12, height: 44)
+
+                                Capsule()
+                                    .fill(sample.value > 70 ? DashboardPalette.memoryAccent : DashboardPalette.cpuAccent)
+                                    .frame(width: 12, height: CGFloat(max(10, min(44, sample.value * 0.44))))
+                            }
                             Text(coreLabel(for: sample.metricID))
                                 .font(.caption2)
                                 .foregroundStyle(DashboardPalette.tertiaryText)

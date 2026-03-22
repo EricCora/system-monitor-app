@@ -43,8 +43,16 @@ private struct ChartWindowChip: View {
         } label: {
                 Text(option.label)
                     .font(style == .detached ? .headline : .subheadline.weight(.semibold))
-                    .padding(.vertical, style == .detached ? 7 : 6)
-                    .padding(.horizontal, style == .detached ? 12 : 10)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+                    .multilineTextAlignment(.center)
+                    .frame(
+                        minWidth: style == .detached ? 62 : 52,
+                        minHeight: style == .detached ? 42 : 34,
+                        alignment: .center
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, style == .detached ? 8 : 6)
                     .background(backgroundColor, in: Capsule())
                 .foregroundStyle(selection == option ? Color.white : DashboardPalette.primaryText)
                 .overlay(
@@ -77,10 +85,10 @@ private struct ChartWindowChip: View {
         if selection == option {
             return DashboardPalette.cpuAccent
         }
-        return style == .detached ? DashboardPalette.insetFill : DashboardPalette.sectionFill
+        return style == .detached ? DashboardPalette.sectionFill : Color.white.opacity(0.84)
     }
 
     private var borderColor: Color {
-        style == .detached ? DashboardPalette.divider : DashboardPalette.chromeBorder
+        style == .detached ? DashboardPalette.chromeBorder : DashboardPalette.chromeBorder
     }
 }

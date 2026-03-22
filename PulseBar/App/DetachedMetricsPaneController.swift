@@ -200,6 +200,9 @@ final class DetachedMetricsPaneController: ObservableObject {
         panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
 
         let rootView = DetachedMetricsPaneHostView(coordinator: coordinator, paneController: self)
         let hostingView = NSHostingView(rootView: rootView)
@@ -371,9 +374,17 @@ private struct DetachedMetricsPaneHostView: View {
 
     var body: some View {
         content
-        .onHover { hovering in
-            paneController.setPanelHovering(hovering)
-        }
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .dashboardCanvasBackground()
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+            )
+            .onHover { hovering in
+                paneController.setPanelHovering(hovering)
+            }
     }
 
     @ViewBuilder

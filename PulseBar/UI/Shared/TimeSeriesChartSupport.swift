@@ -325,10 +325,99 @@ enum ChartSeriesPipeline {
     }
 }
 
+enum DashboardChartStyle {
+    @AxisContentBuilder
+    static func timeXAxis() -> some AxisContent {
+        AxisMarks(values: .automatic(desiredCount: 3)) { value in
+            AxisGridLine()
+                .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
+            AxisTick()
+                .foregroundStyle(DashboardPalette.chartAxisText)
+            AxisValueLabel {
+                if let date = value.as(Date.self) {
+                    Text(date.formatted(date: .omitted, time: .shortened))
+                        .foregroundStyle(DashboardPalette.chartAxisText)
+                }
+            }
+        }
+    }
+
+    @AxisContentBuilder
+    static func leadingNumericAxis(
+        values: [Double]? = nil,
+        label: @escaping (Double) -> String
+    ) -> some AxisContent {
+        if let values {
+            AxisMarks(preset: .aligned, position: .leading, values: values) { value in
+                AxisGridLine()
+                    .foregroundStyle(DashboardPalette.chartGrid)
+                AxisTick()
+                    .foregroundStyle(DashboardPalette.chartAxisText)
+                AxisValueLabel {
+                    if let numericValue = value.as(Double.self) {
+                        Text(label(numericValue))
+                            .foregroundStyle(DashboardPalette.chartAxisStrong)
+                    }
+                }
+            }
+        } else {
+            AxisMarks(preset: .aligned, position: .leading) { value in
+                AxisGridLine()
+                    .foregroundStyle(DashboardPalette.chartGrid)
+                AxisTick()
+                    .foregroundStyle(DashboardPalette.chartAxisText)
+                AxisValueLabel {
+                    if let numericValue = value.as(Double.self) {
+                        Text(label(numericValue))
+                            .foregroundStyle(DashboardPalette.chartAxisStrong)
+                    }
+                }
+            }
+        }
+    }
+
+    static func valueLabel(
+        for value: Double,
+        unit: MetricUnit?,
+        throughputUnit: ThroughputDisplayUnit
+    ) -> String {
+        guard let unit else {
+            return String(format: "%.0f", value)
+        }
+
+        switch unit {
+        case .bytes:
+            return UnitsFormatter.formatBytes(value)
+        case .bytesPerSecond:
+            return UnitsFormatter.format(value, unit: .bytesPerSecond, throughputUnit: throughputUnit)
+        case .percent:
+            return String(format: "%.0f%%", value)
+        case .celsius:
+            return String(format: "%.0f C", value)
+        case .milliamps:
+            return String(format: "%.0f mA", value)
+        case .watts:
+            return String(format: "%.1f W", value)
+        case .minutes:
+            return UnitsFormatter.format(value, unit: .minutes)
+        case .seconds:
+            return UnitsFormatter.format(value, unit: .seconds)
+        case .scalar:
+            return String(format: "%.1f", value)
+        }
+    }
+}
+
 struct DetachedChartInteractionOverlay: View {
+    enum ZoomMode {
+        case horizontal
+        case bothAxes
+    }
+
     let proxy: ChartProxy
     let geometry: GeometryProxy
     var paneController: DetachedMetricsPaneController? = nil
+    var zoomMode: ZoomMode = .horizontal
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
     @Binding var selectionRect: CGRect?
@@ -347,16 +436,18 @@ struct DetachedChartInteractionOverlay: View {
                         beginInteractionIfNeeded()
                         let start = clamped(value.startLocation, to: plotFrame)
                         let current = clamped(value.location, to: plotFrame)
-                        guard abs(current.x - start.x) >= 3 || abs(current.y - start.y) >= 3 else {
+                        let horizontalDistance = abs(current.x - start.x)
+                        let verticalDistance = abs(current.y - start.y)
+                        guard horizontalDistance >= 3 || verticalDistance >= 3 else {
                             selectionRect = nil
                             hoveredDate = nil
                             return
                         }
-                        selectionRect = CGRect(
-                            x: min(start.x, current.x),
-                            y: min(start.y, current.y),
-                            width: abs(current.x - start.x),
-                            height: abs(current.y - start.y)
+                        selectionRect = Self.selectionRect(
+                            for: start,
+                            current: current,
+                            plotFrame: plotFrame,
+                            zoomMode: zoomMode
                         )
                         hoveredDate = nil
                     }
@@ -369,8 +460,11 @@ struct DetachedChartInteractionOverlay: View {
                         let end = clamped(value.location, to: plotFrame)
                         let horizontalDistance = abs(end.x - start.x)
                         let verticalDistance = abs(end.y - start.y)
-                        let shouldZoomX = horizontalDistance >= 12
-                        let shouldZoomY = verticalDistance >= 12
+                        let (shouldZoomX, shouldZoomY) = Self.zoomDecision(
+                            horizontalDistance: horizontalDistance,
+                            verticalDistance: verticalDistance,
+                            zoomMode: zoomMode
+                        )
                         guard shouldZoomX || shouldZoomY else { return }
 
                         let localStartX = start.x - plotFrame.minX
@@ -436,6 +530,40 @@ struct DetachedChartInteractionOverlay: View {
             x: min(max(point.x, rect.minX), rect.maxX),
             y: min(max(point.y, rect.minY), rect.maxY)
         )
+    }
+
+    static func zoomDecision(
+        horizontalDistance: CGFloat,
+        verticalDistance: CGFloat,
+        zoomMode: ZoomMode
+    ) -> (shouldZoomX: Bool, shouldZoomY: Bool) {
+        let shouldZoomX = horizontalDistance >= 12
+        let shouldZoomY = zoomMode == .bothAxes && verticalDistance >= 12
+        return (shouldZoomX, shouldZoomY)
+    }
+
+    static func selectionRect(
+        for start: CGPoint,
+        current: CGPoint,
+        plotFrame: CGRect,
+        zoomMode: ZoomMode
+    ) -> CGRect {
+        switch zoomMode {
+        case .horizontal:
+            return CGRect(
+                x: min(start.x, current.x),
+                y: plotFrame.minY,
+                width: abs(current.x - start.x),
+                height: plotFrame.height
+            )
+        case .bothAxes:
+            return CGRect(
+                x: min(start.x, current.x),
+                y: min(start.y, current.y),
+                width: abs(current.x - start.x),
+                height: abs(current.y - start.y)
+            )
+        }
     }
 
     private func beginInteractionIfNeeded() {

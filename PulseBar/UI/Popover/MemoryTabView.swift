@@ -73,12 +73,12 @@ struct MemoryTabView: View {
             }
         } label: {
             content()
-                .padding(10)
+                .padding(12)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(paneController.isActive(target) ? DashboardPalette.selectionFill : DashboardPalette.sectionFill)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .strokeBorder(paneController.isActive(target) ? DashboardPalette.memoryAccent.opacity(0.45) : DashboardPalette.chromeBorder, lineWidth: 1)
                         )
                 )
@@ -116,7 +116,7 @@ struct MemoryTabView: View {
                 }
             }
         }
-        .dashboardSurface()
+        .dashboardSurface(padding: 16, cornerRadius: 20)
     }
 
     private var pressureSection: some View {
@@ -251,10 +251,7 @@ struct MemoryTabView: View {
     }
 
     private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(DashboardPalette.memoryAccent)
-            .frame(maxWidth: .infinity, alignment: .center)
+        DashboardSectionLabel(title: text, tint: DashboardPalette.memoryAccent)
     }
 
     private func fractionBar(value: Double, color: Color) -> some View {

@@ -36,8 +36,9 @@ struct CPUPaneContentView: View {
 
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
+                    DashboardSectionLabel(title: "CPU Detail", tint: DashboardPalette.cpuAccent)
                     Text(activeChart.title)
-                        .font(.headline)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
                     Text(activeChart.subtitle)
                         .font(.caption)
                         .foregroundStyle(DashboardPalette.secondaryText)
@@ -61,21 +62,17 @@ struct CPUPaneContentView: View {
                     .buttonStyle(.bordered)
                 }
             }
+            .padding(12)
+            .dashboardInset(cornerRadius: 16)
 
             chartBody
                 .frame(maxWidth: .infinity, minHeight: 300)
+                .padding(12)
+                .dashboardInset(cornerRadius: 16)
 
             summaryRow
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(DashboardPalette.sectionFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
-                )
-        )
+        .dashboardSurface(padding: 14, cornerRadius: 18)
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
                 hoveredDate = nil
@@ -128,6 +125,7 @@ struct CPUPaneContentView: View {
                 MultiSeriesLinePaneChart(
                     model: loadAverageChartModel ?? PreparedCPUMetricChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
+                    throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
@@ -141,6 +139,7 @@ struct CPUPaneContentView: View {
                 MultiSeriesLinePaneChart(
                     model: gpuChartModel ?? PreparedCPUMetricChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
+                    throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
@@ -154,6 +153,7 @@ struct CPUPaneContentView: View {
                 MultiSeriesLinePaneChart(
                     model: fpsChartModel ?? PreparedCPUMetricChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
+                    throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
@@ -237,10 +237,10 @@ struct CPUPaneContentView: View {
         VStack(spacing: 8) {
             Image(systemName: "chart.xyaxis.line")
                 .font(.title2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 280)
@@ -424,11 +424,24 @@ private struct CPUUsagePaneChart: View {
             if let hoveredDate {
                 RuleMark(x: .value("Hover", hoveredDate))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.chartRule)
             }
         }
         .chartXScale(domain: viewport.xDomain ?? model.xDomain)
         .chartYScale(domain: viewport.yDomain ?? (0...100))
+        .chartYAxis {
+            DashboardChartStyle.leadingNumericAxis(values: [0, 25, 50, 75, 100]) { value in
+                String(format: "%.0f%%", value)
+            }
+        }
+        .chartXAxis {
+            DashboardChartStyle.timeXAxis()
+        }
+        .chartPlotStyle { plot in
+            plot
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 DetachedChartInteractionOverlay(
@@ -449,6 +462,7 @@ private struct CPUUsagePaneChart: View {
 private struct MultiSeriesLinePaneChart: View {
     let model: PreparedCPUMetricChartModel
     let areaOpacity: Double
+    let throughputUnit: ThroughputDisplayUnit
     let paneController: DetachedMetricsPaneController
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
@@ -478,11 +492,24 @@ private struct MultiSeriesLinePaneChart: View {
             if let hoveredDate {
                 RuleMark(x: .value("Hover", hoveredDate))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.chartRule)
             }
         }
         .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
         .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
+        .chartYAxis {
+            DashboardChartStyle.leadingNumericAxis { value in
+                DashboardChartStyle.valueLabel(for: value, unit: model.primaryUnit, throughputUnit: throughputUnit)
+            }
+        }
+        .chartXAxis {
+            DashboardChartStyle.timeXAxis()
+        }
+        .chartPlotStyle { plot in
+            plot
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 DetachedChartInteractionOverlay(
@@ -508,9 +535,9 @@ private struct CPUUsageSeriesPoint: Identifiable {
         var color: Color {
             switch self {
             case .user:
-                return .cyan
+                return DashboardPalette.cpuAccent
             case .system:
-                return .red
+                return DashboardPalette.memoryAccent
             }
         }
     }
@@ -560,11 +587,17 @@ private struct PreparedCPUMetricChartModel {
     let points: [TimeSeriesChartPoint]
     let scale: ChartScale
     let fallbackXDomain: ClosedRange<Date>
+    let primaryUnit: MetricUnit?
 
     init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy) {
         points = ChartSeriesPipeline.metricHistory(series: series)
         scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
         fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
+        primaryUnit = series
+            .lazy
+            .flatMap(\.samples)
+            .first?
+            .unit
     }
 
     static let empty = PreparedCPUMetricChartModel(series: [], baseline: .zero())

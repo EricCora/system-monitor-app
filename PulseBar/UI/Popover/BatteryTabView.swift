@@ -17,92 +17,57 @@ struct BatteryTabView: View {
                 )
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: "Charge", tint: DashboardPalette.secondaryText)
-                        Text(UnitsFormatter.format(featureStore.chargePercent, unit: .percent))
-                            .font(.title3.monospacedDigit())
-                            .foregroundStyle(DashboardPalette.primaryText)
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: "State", tint: DashboardPalette.secondaryText)
-                        Text(batteryStateText)
-                            .font(.title3.monospacedDigit())
-                            .foregroundStyle(DashboardPalette.primaryText)
-                    }
+                    DashboardReadoutCell(
+                        title: "Charge",
+                        value: UnitsFormatter.format(featureStore.chargePercent, unit: .percent),
+                        tint: DashboardPalette.batteryAccent
+                    )
+                    DashboardReadoutCell(
+                        title: "State",
+                        value: batteryStateText,
+                        tint: DashboardPalette.secondaryText
+                    )
                 }
-                .dashboardSurface()
+                .dashboardSurface(padding: 16, cornerRadius: 20)
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: "Current", tint: DashboardPalette.secondaryText)
-                        if let current = featureStore.currentMilliamps {
-                            Text(UnitsFormatter.format(current, unit: .milliamps))
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.primaryText)
-                        } else {
-                            Text("--")
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.tertiaryText)
-                        }
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: powerLabelTitle, tint: DashboardPalette.secondaryText)
-                        if let power = featureStore.powerWatts {
-                            Text(UnitsFormatter.format(power, unit: .watts))
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.primaryText)
-                        } else {
-                            Text("--")
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.tertiaryText)
-                        }
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: "Time Remaining", tint: DashboardPalette.secondaryText)
-                        if let minutes = featureStore.timeRemainingMinutes {
-                            Text(UnitsFormatter.format(minutes, unit: .minutes))
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.primaryText)
-                        } else {
-                            Text("--")
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.tertiaryText)
-                        }
-                    }
+                    DashboardReadoutCell(
+                        title: "Current",
+                        value: featureStore.currentMilliamps.map { UnitsFormatter.format($0, unit: .milliamps) } ?? "--",
+                        tint: DashboardPalette.cpuAccent,
+                        valueColor: featureStore.currentMilliamps == nil ? DashboardPalette.tertiaryText : DashboardPalette.primaryText
+                    )
+                    DashboardReadoutCell(
+                        title: powerLabelTitle,
+                        value: featureStore.powerWatts.map { UnitsFormatter.format($0, unit: .watts) } ?? "--",
+                        tint: DashboardPalette.batteryAccent,
+                        valueColor: featureStore.powerWatts == nil ? DashboardPalette.tertiaryText : DashboardPalette.primaryText
+                    )
+                    DashboardReadoutCell(
+                        title: "Time Remaining",
+                        value: featureStore.timeRemainingMinutes.map { UnitsFormatter.format($0, unit: .minutes) } ?? "--",
+                        tint: DashboardPalette.secondaryText,
+                        valueColor: featureStore.timeRemainingMinutes == nil ? DashboardPalette.tertiaryText : DashboardPalette.primaryText
+                    )
                 }
-                .dashboardSurface()
+                .dashboardSurface(padding: 16, cornerRadius: 20)
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: "Health", tint: DashboardPalette.secondaryText)
-                        if let health = featureStore.healthPercent {
-                            Text(UnitsFormatter.format(health, unit: .percent))
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.primaryText)
-                        } else {
-                            Text("--")
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.tertiaryText)
-                        }
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 4) {
-                        DashboardSectionLabel(title: "Cycle Count", tint: DashboardPalette.secondaryText)
-                        if let cycleCount = featureStore.cycleCount {
-                            Text(String(format: "%.0f", cycleCount))
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.primaryText)
-                        } else {
-                            Text("--")
-                                .font(.title3.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.tertiaryText)
-                        }
-                    }
+                    DashboardReadoutCell(
+                        title: "Health",
+                        value: featureStore.healthPercent.map { UnitsFormatter.format($0, unit: .percent) } ?? "--",
+                        tint: DashboardPalette.batteryAccent,
+                        valueColor: featureStore.healthPercent == nil ? DashboardPalette.tertiaryText : DashboardPalette.primaryText
+                    )
+                    DashboardReadoutCell(
+                        title: "Cycle Count",
+                        value: featureStore.cycleCount.map { String(format: "%.0f", $0) } ?? "--",
+                        tint: DashboardPalette.secondaryText,
+                        valueColor: featureStore.cycleCount == nil ? DashboardPalette.tertiaryText : DashboardPalette.primaryText
+                    )
+                    Spacer(minLength: 0)
                 }
-                .dashboardSurface()
+                .dashboardSurface(padding: 16, cornerRadius: 20)
 
             MetricChartView(
                 title: "Battery Charge",
