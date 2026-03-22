@@ -8,6 +8,7 @@ struct MetricChartView: View {
     let throughputUnit: ThroughputDisplayUnit
     var areaOpacity: Double = 0.18
     var diagnosticsStore: PerformanceDiagnosticsStore?
+    var seriesColor: Color = DashboardPalette.cpuAccent
 
     @State private var hoveredSample: MetricSample?
     @State private var isHoveringChart = false
@@ -17,17 +18,19 @@ struct MetricChartView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.headline)
+                .foregroundStyle(DashboardPalette.primaryText)
 
             if chartModel.sanitizedSamples.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "chart.xyaxis.line")
                         .font(.title2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Text("Collecting Samples")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
+                .dashboardInset()
             } else {
                 Chart(chartModel.chartPoints) { point in
                     AreaMark(
@@ -52,32 +55,53 @@ struct MetricChartView: View {
                     if let hoveredSample {
                         RuleMark(x: .value("Hover Time", hoveredSample.timestamp))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DashboardPalette.chartRule)
                     }
                 }
                 .chartYScale(domain: chartModel.chartScale.yDomain)
                 .chartYAxis {
                     if isThermalStateChart {
                         AxisMarks(position: .leading, values: [0, 1, 2, 3]) { value in
-                            AxisGridLine()
-                            AxisTick()
+                            AxisGridLine().foregroundStyle(DashboardPalette.chartGrid)
+                            AxisTick().foregroundStyle(DashboardPalette.secondaryText)
                             AxisValueLabel {
                                 if let numericValue = value.as(Double.self) {
                                     Text(axisLabel(for: numericValue))
+                                        .foregroundStyle(DashboardPalette.secondaryText)
                                 }
                             }
                         }
                     } else {
                         AxisMarks(position: .leading) { value in
-                            AxisGridLine()
-                            AxisTick()
+                            AxisGridLine().foregroundStyle(DashboardPalette.chartGrid)
+                            AxisTick().foregroundStyle(DashboardPalette.secondaryText)
                             AxisValueLabel {
                                 if let numericValue = value.as(Double.self) {
                                     Text(axisLabel(for: numericValue))
+                                        .foregroundStyle(DashboardPalette.secondaryText)
                                 }
                             }
                         }
                     }
+                }
+                .chartXAxis {
+                    AxisMarks { value in
+                        AxisGridLine().foregroundStyle(DashboardPalette.chartGrid.opacity(0.55))
+                        AxisTick().foregroundStyle(DashboardPalette.secondaryText)
+                        AxisValueLabel {
+                            if let date = value.as(Date.self) {
+                                Text(date.formatted(date: .omitted, time: .shortened))
+                                    .foregroundStyle(DashboardPalette.tertiaryText)
+                            }
+                        }
+                    }
+                }
+                .chartPlotStyle { plot in
+                    plot
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(DashboardPalette.insetFill)
+                        )
                 }
                 .frame(height: 180)
                 .chartOverlay { proxy in
@@ -108,6 +132,7 @@ struct MetricChartView: View {
                 hoverSummaryRow
             }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .task(id: chartRefreshID) {
             rebuildChartModel()
         }
@@ -143,7 +168,7 @@ struct MetricChartView: View {
         HStack {
             if let summarySample {
                 Text(summarySample.timestamp.formatted(date: .omitted, time: .standard))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
                 Spacer()
                 Text(UnitsFormatter.format(
                     summarySample.value,
@@ -208,7 +233,8 @@ struct MetricChartView: View {
         chartModel = PreparedMetricChartModel(
             samples: samples,
             title: title,
-            baselinePolicy: baselinePolicy
+            baselinePolicy: baselinePolicy,
+            color: seriesColor
         )
         let elapsed = start.duration(to: ContinuousClock.now)
         diagnosticsStore?.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
@@ -220,16 +246,16 @@ private struct PreparedMetricChartModel {
     let chartPoints: [TimeSeriesChartPoint]
     let chartScale: ChartScale
 
-    init(samples: [MetricSample], title: String, baselinePolicy: ChartBaselinePolicy) {
+    init(samples: [MetricSample], title: String, baselinePolicy: ChartBaselinePolicy, color: Color) {
         sanitizedSamples = ChartSeriesPipeline.sanitize(samples, timestamp: \.timestamp)
         chartPoints = ChartSeriesPipeline.metricSamples(
             sanitizedSamples,
             key: title,
             label: title,
-            color: .cyan
+            color: color
         )
         chartScale = ChartSeriesPipeline.scale(for: chartPoints, baseline: baselinePolicy)
     }
 
-    static let empty = PreparedMetricChartModel(samples: [], title: "", baselinePolicy: .zero())
+    static let empty = PreparedMetricChartModel(samples: [], title: "", baselinePolicy: .zero(), color: DashboardPalette.cpuAccent)
 }

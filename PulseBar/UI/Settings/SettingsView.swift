@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var diagnosticsStore: PerformanceDiagnosticsStore
     @State private var selectedSection: SettingsSection? = .general
+    @State private var newSensorPresetName = ""
 
     var body: some View {
         NavigationSplitView {
@@ -13,6 +14,8 @@ struct SettingsView: View {
                     .tag(section)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 190)
+            .scrollContentBackground(.hidden)
+            .background(DashboardPalette.windowBackground)
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -21,8 +24,18 @@ struct SettingsView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollContentBackground(.hidden)
+            .background(
+                LinearGradient(
+                    colors: [DashboardPalette.canvasTop, DashboardPalette.canvasBottom],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
             .navigationTitle(selectedSection?.title ?? SettingsSection.general.title)
         }
+        .preferredColorScheme(.light)
+        .foregroundStyle(DashboardPalette.primaryText)
     }
 
     @ViewBuilder
@@ -54,9 +67,9 @@ struct SettingsView: View {
                     }
                 }
 
-                Text(profileExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text(profileExplanation)
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
 
                 Toggle("Auto-switch by power source", isOn: $coordinator.autoSwitchProfilesEnabled)
 
@@ -81,7 +94,7 @@ struct SettingsView: View {
                     Slider(value: $coordinator.globalSamplingInterval, in: 1...10, step: 1)
                     Text("\(Int(coordinator.globalSamplingInterval))s")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Picker("Throughput", selection: $coordinator.throughputUnit) {
@@ -95,17 +108,53 @@ struct SettingsView: View {
                 if let message = coordinator.launchAtLoginStatusMessage {
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
             }
 
             settingsCard("Menu Bar Items") {
+                Picker("Display Mode", selection: $coordinator.menuBarDisplayMode) {
+                    ForEach(MenuBarDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+
                 Toggle("CPU", isOn: $coordinator.showCPUInMenu)
+                metricStylePicker(.cpu)
                 Toggle("Memory", isOn: $coordinator.showMemoryInMenu)
+                metricStylePicker(.memory)
                 Toggle("Battery", isOn: $coordinator.showBatteryInMenu)
+                metricStylePicker(.battery)
                 Toggle("Network", isOn: $coordinator.showNetworkInMenu)
+                metricStylePicker(.network)
                 Toggle("Disk", isOn: $coordinator.showDiskInMenu)
+                metricStylePicker(.disk)
                 Toggle("Temperature", isOn: $coordinator.showTemperatureInMenu)
+                metricStylePicker(.temperature)
+            }
+
+            settingsCard("Dashboard Layout") {
+                Picker("Layout", selection: $coordinator.dashboardLayout) {
+                    ForEach(DashboardLayoutMode.allCases, id: \.self) { layout in
+                        Text(layout.label).tag(layout)
+                    }
+                }
+
+                ForEach(Array(coordinator.dashboardCardOrder.enumerated()), id: \.element) { index, card in
+                    HStack {
+                        Text(card.label)
+                        Spacer()
+                        Button("Up") {
+                            coordinator.moveDashboardCard(from: index, direction: -1)
+                        }
+                        .disabled(index == 0)
+
+                        Button("Down") {
+                            coordinator.moveDashboardCard(from: index, direction: 1)
+                        }
+                        .disabled(index == coordinator.dashboardCardOrder.count - 1)
+                    }
+                }
             }
         }
     }
@@ -118,12 +167,12 @@ struct SettingsView: View {
                     Slider(value: $coordinator.chartAreaOpacity, in: 0.05...0.5, step: 0.01)
                     Text(String(format: "%.2f", coordinator.chartAreaOpacity))
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Text("Detached charts support click-drag zoom in both axes and double-click reset.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             settingsCard("Visible Chart Windows") {
@@ -141,7 +190,11 @@ struct SettingsView: View {
                             .padding(.horizontal, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(coordinator.visibleChartWindows.contains(window) ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
+                                    .fill(coordinator.visibleChartWindows.contains(window) ? DashboardPalette.selectionFill : DashboardPalette.insetFill)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .strokeBorder(coordinator.visibleChartWindows.contains(window) ? DashboardPalette.cpuAccent.opacity(0.35) : DashboardPalette.divider, lineWidth: 1)
+                                    )
                             )
                         }
                         .buttonStyle(.plain)
@@ -150,7 +203,7 @@ struct SettingsView: View {
 
                 Text("These windows appear on every chart picker in the app.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
         }
     }
@@ -241,7 +294,7 @@ struct SettingsView: View {
                 if let modeDescription = temperatureModeDescription {
                     Text(modeDescription)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 if coordinator.privilegedTemperatureEnabled && !coordinator.privilegedTemperatureHealthy {
@@ -253,19 +306,87 @@ struct SettingsView: View {
                 if let status = coordinator.privilegedTemperatureStatusMessage {
                     Text(status)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 if let success = coordinator.privilegedTemperatureLastSuccessMessage {
                     Text(success)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 if let fanGate = coordinator.fanParityGateMessage {
                     Text("Fan parity: \(fanGate)")
                         .font(.caption)
-                        .foregroundStyle(coordinator.fanParityGateBlocked ? .red : .secondary)
+                        .foregroundStyle(coordinator.fanParityGateBlocked ? DashboardPalette.danger : DashboardPalette.secondaryText)
+                }
+            }
+
+            settingsCard("Favorites and Presets") {
+                if coordinator.latestSensorChannels.isEmpty {
+                    Text("Favorite sensors become available after privileged sensors have been sampled.")
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                } else {
+                    ForEach(Array(coordinator.latestSensorChannels.prefix(12)), id: \.id) { sensor in
+                        Button {
+                            coordinator.toggleFavoriteSensor(id: sensor.id)
+                        } label: {
+                            HStack {
+                                Image(systemName: coordinator.favoriteSensorIDs.contains(sensor.id) ? "star.fill" : "star")
+                                    .foregroundStyle(coordinator.favoriteSensorIDs.contains(sensor.id) ? DashboardPalette.diskAccent : DashboardPalette.secondaryText)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(sensor.displayName)
+                                        .foregroundStyle(DashboardPalette.primaryText)
+                                    Text(sensor.category.label)
+                                        .font(.caption2)
+                                        .foregroundStyle(DashboardPalette.secondaryText)
+                                }
+                                Spacer()
+                                Text(TemperatureHistoryHelpers.valueText(for: sensor))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(DashboardPalette.secondaryText)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    TextField("Preset name", text: $newSensorPresetName)
+                    Button("Save Favorites as Preset") {
+                        coordinator.saveSensorPreset(name: newSensorPresetName, sensorIDs: coordinator.favoriteSensorIDs)
+                        if !newSensorPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            newSensorPresetName = ""
+                        }
+                    }
+                    .disabled(coordinator.favoriteSensorIDs.isEmpty || newSensorPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                if coordinator.sensorPresets.isEmpty {
+                    Text("No saved sensor presets yet.")
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                } else {
+                    ForEach(coordinator.sensorPresets, id: \.id) { preset in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.name)
+                                Text("\(preset.sensorIDs.count) sensors")
+                                    .font(.caption)
+                                    .foregroundStyle(DashboardPalette.secondaryText)
+                            }
+                            Spacer()
+                            Button("Use") {
+                                coordinator.selectedSensorPresetID = preset.id
+                            }
+                            Button("Delete") {
+                                coordinator.deleteSensorPreset(id: preset.id)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -318,7 +439,7 @@ struct SettingsView: View {
                     )
                     Text("\(Int(coordinator.diskFreeAlertThresholdBytes / 1_073_741_824)) GB")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Stepper(
@@ -333,7 +454,7 @@ struct SettingsView: View {
                 if coordinator.recentAlerts.isEmpty {
                     Text("No alerts fired yet in this session.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 } else {
                     ForEach(coordinator.recentAlerts) { alert in
                         VStack(alignment: .leading, spacing: 2) {
@@ -341,10 +462,10 @@ struct SettingsView: View {
                                 .font(.subheadline.weight(.semibold))
                             Text(alert.body)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(DashboardPalette.secondaryText)
                             Text(alert.deliveredAt.formatted(date: .omitted, time: .standard))
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(DashboardPalette.secondaryText)
                         }
                     }
                 }
@@ -358,7 +479,7 @@ struct SettingsView: View {
                 if coordinator.recentProviderFailures.isEmpty {
                     Text("No provider failures recorded in this session.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 } else {
                     ForEach(coordinator.recentProviderFailures) { failure in
                         VStack(alignment: .leading, spacing: 2) {
@@ -366,10 +487,10 @@ struct SettingsView: View {
                                 .font(.subheadline.weight(.semibold))
                             Text(failure.message)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(DashboardPalette.secondaryText)
                             Text(failure.timestamp.formatted(date: .omitted, time: .standard))
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(DashboardPalette.secondaryText)
                         }
                     }
                 }
@@ -406,13 +527,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.headline)
+                .foregroundStyle(DashboardPalette.primaryText)
             content()
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .dashboardSurface(padding: 16, cornerRadius: 14)
     }
 
     private func alertCard(
@@ -429,7 +547,7 @@ struct SettingsView: View {
                 thresholdControl
                 Text(thresholdText)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
             Stepper("Duration: \(duration.wrappedValue)s", value: duration, in: 5...600, step: 5)
         }
@@ -439,7 +557,7 @@ struct SettingsView: View {
     private func diagnosticsRow(_ title: String, _ value: String?) -> some View {
         HStack(alignment: .top) {
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Spacer()
             Text(value ?? "OK")
                 .multilineTextAlignment(.trailing)
@@ -474,9 +592,9 @@ struct SettingsView: View {
     private var temperatureModeDescription: String? {
         if coordinator.privilegedTemperatureEnabled {
             if coordinator.privilegedTemperatureHealthy {
-                return "Privileged mode is enabled and active. Celsius readings come from IOHID sensors with powermetrics fallback."
+                return "Enhanced temperature mode is active. PulseBar tries direct IOHID first, reuses a running helper if needed, and only asks for admin access when you explicitly retry."
             }
-            return nil
+            return "Enhanced temperature mode will try direct IOHID on launch, reuse a running helper if one is already available, and otherwise stay in standard mode until you explicitly retry."
         }
         return "Standard mode uses macOS thermal state. Enable privileged mode for Celsius and fan RPM history."
     }
@@ -527,6 +645,17 @@ struct SettingsView: View {
 
     private func millisecondsText(_ value: Double) -> String {
         String(format: "%.2f ms", value)
+    }
+
+    private func metricStylePicker(_ metric: MenuBarMetricID) -> some View {
+        Picker("\(metric.label) Style", selection: Binding(
+            get: { coordinator.menuBarMetricStyle(for: metric) },
+            set: { coordinator.setMenuBarMetricStyle($0, for: metric) }
+        )) {
+            ForEach(MenuBarMetricStyle.allCases, id: \.self) { style in
+                Text(style.label).tag(style)
+            }
+        }
     }
 }
 

@@ -36,7 +36,7 @@ struct MemoryPaneContentView: View {
                         .font(.headline)
                     Text(activeChart.subtitle)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Spacer()
@@ -66,7 +66,11 @@ struct MemoryPaneContentView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+                .fill(DashboardPalette.sectionFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                )
         )
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
@@ -160,7 +164,7 @@ struct MemoryPaneContentView: View {
             case .composition:
                 if let point = nearestCompositionPoint {
                     Text(point.timestamp.formatted(date: .omitted, time: .standard))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(
                         "W \(UnitsFormatter.format(point.wiredBytes, unit: .bytes))  A \(UnitsFormatter.format(point.activeBytes, unit: .bytes))  C \(UnitsFormatter.format(point.compressedBytes, unit: .bytes))  F \(UnitsFormatter.format(point.freeBytes, unit: .bytes))"
@@ -195,7 +199,7 @@ struct MemoryPaneContentView: View {
     private func metricSummary(primary: MetricHistoryPoint?) -> some View {
         if let primary {
             Text(primary.timestamp.formatted(date: .omitted, time: .standard))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Spacer()
             Text(UnitsFormatter.format(primary.value, unit: primary.unit, throughputUnit: coordinator.throughputUnit))
                 .font(.caption.monospacedDigit())
@@ -215,10 +219,10 @@ struct MemoryPaneContentView: View {
         VStack(spacing: 8) {
             Image(systemName: "chart.xyaxis.line")
                 .font(.title2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
         }
         .frame(maxWidth: .infinity, minHeight: 280)
     }

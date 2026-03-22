@@ -72,6 +72,7 @@ let package = Package(
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("Charts"),
+                .linkedFramework("CoreWLAN"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("UserNotifications"),
                 .linkedFramework("IOKit")

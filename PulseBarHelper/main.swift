@@ -4,7 +4,7 @@ import PulseBarCore
 import Dispatch
 
 private let config = Configuration.parse(arguments: CommandLine.arguments)
-private let server = PrivilegedTemperatureServer(socketPath: config.socketPath)
+private let server = PrivilegedTemperatureServer(socketPath: config.socketPath, expectedUID: config.expectedUID)
 
 Task.detached {
     do {
@@ -19,9 +19,12 @@ dispatchMain()
 
 private struct Configuration {
     let socketPath: String
+    let expectedUID: uid_t?
 
     static func parse(arguments: [String]) -> Configuration {
-        var socketPath = "/tmp/pulsebar-temp.sock"
+        let defaults = PrivilegedHelperConnectionConfig.default()
+        var socketPath = defaults.socketPath
+        var expectedUID: uid_t?
 
         var index = 1
         while index < arguments.count {
@@ -34,22 +37,31 @@ private struct Configuration {
                 } else {
                     index += 1
                 }
+            case "--expected-uid":
+                if index + 1 < arguments.count, let parsed = UInt32(arguments[index + 1]) {
+                    expectedUID = uid_t(parsed)
+                    index += 2
+                } else {
+                    index += 1
+                }
             default:
                 index += 1
             }
         }
 
-        return Configuration(socketPath: socketPath)
+        return Configuration(socketPath: socketPath, expectedUID: expectedUID)
     }
 }
 
 private final class PrivilegedTemperatureServer {
     private let socketPath: String
+    private let expectedUID: uid_t?
     private let orchestrator = PrivilegedTelemetryOrchestrator()
     private var listenFD: Int32 = -1
 
-    init(socketPath: String) {
+    init(socketPath: String, expectedUID: uid_t?) {
         self.socketPath = socketPath
+        self.expectedUID = expectedUID
     }
 
     func run() async throws {
@@ -73,6 +85,11 @@ private final class PrivilegedTemperatureServer {
     private func handle(clientFD: Int32) async {
         disableSigPipe(on: clientFD)
         defer { close(clientFD) }
+
+        guard authorize(clientFD: clientFD) else {
+            write(response: .failure("Client authorization failed", source: "ipc"), to: clientFD)
+            return
+        }
 
         guard let line = readLine(from: clientFD, maxBytes: 16 * 1024) else {
             // Connectivity probes may connect and close without sending payload.
@@ -133,7 +150,7 @@ private final class PrivilegedTemperatureServer {
             throw NSError(domain: "PulseBarHelper", code: 3, userInfo: [NSLocalizedDescriptionKey: "bind failed: \(message)"])
         }
 
-        _ = chmod(path, 0o666)
+        _ = chmod(path, 0o600)
 
         guard listen(fd, 8) == 0 else {
             let message = String(cString: strerror(errno))
@@ -142,6 +159,19 @@ private final class PrivilegedTemperatureServer {
         }
 
         return fd
+    }
+
+    private func authorize(clientFD: Int32) -> Bool {
+        guard let expectedUID else {
+            return true
+        }
+
+        var peerUID = uid_t()
+        var peerGID = gid_t()
+        guard getpeereid(clientFD, &peerUID, &peerGID) == 0 else {
+            return false
+        }
+        return peerUID == expectedUID
     }
 
     private func cleanupSocket(path: String) {

@@ -19,6 +19,31 @@ final class UnitsFormatterTests: XCTestCase {
         XCTAssertTrue(bitsText.contains("b/s"))
     }
 
+    func testByteFormattingClampsValuesAboveInt64Range() {
+        let maxText = UnitsFormatter.formatBytes(Double(Int64.max))
+        let overflowText = UnitsFormatter.formatBytes(Double(Int64.max) * 2)
+
+        XCTAssertEqual(overflowText, maxText)
+    }
+
+    func testThroughputFormattingSanitizesNonFiniteValues() {
+        let zeroBytesText = UnitsFormatter.format(0, unit: .bytesPerSecond, throughputUnit: .bytesPerSecond)
+        let zeroBitsText = UnitsFormatter.format(0, unit: .bytesPerSecond, throughputUnit: .bitsPerSecond)
+
+        XCTAssertEqual(
+            UnitsFormatter.format(.infinity, unit: .bytesPerSecond, throughputUnit: .bytesPerSecond),
+            zeroBytesText
+        )
+        XCTAssertEqual(
+            UnitsFormatter.format(.infinity, unit: .bytesPerSecond, throughputUnit: .bitsPerSecond),
+            zeroBitsText
+        )
+        XCTAssertEqual(
+            UnitsFormatter.format(.nan, unit: .bytesPerSecond, throughputUnit: .bytesPerSecond),
+            zeroBytesText
+        )
+    }
+
     func testCelsiusFormatting() {
         XCTAssertEqual(UnitsFormatter.format(56.42, unit: .celsius), "56.4 C")
     }

@@ -1,5 +1,50 @@
 import Foundation
 
+public struct PrivilegedHelperConnectionConfig: Sendable, Equatable {
+    public let runtimeDirectoryPath: String
+    public let socketPath: String
+    public let helperLogPath: String
+    public let helperPIDPath: String
+    public let expectedUID: Int32?
+
+    public init(
+        runtimeDirectoryPath: String,
+        socketPath: String,
+        helperLogPath: String,
+        helperPIDPath: String,
+        expectedUID: Int32? = nil
+    ) {
+        self.runtimeDirectoryPath = runtimeDirectoryPath
+        self.socketPath = socketPath
+        self.helperLogPath = helperLogPath
+        self.helperPIDPath = helperPIDPath
+        self.expectedUID = expectedUID
+    }
+
+    public static func `default`(
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        expectedUID: Int32? = nil
+    ) -> PrivilegedHelperConnectionConfig {
+        let runtimeDirectory = temporaryDirectory
+            .appendingPathComponent("PulseBar", isDirectory: true)
+            .path
+
+        return PrivilegedHelperConnectionConfig(
+            runtimeDirectoryPath: runtimeDirectory,
+            socketPath: URL(fileURLWithPath: runtimeDirectory)
+                .appendingPathComponent("privileged-helper.sock")
+                .path,
+            helperLogPath: URL(fileURLWithPath: runtimeDirectory)
+                .appendingPathComponent("privileged-helper.log")
+                .path,
+            helperPIDPath: URL(fileURLWithPath: runtimeDirectory)
+                .appendingPathComponent("privileged-helper.pid")
+                .path,
+            expectedUID: expectedUID
+        )
+    }
+}
+
 public struct PrivilegedTemperatureRequest: Codable, Sendable, Equatable {
     public enum Command: String, Codable, Sendable {
         case sample

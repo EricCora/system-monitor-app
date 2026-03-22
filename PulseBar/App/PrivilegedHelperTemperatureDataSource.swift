@@ -6,18 +6,20 @@ actor PrivilegedHelperLauncher {
     private var lastLaunchAttempt = Date.distantPast
     private let launchCooldownSeconds: TimeInterval
     private let socketReadyTimeoutSeconds: TimeInterval
-    private let helperLogPath = "/tmp/pulsebar_priv_helper.log"
-    private let helperPIDPath = "/tmp/pulsebar-helper.pid"
+    private let connectionConfig: PrivilegedHelperConnectionConfig
 
     init(
+        connectionConfig: PrivilegedHelperConnectionConfig = .default(expectedUID: Int32(getuid())),
         launchCooldownSeconds: TimeInterval = 20,
         socketReadyTimeoutSeconds: TimeInterval = 15
     ) {
+        self.connectionConfig = connectionConfig
         self.launchCooldownSeconds = launchCooldownSeconds
         self.socketReadyTimeoutSeconds = socketReadyTimeoutSeconds
     }
 
-    func ensureRunning(socketPath: String) async throws {
+    func ensureRunning() async throws {
+        let socketPath = connectionConfig.socketPath
         if canConnect(to: socketPath) {
             return
         }
@@ -29,9 +31,14 @@ actor PrivilegedHelperLauncher {
 
         lastLaunchAttempt = now
 
+        try ensureRuntimeDirectoryExists()
         let helperPath = try resolveHelperPath()
-        try launchPrivilegedHelper(helperPath: helperPath, socketPath: socketPath)
+        try launchPrivilegedHelper(helperPath: helperPath)
         try await waitUntilReachable(socketPath: socketPath)
+    }
+
+    func isHelperReachable() -> Bool {
+        canConnect(to: connectionConfig.socketPath)
     }
 
     private func waitUntilReachable(socketPath: String) async throws {
@@ -72,11 +79,21 @@ actor PrivilegedHelperLauncher {
         )
     }
 
-    private func launchPrivilegedHelper(helperPath: String, socketPath: String) throws {
+    private func ensureRuntimeDirectoryExists() throws {
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: connectionConfig.runtimeDirectoryPath),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+    }
+
+    private func launchPrivilegedHelper(helperPath: String) throws {
         let cleanupAndLaunch = [
-            "if [ -f \(helperPIDPath.shellEscaped()) ]; then OLD_PID=$(cat \(helperPIDPath.shellEscaped()) 2>/dev/null || true); if [ -n \"$OLD_PID\" ]; then kill \"$OLD_PID\" >/dev/null 2>&1 || true; fi; fi",
-            "rm -f \(socketPath.shellEscaped())",
-            "\(helperPath.shellEscaped()) --socket \(socketPath.shellEscaped()) >\(helperLogPath.shellEscaped()) 2>&1 & echo $! >\(helperPIDPath.shellEscaped())"
+            "mkdir -p \(connectionConfig.runtimeDirectoryPath.shellEscaped())",
+            "chmod 700 \(connectionConfig.runtimeDirectoryPath.shellEscaped())",
+            "if [ -f \(connectionConfig.helperPIDPath.shellEscaped()) ]; then OLD_PID=$(cat \(connectionConfig.helperPIDPath.shellEscaped()) 2>/dev/null || true); if [ -n \"$OLD_PID\" ]; then kill \"$OLD_PID\" >/dev/null 2>&1 || true; fi; fi",
+            "rm -f \(connectionConfig.socketPath.shellEscaped())",
+            helperLaunchCommand(helperPath: helperPath)
         ].joined(separator: "; ")
         let shellCommand = cleanupAndLaunch
         let appleScript = "do shell script \"\(shellCommand.appleScriptEscaped())\" with administrator privileges"
@@ -121,6 +138,15 @@ actor PrivilegedHelperLauncher {
         }
     }
 
+    private func helperLaunchCommand(helperPath: String) -> String {
+        var command = "\(helperPath.shellEscaped()) --socket \(connectionConfig.socketPath.shellEscaped())"
+        if let expectedUID = connectionConfig.expectedUID {
+            command += " --expected-uid \(expectedUID)"
+        }
+        command += " >\(connectionConfig.helperLogPath.shellEscaped()) 2>&1 & echo $! >\(connectionConfig.helperPIDPath.shellEscaped())"
+        return command
+    }
+
     private func canConnect(to socketPath: String) -> Bool {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
@@ -155,7 +181,7 @@ actor PrivilegedHelperLauncher {
         details.append(socketExists ? "socket exists" : "socket missing")
         details.append(helperProcessState())
 
-        if let logTail = readLogTail(path: helperLogPath), !logTail.isEmpty {
+        if let logTail = readLogTail(path: connectionConfig.helperLogPath), !logTail.isEmpty {
             details.append("helper log: \(logTail)")
         } else {
             details.append("no helper log output")
@@ -165,7 +191,7 @@ actor PrivilegedHelperLauncher {
     }
 
     private func helperProcessState() -> String {
-        guard let data = FileManager.default.contents(atPath: helperPIDPath),
+        guard let data = FileManager.default.contents(atPath: connectionConfig.helperPIDPath),
               let pidString = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = Int32(pidString),
@@ -204,25 +230,29 @@ actor PrivilegedHelperLauncher {
 }
 
 struct PrivilegedHelperTemperatureDataSource: TemperatureDataSource {
-    private let socketPath: String
+    private let connectionConfig: PrivilegedHelperConnectionConfig
     private let launcher: PrivilegedHelperLauncher
     private let channelBackfillSource: TemperatureDataSource
 
     init(
-        socketPath: String = "/tmp/pulsebar-temp.sock",
-        launcher: PrivilegedHelperLauncher = PrivilegedHelperLauncher(),
+        connectionConfig: PrivilegedHelperConnectionConfig = .default(expectedUID: Int32(getuid())),
+        launcher: PrivilegedHelperLauncher? = nil,
         channelBackfillSource: TemperatureDataSource = IOHIDTemperatureDataSource()
     ) {
-        self.socketPath = socketPath
-        self.launcher = launcher
+        self.connectionConfig = connectionConfig
+        self.launcher = launcher ?? PrivilegedHelperLauncher(connectionConfig: connectionConfig)
         self.channelBackfillSource = channelBackfillSource
     }
 
+    func isHelperReachableWithoutLaunching() async -> Bool {
+        await launcher.isHelperReachable()
+    }
+
     func readTemperatures() async throws -> PowermetricsTemperatureReading {
-        try await launcher.ensureRunning(socketPath: socketPath)
+        try await launcher.ensureRunning()
 
         let request = PrivilegedTemperatureRequest(command: .sample)
-        let response = try sendRequest(request, socketPath: socketPath)
+        let response = try sendRequest(request, socketPath: connectionConfig.socketPath)
 
         guard response.ok else {
             throw ProviderError.unavailable(response.error ?? "Privileged helper returned an unknown failure")

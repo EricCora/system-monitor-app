@@ -7,24 +7,51 @@ struct TemperatureTabView: View {
     @ObservedObject var paneController: DetachedMetricsPaneController
     @ObservedObject var featureStore: TemperatureFeatureStore
     @State private var hostWindow: NSWindow?
+    @State private var primaryTemperatureSamples: [MetricSample] = []
+    @State private var maximumTemperatureSamples: [MetricSample] = []
+    @State private var thermalStateSamples: [MetricSample] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let gateMessage = featureStore.fanParityGateMessage {
-                Text(gateMessage)
-                    .font(.caption)
-                    .foregroundStyle(featureStore.fanParityGateBlocked ? .red : .secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill((featureStore.fanParityGateBlocked ? Color.red : Color.secondary).opacity(0.12))
-                    )
+            if featureStore.usingPersistedSnapshot, let capturedAt = featureStore.latestCapturedAt {
+                DashboardInfoBanner(
+                    text: "Showing last known sensors from \(capturedAt.formatted(date: .omitted, time: .standard)).",
+                    tint: DashboardPalette.secondaryText,
+                    fill: DashboardPalette.insetFill
+                )
             }
 
+            if let gateMessage = featureStore.fanParityGateMessage {
+                DashboardInfoBanner(
+                    text: gateMessage,
+                    tint: featureStore.fanParityGateBlocked ? DashboardPalette.danger : DashboardPalette.secondaryText,
+                    fill: featureStore.fanParityGateBlocked
+                        ? DashboardPalette.danger.opacity(0.10)
+                        : DashboardPalette.insetFill
+                )
+            }
+
+            ChartWindowPicker(
+                options: coordinator.visibleChartWindows,
+                selection: Binding(
+                    get: { coordinator.selectedTemperatureHistoryWindow },
+                    set: { coordinator.selectedTemperatureHistoryWindow = $0 }
+                )
+            )
+
+            headerPanel
             sensorListPanel
+            chartPanel
             diagnosticsPanel
+
+            if coordinator.privilegedTemperatureEnabled && !featureStore.privilegedTemperatureHealthy {
+                Button("Retry Privileged Sampling") {
+                    coordinator.retryPrivilegedTemperatureNow()
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             PopoverWindowAccessor { window in
@@ -39,23 +66,33 @@ struct TemperatureTabView: View {
         .task(id: featureStore.visibleSensors.map(\.id).joined(separator: ",")) {
             synchronizeSelectionAndPane()
         }
+        .task(id: chartRefreshID) {
+            await refreshCharts()
+        }
         .onDisappear {
             paneController.closeIfActive(family: .temperature)
         }
     }
 
+    private var headerPanel: some View {
+        HStack(alignment: .top, spacing: 18) {
+            summaryMetric(title: "Thermal State", value: coordinator.latestThermalState().label)
+            summaryMetric(title: "Primary Temp", value: latestPrimaryTemperatureText)
+            summaryMetric(title: "Maximum Temp", value: latestMaximumTemperatureText)
+            summaryMetric(title: "Source", value: sourceLabel)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dashboardSurface(padding: 14)
+    }
+
     private var sensorListPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("SENSORS")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
+                DashboardSectionLabel(title: "Sensors", tint: DashboardPalette.secondaryText)
                 Spacer()
-
-                Text("\(featureStore.visibleSensors.count)")
+                Text("\(displayedSensorCount)")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
@@ -66,19 +103,11 @@ struct TemperatureTabView: View {
                 .buttonStyle(.bordered)
             }
 
-            if featureStore.visibleSensors.isEmpty {
-                Text(emptyStateText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-            } else {
+            if !featureStore.visibleSensors.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(featureStore.groupedSensors) { group in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(group.category.label.uppercased())
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                            DashboardSectionLabel(title: group.category.label.uppercased(), tint: DashboardPalette.secondaryText)
 
                             ForEach(group.channels, id: \.id) { sensor in
                                 sensorRow(sensor)
@@ -86,11 +115,176 @@ struct TemperatureTabView: View {
                         }
                     }
                 }
+            } else if !fallbackRows.isEmpty {
+                DashboardInfoBanner(
+                    text: "Using aggregate temperature metrics until privileged per-sensor sampling is available.",
+                    tint: DashboardPalette.secondaryText,
+                    fill: DashboardPalette.insetFill
+                )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(fallbackRows, id: \.name) { sensor in
+                        fallbackSensorRow(sensor)
+                    }
+                }
+            } else {
+                Text(emptyStateText)
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
             }
         }
+        .dashboardSurface(padding: 14)
         .onHover { hovering in
             paneController.setMainListHovering(hovering)
         }
+    }
+
+    private var chartPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            MetricChartView(
+                title: "Primary Temperature",
+                samples: primaryTemperatureSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.temperatureAccent
+            )
+
+            MetricChartView(
+                title: "Maximum Temperature",
+                samples: maximumTemperatureSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.memoryAccent
+            )
+
+            MetricChartView(
+                title: "Thermal State Level",
+                samples: thermalStateSamples,
+                throughputUnit: coordinator.throughputUnit,
+                areaOpacity: coordinator.chartAreaOpacity,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.cpuAccent
+            )
+        }
+        .dashboardSurface(padding: 14)
+    }
+
+    private var diagnosticsPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DashboardSectionLabel(title: "Source Diagnostics", tint: DashboardPalette.secondaryText)
+
+            if featureStore.privilegedSourceDiagnostics.isEmpty {
+                Text("No diagnostics yet.")
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            } else {
+                ForEach(Array(featureStore.privilegedSourceDiagnostics.enumerated()), id: \.offset) { _, diagnostic in
+                    HStack(alignment: .firstTextBaseline) {
+                        Circle()
+                            .fill(diagnostic.healthy ? DashboardPalette.success : DashboardPalette.danger)
+                            .frame(width: 7, height: 7)
+                        Text("\(diagnostic.source): \(diagnostic.message ?? (diagnostic.healthy ? "ok" : "failed"))")
+                            .font(.caption)
+                            .foregroundStyle(DashboardPalette.secondaryText)
+                    }
+                }
+            }
+
+            if let historyStatus = featureStore.temperatureHistoryStoreStatusMessage {
+                Text(historyStatus)
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            }
+        }
+        .dashboardSurface(padding: 14)
+    }
+
+    private var displayedSensorCount: Int {
+        if !featureStore.visibleSensors.isEmpty {
+            return featureStore.visibleSensors.count
+        }
+        return fallbackRows.count
+    }
+
+    private var fallbackRows: [TemperatureSensorReading] {
+        coordinator.fallbackTemperatureRows()
+    }
+
+    private var latestPrimaryTemperatureText: String {
+        if let latest = coordinator.latestValue(for: .temperaturePrimaryCelsius) {
+            return UnitsFormatter.format(latest.value, unit: .celsius)
+        }
+        return "--"
+    }
+
+    private var latestMaximumTemperatureText: String {
+        if let latest = coordinator.latestValue(for: .temperatureMaxCelsius) {
+            return UnitsFormatter.format(latest.value, unit: .celsius)
+        }
+        return "--"
+    }
+
+    private var sourceLabel: String {
+        if featureStore.usingPersistedSnapshot {
+            return "Last Known"
+        }
+        if coordinator.privilegedTemperatureHealthy {
+            return "Privileged"
+        }
+        return "Standard"
+    }
+
+    private var emptyStateText: String {
+        if coordinator.privilegedTemperatureEnabled && !featureStore.privilegedTemperatureHealthy {
+            return "Privileged mode is unavailable right now. Falling back to standard thermal state history."
+        }
+        if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
+            return "All current sensors are hidden."
+        }
+        return "Temperature traces remain available from standard thermal state history."
+    }
+
+    private var currentParentWindow: NSWindow? {
+        hostWindow ?? NSApp.keyWindow
+    }
+
+    private var chartRefreshID: String {
+        "\(coordinator.selectedTemperatureHistoryWindow.rawValue)-\(coordinator.metricHistoryRevision)-\(coordinator.historyStoreStatusMessage ?? "")"
+    }
+
+    private func synchronizeSelectionAndPane() {
+        if coordinator.selectedSensorReading() == nil {
+            coordinator.selectedTemperatureSensorID = featureStore.visibleSensors.first?.id ?? ""
+        }
+
+        paneController.reconcileTemperatureSensors(Set(featureStore.visibleSensors.map(\.id)))
+        if featureStore.visibleSensors.isEmpty {
+            paneController.closePanel(clearSelection: false)
+        }
+    }
+
+    private func refreshCharts() async {
+        async let primary = coordinator.series(for: .temperaturePrimaryCelsius, window: coordinator.selectedTemperatureHistoryWindow, maxPoints: 240)
+        async let maximum = coordinator.series(for: .temperatureMaxCelsius, window: coordinator.selectedTemperatureHistoryWindow, maxPoints: 240)
+        async let thermal = coordinator.series(for: .thermalStateLevel, window: coordinator.selectedTemperatureHistoryWindow, maxPoints: 240)
+
+        primaryTemperatureSamples = await primary
+        maximumTemperatureSamples = await maximum
+        thermalStateSamples = await thermal
+    }
+
+    private func summaryMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            DashboardSectionLabel(title: title, tint: DashboardPalette.secondaryText)
+            Text(value)
+                .font(.title3.monospacedDigit())
+                .foregroundStyle(DashboardPalette.primaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func sensorRow(_ sensor: SensorReading) -> some View {
@@ -103,29 +297,31 @@ struct TemperatureTabView: View {
             HStack(spacing: 8) {
                 Text(sensor.displayName)
                     .font(.subheadline)
+                    .foregroundStyle(DashboardPalette.primaryText)
                     .lineLimit(1)
 
                 Spacer(minLength: 6)
 
                 Text(TemperatureHistoryHelpers.valueText(for: sensor))
                     .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                     .frame(minWidth: 68, alignment: .trailing)
 
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule()
-                            .fill(Color.primary.opacity(0.12))
+                            .fill(DashboardPalette.insetFill)
                         Capsule()
-                            .fill(sensor.channelType == .fanRPM ? Color.orange : Color.cyan)
+                            .fill(sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent)
                             .frame(width: barWidth(for: sensor, totalWidth: proxy.size.width))
                     }
                 }
                 .frame(width: 90, height: 10)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(backgroundColor(for: sensor))
             )
         }
@@ -141,70 +337,51 @@ struct TemperatureTabView: View {
         }
     }
 
-    private var diagnosticsPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Source Diagnostics")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private func fallbackSensorRow(_ sensor: TemperatureSensorReading) -> some View {
+        HStack(spacing: 8) {
+            Text(sensor.name)
+                .font(.subheadline)
+                .foregroundStyle(DashboardPalette.primaryText)
+                .lineLimit(1)
 
-            if featureStore.privilegedSourceDiagnostics.isEmpty {
-                Text("No diagnostics yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(featureStore.privilegedSourceDiagnostics.enumerated()), id: \.offset) { _, diagnostic in
-                    HStack(alignment: .firstTextBaseline) {
-                        Circle()
-                            .fill(diagnostic.healthy ? Color.green : Color.red)
-                            .frame(width: 7, height: 7)
-                        Text("\(diagnostic.source): \(diagnostic.message ?? (diagnostic.healthy ? "ok" : "failed"))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+            Spacer(minLength: 6)
+
+            Text(UnitsFormatter.format(sensor.celsius, unit: .celsius))
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(DashboardPalette.primaryText)
+                .frame(minWidth: 68, alignment: .trailing)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(DashboardPalette.insetFill)
+                    Capsule()
+                        .fill(DashboardPalette.temperatureAccent)
+                        .frame(width: proxy.size.width * CGFloat(min(max(sensor.celsius / fallbackScaleMax, 0), 1)))
                 }
             }
-
-            if let historyStatus = featureStore.temperatureHistoryStoreStatusMessage {
-                Text(historyStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .frame(width: 90, height: 10)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DashboardPalette.insetFill)
+        )
     }
 
-    private var emptyStateText: String {
-        if coordinator.privilegedTemperatureEnabled && !featureStore.privilegedTemperatureHealthy {
-            return "Privileged mode is unavailable right now. Falling back to standard thermal state."
-        }
-        if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
-            return "All current sensors are hidden."
-        }
-        return "Waiting for privileged sensor channels."
-    }
-
-    private var currentParentWindow: NSWindow? {
-        hostWindow ?? NSApp.keyWindow
-    }
-
-    private func synchronizeSelectionAndPane() {
-        if coordinator.selectedSensorReading() == nil {
-            coordinator.selectedTemperatureSensorID = featureStore.visibleSensors.first?.id ?? ""
-        }
-
-        paneController.reconcileTemperatureSensors(Set(featureStore.visibleSensors.map(\.id)))
-        if featureStore.visibleSensors.isEmpty {
-            paneController.closePanel(clearSelection: false)
-        }
+    private var fallbackScaleMax: Double {
+        max(45, fallbackRows.map(\.celsius).max() ?? 45)
     }
 
     private func backgroundColor(for sensor: SensorReading) -> Color {
         if paneController.isActive(.temperature(sensorID: sensor.id)) {
-            return Color.accentColor.opacity(0.16)
+            return DashboardPalette.selectionFill
         }
         if sensor.id == coordinator.selectedTemperatureSensorID {
-            return Color.accentColor.opacity(0.22)
+            return DashboardPalette.hoverFill
         }
-        return .clear
+        return DashboardPalette.insetFill
     }
 
     private func barWidth(for channel: SensorReading, totalWidth: CGFloat) -> CGFloat {

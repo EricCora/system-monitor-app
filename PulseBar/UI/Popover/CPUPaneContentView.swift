@@ -40,7 +40,7 @@ struct CPUPaneContentView: View {
                         .font(.headline)
                     Text(activeChart.subtitle)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Spacer()
@@ -70,7 +70,11 @@ struct CPUPaneContentView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+                .fill(DashboardPalette.sectionFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                )
         )
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
@@ -168,7 +172,7 @@ struct CPUPaneContentView: View {
                     let system = nearestPoint(in: systemHistory)?.value ?? 0
                     let idle = nearestPoint(in: idleHistory)?.value ?? max(0, 100 - user - system)
                     Text(point.timestamp.formatted(date: .omitted, time: .standard))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(
                         "User \(UnitsFormatter.format(user, unit: .percent))  System \(UnitsFormatter.format(system, unit: .percent))  Idle \(UnitsFormatter.format(idle, unit: .percent))"
@@ -180,7 +184,7 @@ struct CPUPaneContentView: View {
             case .loadAverage:
                 if let point = nearestPoint(in: load1History) ?? nearestPoint(in: load5History) ?? nearestPoint(in: load15History) {
                     Text(point.timestamp.formatted(date: .omitted, time: .standard))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(
                         String(
@@ -197,7 +201,7 @@ struct CPUPaneContentView: View {
             case .gpu:
                 if let point = nearestPoint(in: gpuProcessorHistory) ?? nearestPoint(in: gpuMemoryHistory) {
                     Text(point.timestamp.formatted(date: .omitted, time: .standard))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(
                         "Processor \(UnitsFormatter.format(nearestPoint(in: gpuProcessorHistory)?.value ?? 0, unit: .percent))  Memory \(UnitsFormatter.format(nearestPoint(in: gpuMemoryHistory)?.value ?? 0, unit: .percent))"
@@ -209,7 +213,7 @@ struct CPUPaneContentView: View {
             case .framesPerSecond:
                 if let point = nearestPoint(in: fpsHistory) {
                     Text(point.timestamp.formatted(date: .omitted, time: .standard))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(String(format: "%.1f fps", point.value))
                         .font(.caption.monospacedDigit())

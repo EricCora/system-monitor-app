@@ -35,15 +35,16 @@ struct MemoryTabView: View {
             if let processStatus = featureStore.processesStatusMessage {
                 Text(processStatus)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             if let historyStatus = coordinator.historyStoreStatusMessage ?? coordinator.memoryHistoryStoreStatusMessage {
                 Text(historyStatus)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             PopoverWindowAccessor { window in
@@ -75,7 +76,11 @@ struct MemoryTabView: View {
                 .padding(10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(paneController.isActive(target) ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.05))
+                        .fill(paneController.isActive(target) ? DashboardPalette.selectionFill : DashboardPalette.sectionFill)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(paneController.isActive(target) ? DashboardPalette.memoryAccent.opacity(0.45) : DashboardPalette.chromeBorder, lineWidth: 1)
+                        )
                 )
         }
         .buttonStyle(.plain)
@@ -97,7 +102,7 @@ struct MemoryTabView: View {
             if featureStore.topProcesses.isEmpty {
                 Text("Collecting process memory")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             } else {
                 ForEach(featureStore.topProcesses.prefix(coordinator.memoryProcessCount)) { process in
                     HStack(spacing: 8) {
@@ -111,17 +116,13 @@ struct MemoryTabView: View {
                 }
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .dashboardSurface()
     }
 
     private var pressureSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("PRESSURE")
-            fractionBar(value: pressurePercent / 100.0, color: .cyan)
+            fractionBar(value: pressurePercent / 100.0, color: DashboardPalette.networkAccent)
             keyValueRow(title: "Pressure", value: UnitsFormatter.format(pressurePercent, unit: .percent))
             keyValueRow(title: "App Memory", value: latestBytes(.memoryAppBytes))
             keyValueRow(title: "Wired", value: latestBytes(.memoryWiredBytes))
@@ -137,36 +138,36 @@ struct MemoryTabView: View {
             GeometryReader { proxy in
                 HStack(spacing: 0) {
                     Rectangle()
-                        .fill(Color.cyan)
+                        .fill(DashboardPalette.networkAccent)
                         .frame(width: proxy.size.width * wiredFraction)
                     Rectangle()
-                        .fill(Color.red)
+                        .fill(DashboardPalette.memoryAccent)
                         .frame(width: proxy.size.width * activeFraction)
                     Rectangle()
-                        .fill(Color.purple)
+                        .fill(DashboardPalette.temperatureAccent)
                         .frame(width: proxy.size.width * compressedFraction)
                     Rectangle()
-                        .fill(Color.gray.opacity(0.45))
+                        .fill(DashboardPalette.tertiaryText.opacity(0.55))
                         .frame(width: proxy.size.width * freeFraction)
                 }
             }
             .frame(height: 12)
             .clipShape(Capsule())
 
-            memoryLegendRow(title: "Wired", color: .cyan, value: wiredBytes)
-            memoryLegendRow(title: "Active", color: .red, value: activeBytes)
-            memoryLegendRow(title: "Compressed", color: .purple, value: compressedBytes)
-            memoryLegendRow(title: "Free", color: .gray, value: freeBytes)
+            memoryLegendRow(title: "Wired", color: DashboardPalette.networkAccent, value: wiredBytes)
+            memoryLegendRow(title: "Active", color: DashboardPalette.memoryAccent, value: activeBytes)
+            memoryLegendRow(title: "Compressed", color: DashboardPalette.temperatureAccent, value: compressedBytes)
+            memoryLegendRow(title: "Free", color: DashboardPalette.tertiaryText, value: freeBytes)
         }
     }
 
     private var swapSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("SWAP MEMORY")
-            fractionBar(value: swapUsedFraction, color: .cyan)
+            fractionBar(value: swapUsedFraction, color: DashboardPalette.networkAccent)
             Text("\(UnitsFormatter.format(swapUsedBytes, unit: .bytes)) of \(UnitsFormatter.format(swapTotalBytes, unit: .bytes))")
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
         }
     }
 
@@ -252,7 +253,7 @@ struct MemoryTabView: View {
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.cyan)
+            .foregroundStyle(DashboardPalette.memoryAccent)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -260,7 +261,7 @@ struct MemoryTabView: View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.primary.opacity(0.12))
+                    .fill(DashboardPalette.insetFill)
                 Capsule()
                     .fill(color)
                     .frame(width: proxy.size.width * min(max(value, 0), 1))
@@ -272,7 +273,7 @@ struct MemoryTabView: View {
     private func keyValueRow(title: String, value: String) -> some View {
         HStack {
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Spacer()
             Text(value)
                 .font(.body.monospacedDigit())
@@ -286,7 +287,7 @@ struct MemoryTabView: View {
                 .fill(color)
                 .frame(width: 9, height: 9)
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Spacer()
             Text(UnitsFormatter.format(value, unit: .bytes))
                 .font(.body.monospacedDigit())

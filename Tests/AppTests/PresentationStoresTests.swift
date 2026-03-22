@@ -118,7 +118,9 @@ final class PresentationStoresTests: XCTestCase {
             privilegedSourceDiagnostics: [],
             fanParityGateBlocked: false,
             fanParityGateMessage: nil,
-            temperatureHistoryStoreStatusMessage: nil
+            temperatureHistoryStoreStatusMessage: nil,
+            latestCapturedAt: now,
+            usingPersistedSnapshot: false
         )
 
         XCTAssertEqual(store.groupedSensors.map(\.category), [.battery, .cpu])

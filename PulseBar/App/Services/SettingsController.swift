@@ -46,7 +46,9 @@ final class SettingsController: ObservableObject {
         static let memoryProcessCount = "settings.memoryProcessCount"
         static let appSettingsV2 = "settings.v2.data"
         static let appSettingsV3 = "settings.v3.data"
+        static let appSettingsV4 = "settings.v4.data"
         static let liveCompositorFPSEnabled = "settings.liveCompositorFPSEnabled"
+        static let latestTemperatureSnapshot = "runtime.latestTemperatureSnapshot"
     }
 
     private let defaults: UserDefaults
@@ -433,7 +435,82 @@ final class SettingsController: ObservableObject {
                 return
             }
             persist(memoryProcessCount, key: DefaultsKey.memoryProcessCount)
-            persistAppSettingsV3()
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var dashboardLayout: DashboardLayoutMode {
+        didSet {
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var dashboardCardOrder: [DashboardCardID] {
+        didSet {
+            let normalized = Self.normalizeDashboardCardOrder(dashboardCardOrder)
+            if normalized != dashboardCardOrder {
+                dashboardCardOrder = normalized
+                return
+            }
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var menuBarDisplayMode: MenuBarDisplayMode {
+        didSet {
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var menuBarMetricStyles: [MenuBarMetricID: MenuBarMetricStyle] {
+        didSet {
+            let normalized = Self.normalizeMenuBarMetricStyles(menuBarMetricStyles)
+            if normalized != menuBarMetricStyles {
+                menuBarMetricStyles = normalized
+                return
+            }
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var favoriteSensorIDs: [String] {
+        didSet {
+            let normalized = Self.normalizeSensorIDs(favoriteSensorIDs)
+            if normalized != favoriteSensorIDs {
+                favoriteSensorIDs = normalized
+                return
+            }
+            if let selectedSensorPresetID, !sensorPresets.contains(where: { $0.id == selectedSensorPresetID }) {
+                self.selectedSensorPresetID = nil
+                return
+            }
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var sensorPresets: [SensorPreset] {
+        didSet {
+            let normalized = Self.normalizeSensorPresets(sensorPresets)
+            if normalized != sensorPresets {
+                sensorPresets = normalized
+                return
+            }
+            if let selectedSensorPresetID, !sensorPresets.contains(where: { $0.id == selectedSensorPresetID }) {
+                self.selectedSensorPresetID = nil
+                return
+            }
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var selectedSensorPresetID: String? {
+        didSet {
+            if let selectedSensorPresetID,
+               !sensorPresets.contains(where: { $0.id == selectedSensorPresetID }) {
+                self.selectedSensorPresetID = nil
+                return
+            }
+            persistAppSettingsV4()
         }
     }
 
@@ -441,6 +518,7 @@ final class SettingsController: ObservableObject {
         self.defaults = defaults
 
         let legacy = Self.loadLegacySnapshot(defaults: defaults)
+        let loadedV4 = Self.loadSettingsV4(defaults: defaults)
         let loadedV3 = Self.loadSettingsV3(defaults: defaults)
         let loadedV2 = Self.loadSettingsV2(defaults: defaults)
         let launchAtLogin = defaults.object(forKey: DefaultsKey.launchAtLogin) as? Bool ?? false
@@ -489,15 +567,19 @@ final class SettingsController: ObservableObject {
             rawValue: defaults.string(forKey: DefaultsKey.selectedCPUPaneChart) ?? ""
         ) ?? .usage
 
-        let appSettings: AppSettingsV3
-        if let loadedV3 {
-            appSettings = loadedV3
+        let appSettings: AppSettingsV4
+        if let loadedV4 {
+            appSettings = loadedV4
+        } else if let loadedV3 {
+            appSettings = AppSettingsV4.migrated(from: loadedV3)
         } else if let loadedV2 {
             let legacySamplingInterval = defaults.object(forKey: DefaultsKey.globalSamplingInterval) as? Double
                 ?? defaults.object(forKey: DefaultsKey.sampleInterval) as? Double
-            appSettings = AppSettingsV3.migrated(from: loadedV2, legacySamplingInterval: legacySamplingInterval)
+            appSettings = AppSettingsV4.migrated(
+                from: AppSettingsV3.migrated(from: loadedV2, legacySamplingInterval: legacySamplingInterval)
+            )
         } else {
-            appSettings = AppSettingsV3.migrated(from: legacy)
+            appSettings = AppSettingsV4.migrated(from: AppSettingsV3.migrated(from: legacy))
         }
 
         let activeProfile = appSettings.activeProfile
@@ -548,9 +630,16 @@ final class SettingsController: ObservableObject {
         memoryMenuLayout = appSettings.memoryMenuLayout.reconciledEnsuringVisibleSections(fallback: .memoryDefault)
         cpuProcessCount = appSettings.cpuProcessCount
         memoryProcessCount = appSettings.memoryProcessCount
+        dashboardLayout = appSettings.dashboardLayout
+        dashboardCardOrder = Self.normalizeDashboardCardOrder(appSettings.dashboardCardOrder)
+        menuBarDisplayMode = appSettings.menuBarDisplayMode
+        menuBarMetricStyles = Self.normalizeMenuBarMetricStyles(appSettings.menuBarMetricStyles)
+        favoriteSensorIDs = Self.normalizeSensorIDs(appSettings.favoriteSensorIDs)
+        sensorPresets = Self.normalizeSensorPresets(appSettings.sensorPresets)
+        selectedSensorPresetID = appSettings.selectedSensorPresetID
 
         bootstrapping = false
-        persistAppSettingsV3()
+        persistAppSettingsV4()
     }
 
     func currentAlertRules() -> [AlertRule] {
@@ -674,9 +763,13 @@ final class SettingsController: ObservableObject {
     }
 
     private func persistAppSettingsV3() {
+        persistAppSettingsV4()
+    }
+
+    private func persistAppSettingsV4() {
         guard !bootstrapping else { return }
 
-        let settings = AppSettingsV3(
+        let settings = AppSettingsV4(
             globalSamplingInterval: globalSamplingInterval,
             liveCompositorFPSEnabled: liveCompositorFPSEnabled,
             activeProfile: selectedProfileID,
@@ -692,16 +785,30 @@ final class SettingsController: ObservableObject {
             cpuProcessCount: cpuProcessCount,
             memoryProcessCount: memoryProcessCount,
             selectedCPUPaneChart: selectedCPUPaneChart,
-            selectedMemoryPaneChart: selectedMemoryPaneChart
+            selectedMemoryPaneChart: selectedMemoryPaneChart,
+            dashboardLayout: dashboardLayout,
+            dashboardCardOrder: dashboardCardOrder,
+            menuBarDisplayMode: menuBarDisplayMode,
+            menuBarMetricStyles: menuBarMetricStyles,
+            favoriteSensorIDs: favoriteSensorIDs,
+            sensorPresets: sensorPresets,
+            selectedSensorPresetID: selectedSensorPresetID
         )
 
         guard let data = try? JSONEncoder().encode(settings) else { return }
-        defaults.set(data, forKey: DefaultsKey.appSettingsV3)
+        defaults.set(data, forKey: DefaultsKey.appSettingsV4)
     }
 
     private func persist<T>(_ value: T, key: String) {
         guard !bootstrapping else { return }
         defaults.set(value, forKey: key)
+    }
+
+    private static func loadSettingsV4(defaults: UserDefaults) -> AppSettingsV4? {
+        guard let data = defaults.data(forKey: DefaultsKey.appSettingsV4) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(AppSettingsV4.self, from: data)
     }
 
     private static func loadSettingsV3(defaults: UserDefaults) -> AppSettingsV3? {
@@ -775,9 +882,115 @@ final class SettingsController: ObservableObject {
         Self.normalizeChartWindows(visibleChartWindows)
     }
 
+    func menuBarMetricStyle(for metric: MenuBarMetricID) -> MenuBarMetricStyle {
+        menuBarMetricStyles[metric] ?? MenuBarMetricID.defaultStyles[metric] ?? .text
+    }
+
+    func setMenuBarMetricStyle(_ style: MenuBarMetricStyle, for metric: MenuBarMetricID) {
+        var styles = menuBarMetricStyles
+        styles[metric] = style
+        menuBarMetricStyles = styles
+    }
+
+    func moveDashboardCard(from index: Int, direction: Int) {
+        var cards = dashboardCardOrder
+        let destination = index + direction
+        guard destination >= 0, destination < cards.count else { return }
+        cards.swapAt(index, destination)
+        dashboardCardOrder = cards
+    }
+
+    func toggleFavoriteSensor(id: String) {
+        var ids = favoriteSensorIDs
+        if let index = ids.firstIndex(of: id) {
+            ids.remove(at: index)
+        } else {
+            ids.append(id)
+        }
+        favoriteSensorIDs = ids
+    }
+
+    func saveSensorPreset(name: String, sensorIDs: [String]) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        var presets = sensorPresets
+        if let index = presets.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame }) {
+            presets[index] = SensorPreset(id: presets[index].id, name: trimmedName, sensorIDs: sensorIDs)
+            sensorPresets = presets
+            selectedSensorPresetID = presets[index].id
+            return
+        }
+
+        let preset = SensorPreset(name: trimmedName, sensorIDs: sensorIDs)
+        presets.append(preset)
+        sensorPresets = presets
+        selectedSensorPresetID = preset.id
+    }
+
+    func deleteSensorPreset(id: String) {
+        sensorPresets.removeAll { $0.id == id }
+    }
+
+    func persistLatestTemperatureSnapshot(_ snapshot: LatestTemperatureSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: DefaultsKey.latestTemperatureSnapshot)
+    }
+
+    func loadLatestTemperatureSnapshot() -> LatestTemperatureSnapshot? {
+        guard let data = defaults.data(forKey: DefaultsKey.latestTemperatureSnapshot) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(LatestTemperatureSnapshot.self, from: data)
+    }
+
+    func clearLatestTemperatureSnapshot() {
+        defaults.removeObject(forKey: DefaultsKey.latestTemperatureSnapshot)
+    }
+
     private static func normalizeChartWindows(_ windows: [ChartWindow]) -> [ChartWindow] {
         let normalized = ChartWindow.allCases.filter { windows.contains($0) }
         return normalized.isEmpty ? ChartWindow.allCases : normalized
+    }
+
+    private static func normalizeDashboardCardOrder(_ cards: [DashboardCardID]) -> [DashboardCardID] {
+        var normalized: [DashboardCardID] = []
+        for card in cards where !normalized.contains(card) {
+            normalized.append(card)
+        }
+        for card in DashboardCardID.allCases where !normalized.contains(card) {
+            normalized.append(card)
+        }
+        return normalized.isEmpty ? DashboardCardID.defaultOrder : normalized
+    }
+
+    private static func normalizeMenuBarMetricStyles(
+        _ styles: [MenuBarMetricID: MenuBarMetricStyle]
+    ) -> [MenuBarMetricID: MenuBarMetricStyle] {
+        var normalized = MenuBarMetricID.defaultStyles
+        for metric in MenuBarMetricID.allCases {
+            if let style = styles[metric] {
+                normalized[metric] = style
+            }
+        }
+        return normalized
+    }
+
+    private static func normalizeSensorIDs(_ sensorIDs: [String]) -> [String] {
+        Array(NSOrderedSet(array: sensorIDs.compactMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        })) as? [String] ?? []
+    }
+
+    private static func normalizeSensorPresets(_ presets: [SensorPreset]) -> [SensorPreset] {
+        var seenIDs = Set<String>()
+        return presets.compactMap { preset in
+            guard !preset.name.isEmpty else { return nil }
+            guard !seenIDs.contains(preset.id) else { return nil }
+            seenIDs.insert(preset.id)
+            return SensorPreset(id: preset.id, name: preset.name, sensorIDs: preset.sensorIDs)
+        }
     }
 
     private static func loadVisibleChartWindows(defaults: UserDefaults) -> [ChartWindow] {

@@ -12,6 +12,12 @@ struct NetworkInterfaceRate: Identifiable {
     var totalBytesPerSecond: Double { inboundBytesPerSecond + outboundBytesPerSecond }
 }
 
+private struct DirectTemperatureRuntimeState {
+    var reading: PowermetricsTemperatureReading
+    var sampledAt: Date
+    var lastErrorMessage: String?
+}
+
 @MainActor
 final class AppCoordinator: ObservableObject {
     private let store: TimeSeriesStore
@@ -27,8 +33,11 @@ final class AppCoordinator: ObservableObject {
     private let gpuStatsProvider: GPUStatsProvider
     private let fpsProvider: FPSProvider
     private let diskProvider: DiskProvider
+    private let directTemperatureDataSource: any TemperatureDataSource
+    private let helperReachabilityProbe: @Sendable () async -> Bool
     private let alertDeliveryCenter: AlertDeliveryCenter
     private let powerSourceMonitor = PowerSourceMonitor()
+    private let networkContextResolver = NetworkContextResolver()
     private let settingsController: SettingsController
     private let telemetryStore: TelemetryStore
     private let temperaturePaneModel: TemperaturePaneModel
@@ -46,15 +55,23 @@ final class AppCoordinator: ObservableObject {
     let temperatureFeatureStore: TemperatureFeatureStore
 
     private var cancellables = Set<AnyCancellable>()
-    private var activeDashboardTab: DashboardTab?
+    private var dashboardVisible = false
     private var cpuProcessPollingTask: Task<Void, Never>?
     private var memoryProcessPollingTask: Task<Void, Never>?
     private var fpsStatusPollingTask: Task<Void, Never>?
     private var privilegedTemperatureRefreshTask: Task<Void, Never>?
+    private var privilegedTemperaturePausedUntilRetry = false
+    private var directTemperatureRuntimeState: DirectTemperatureRuntimeState?
 
     @Published var launchAtLoginStatusMessage: String?
+    @Published private(set) var dashboardSection: DashboardSection = .overview
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        privilegedTemperatureDataSource: PrivilegedHelperTemperatureDataSource = PrivilegedHelperTemperatureDataSource(),
+        directTemperatureDataSource: any TemperatureDataSource = IOHIDTemperatureDataSource(),
+        helperReachabilityProbe: (@Sendable () async -> Bool)? = nil
+    ) {
         isAppBundleRuntime = Bundle.main.bundleURL.pathExtension == "app"
         let alertDeliveryCenter = AlertDeliveryCenter(isAppBundleRuntime: Bundle.main.bundleURL.pathExtension == "app")
         self.alertDeliveryCenter = alertDeliveryCenter
@@ -95,7 +112,11 @@ final class AppCoordinator: ObservableObject {
             _ = await alertDeliveryCenter.deliver(title: title, body: body)
         }
 
-        let privilegedSource = PrivilegedHelperTemperatureDataSource()
+        let privilegedSource = privilegedTemperatureDataSource
+        self.directTemperatureDataSource = directTemperatureDataSource
+        self.helperReachabilityProbe = helperReachabilityProbe ?? {
+            await privilegedSource.isHelperReachableWithoutLaunching()
+        }
         let powermetricsProvider = PowermetricsProvider(
             dataSource: privilegedSource,
             minCollectionInterval: settingsController.globalSamplingInterval
@@ -127,6 +148,7 @@ final class AppCoordinator: ObservableObject {
 
         bindServiceChanges()
         installSettingCallbacks()
+        privilegedTemperaturePausedUntilRetry = settingsController.privilegedTemperatureEnabled
 
         Task {
             await gpuStatsProvider.setOnSnapshotRead { [weak self] in
@@ -151,13 +173,15 @@ final class AppCoordinator: ObservableObject {
             )
 
             await hydrateLatestSamplesFromPersistentHistory()
+            hydrateLatestTemperatureSnapshot()
+            await restorePrivilegedTemperatureStartupState()
             telemetryStore.recentAlerts = alertDeliveryCenter.recentAlerts
             await alertDeliveryCenter.requestAuthorizationIfNeeded()
-            await temperatureCoordinator.setPrivilegedEnabled(settingsController.privilegedTemperatureEnabled)
             await refreshAlertRules()
             await updateLaunchAtLogin(enabled: settingsController.launchAtLoginEnabled)
             telemetryStore.latestGPUSummary = await gpuStatsProvider.latestSnapshot()
             syncFeatureStoresFromLatestSamples()
+            await refreshNetworkContext(forceReload: true)
             await powerSourceMonitor.start { [weak self] source in
                 await self?.handlePowerSourceChange(source)
             }
@@ -415,6 +439,61 @@ final class AppCoordinator: ObservableObject {
         set { settingsController.memoryProcessCount = newValue }
     }
 
+    var dashboardLayout: DashboardLayoutMode {
+        get { settingsController.dashboardLayout }
+        set { settingsController.dashboardLayout = newValue }
+    }
+
+    var dashboardCardOrder: [DashboardCardID] {
+        get { settingsController.dashboardCardOrder }
+        set { settingsController.dashboardCardOrder = newValue }
+    }
+
+    var menuBarDisplayMode: MenuBarDisplayMode {
+        get { settingsController.menuBarDisplayMode }
+        set { settingsController.menuBarDisplayMode = newValue }
+    }
+
+    var favoriteSensorIDs: [String] {
+        get { settingsController.favoriteSensorIDs }
+        set { settingsController.favoriteSensorIDs = newValue }
+    }
+
+    var sensorPresets: [SensorPreset] {
+        get { settingsController.sensorPresets }
+        set { settingsController.sensorPresets = newValue }
+    }
+
+    var selectedSensorPresetID: String? {
+        get { settingsController.selectedSensorPresetID }
+        set { settingsController.selectedSensorPresetID = newValue }
+    }
+
+    func menuBarMetricStyle(for metric: MenuBarMetricID) -> MenuBarMetricStyle {
+        settingsController.menuBarMetricStyle(for: metric)
+    }
+
+    func setMenuBarMetricStyle(_ style: MenuBarMetricStyle, for metric: MenuBarMetricID) {
+        settingsController.setMenuBarMetricStyle(style, for: metric)
+    }
+
+    func moveDashboardCard(from index: Int, direction: Int) {
+        settingsController.moveDashboardCard(from: index, direction: direction)
+    }
+
+    func toggleFavoriteSensor(id: String) {
+        settingsController.toggleFavoriteSensor(id: id)
+        syncTemperatureFeatureStore()
+    }
+
+    func saveSensorPreset(name: String, sensorIDs: [String]) {
+        settingsController.saveSensorPreset(name: name, sensorIDs: sensorIDs)
+    }
+
+    func deleteSensorPreset(id: String) {
+        settingsController.deleteSensorPreset(id: id)
+    }
+
     func series(for metricID: MetricID, window: ChartWindow, maxPoints: Int = 300) async -> [MetricSample] {
         if telemetryStore.historyStoreStatusMessage == nil {
             return await metricHistoryStore.samples(for: metricID, window: window, maxPoints: maxPoints)
@@ -508,6 +587,20 @@ final class AppCoordinator: ObservableObject {
         temperaturePaneModel.visibleSensorChannels(from: telemetryStore.latestSensorChannels)
     }
 
+    func fallbackTemperatureRows() -> [TemperatureSensorReading] {
+        var rows: [TemperatureSensorReading] = []
+
+        if let primary = telemetryStore.latestSamples[.temperaturePrimaryCelsius]?.value, primary.isFinite {
+            rows.append(TemperatureSensorReading(name: "Primary", celsius: primary))
+        }
+
+        if let maximum = telemetryStore.latestSamples[.temperatureMaxCelsius]?.value, maximum.isFinite {
+            rows.append(TemperatureSensorReading(name: "Maximum", celsius: maximum))
+        }
+
+        return rows
+    }
+
     func selectedSensorReading(includeHidden: Bool = false) -> SensorReading? {
         temperaturePaneModel.selectedSensorReading(
             in: telemetryStore.latestSensorChannels,
@@ -553,26 +646,33 @@ final class AppCoordinator: ObservableObject {
         telemetryStore.cpuSummarySnapshot()
     }
 
-    func setActiveDashboardTab(_ tab: DashboardTab?) {
-        activeDashboardTab = tab
-        reevaluatePresentationSchedulers()
+    func setDashboardSection(_ section: DashboardSection) {
+        guard dashboardSection != section else { return }
+        dashboardSection = section
+        performanceDiagnosticsStore.updateSurfaceActivitySummary(surfaceActivitySummary)
+    }
 
-        guard let tab else { return }
+    func resetDashboardSectionForPresentation() {
+        setDashboardSection(.overview)
+    }
+
+    func openDashboardDetails(for card: DashboardCardID) {
+        setDashboardSection(card.detailSection)
+    }
+
+    func setDashboardVisible(_ visible: Bool) {
+        dashboardVisible = visible
+        reevaluatePresentationSchedulers()
+    }
+
+    func refreshDashboardSurface() {
         Task {
-            switch tab {
-            case .cpu:
-                await refreshCPUCompactCharts(forceReload: false)
-            case .battery:
-                await refreshBatteryCharts(forceReload: false)
-            case .network:
-                await refreshNetworkCharts(forceReload: false)
-            case .disk:
-                await refreshDiskCharts(forceReload: false)
-            case .temperature:
-                syncTemperatureFeatureStore()
-            case .memory, .settings:
-                break
-            }
+            await refreshCPUCompactCharts(forceReload: false)
+            await refreshBatteryCharts(forceReload: false)
+            await refreshNetworkCharts(forceReload: false)
+            await refreshDiskCharts(forceReload: false)
+            await refreshNetworkContext(forceReload: false)
+            syncTemperatureFeatureStore()
         }
     }
 
@@ -592,8 +692,55 @@ final class AppCoordinator: ObservableObject {
         Task { await refreshDiskCharts(forceReload: true) }
     }
 
+    func dashboardSensorReadings() -> [SensorReading] {
+        let allVisible = visibleSensorChannels()
+        if let selectedSensorPresetID,
+           let preset = sensorPresets.first(where: { $0.id == selectedSensorPresetID }) {
+            let filtered = allVisible.filter { preset.sensorIDs.contains($0.id) }
+            return filtered.isEmpty ? Array(allVisible.prefix(8)) : filtered
+        }
+
+        if !favoriteSensorIDs.isEmpty {
+            let filtered = allVisible.filter { favoriteSensorIDs.contains($0.id) }
+            return filtered.isEmpty ? Array(allVisible.prefix(8)) : filtered
+        }
+
+        return Array(allVisible.prefix(8))
+    }
+
+    func menuBarSparklineValues(for metric: MenuBarMetricID) -> [Double] {
+        switch metric {
+        case .cpu:
+            return cpuUsageSurfaceStore.snapshot.renderModel.segments
+                .flatMap(\.points)
+                .suffix(24)
+                .map(\.totalValue)
+        case .memory:
+            return Array(memoryFeatureStore.usedSamples.suffix(24)).map(\.value)
+        case .battery:
+            return Array(batteryFeatureStore.chargeSamples.suffix(24)).map(\.value)
+        case .network:
+            let inbound = Array(networkFeatureStore.inboundSamples.suffix(24)).map(\.value)
+            let outbound = Array(networkFeatureStore.outboundSamples.suffix(24)).map(\.value)
+            let count = max(inbound.count, outbound.count)
+            guard count > 0 else { return [] }
+            return (0..<count).map { index in
+                let inboundValue = index < inbound.count ? inbound[index] : 0
+                let outboundValue = index < outbound.count ? outbound[index] : 0
+                return inboundValue + outboundValue
+            }
+        case .disk:
+            return Array(diskFeatureStore.throughputSamples.suffix(24)).map(\.value)
+        case .temperature:
+            return Array(temperatureFeatureStore.primarySamples.suffix(24)).map(\.value)
+        }
+    }
+
     func retryPrivilegedTemperatureNow() {
         Task {
+            directTemperatureRuntimeState = nil
+            privilegedTemperaturePausedUntilRetry = false
+            await temperatureCoordinator.setPrivilegedEnabled(settingsController.privilegedTemperatureEnabled)
             await temperatureCoordinator.requestImmediateRetry()
             let samples = await temperatureCoordinator.probeNow()
             await applyImmediatePrivilegedSamples(samples)
@@ -607,6 +754,34 @@ final class AppCoordinator: ObservableObject {
             .store(in: &cancellables)
 
         temperaturePaneModel.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        telemetryStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        cpuUsageSurfaceStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        memoryFeatureStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        batteryFeatureStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        networkFeatureStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        diskFeatureStore.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        temperatureFeatureStore.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
@@ -632,10 +807,23 @@ final class AppCoordinator: ObservableObject {
 
         settingsController.onPrivilegedTemperatureToggle = { [weak self] enabled in
             guard let self else { return }
+            await MainActor.run {
+                self.directTemperatureRuntimeState = nil
+                self.privilegedTemperaturePausedUntilRetry = false
+            }
             await self.temperatureCoordinator.setPrivilegedEnabled(enabled)
             if enabled {
                 let samples = await self.temperatureCoordinator.probeNow()
                 await self.applyImmediatePrivilegedSamples(samples)
+            } else {
+                await MainActor.run {
+                    self.settingsController.clearLatestTemperatureSnapshot()
+                    self.temperaturePaneModel.reconcileVisibleSensors([])
+                    self.telemetryStore.clearTemperatureTelemetry(
+                        statusMessage: "Privileged mode off (standard thermal state only)."
+                    )
+                    self.syncTemperatureFeatureStore()
+                }
             }
             await self.refreshPrivilegedTemperatureStatus()
         }
@@ -667,6 +855,7 @@ final class AppCoordinator: ObservableObject {
         }
 
         syncFeatureStoresFromLatestSamples()
+        await refreshNetworkContext(forceReload: false)
         applyVisibleSurfaceUpdates(from: batch)
 
         if batch.samples.contains(where: isPrivilegedTemperatureMetric) {
@@ -680,6 +869,83 @@ final class AppCoordinator: ObservableObject {
     private func applyImmediatePrivilegedSamples(_ samples: [MetricSample]) async {
         guard !samples.isEmpty else { return }
         await handle(batch: SamplingBatch(timestamp: samples.first?.timestamp ?? Date(), samples: samples, failures: []))
+    }
+
+    private func hydrateLatestTemperatureSnapshot() {
+        guard let snapshot = settingsController.loadLatestTemperatureSnapshot() else {
+            return
+        }
+
+        let statusMessage = "Showing last known temperature snapshot from \(snapshot.capturedAt.formatted(date: .omitted, time: .standard))."
+        telemetryStore.hydrateTemperatureTelemetry(from: snapshot, statusMessage: statusMessage)
+        temperaturePaneModel.reconcileVisibleSensors(snapshot.channels)
+        syncTemperatureFeatureStore()
+    }
+
+    private func restorePrivilegedTemperatureStartupState() async {
+        guard settingsController.privilegedTemperatureEnabled else {
+            directTemperatureRuntimeState = nil
+            privilegedTemperaturePausedUntilRetry = false
+            await temperatureCoordinator.setPrivilegedEnabled(false)
+            telemetryStore.clearTemperatureTelemetry(statusMessage: "Privileged mode off (standard thermal state only).")
+            settingsController.clearLatestTemperatureSnapshot()
+            syncTemperatureFeatureStore()
+            return
+        }
+
+        if await attemptDirectTemperatureProbe() {
+            await refreshPrivilegedTemperatureStatus()
+            return
+        }
+
+        let helperReachable = await helperReachabilityProbe()
+        directTemperatureRuntimeState = nil
+        privilegedTemperaturePausedUntilRetry = !helperReachable
+        await temperatureCoordinator.setPrivilegedEnabled(helperReachable)
+
+        if helperReachable {
+            let samples = await temperatureCoordinator.probeNow()
+            await applyImmediatePrivilegedSamples(samples)
+        }
+
+        await refreshPrivilegedTemperatureStatus()
+    }
+
+    private func attemptDirectTemperatureProbe() async -> Bool {
+        let sampledAt = Date()
+
+        do {
+            let reading = try await directTemperatureDataSource.readTemperatures()
+            let normalizedReading = normalizedDirectTemperatureReading(from: reading, at: sampledAt)
+            directTemperatureRuntimeState = DirectTemperatureRuntimeState(
+                reading: normalizedReading,
+                sampledAt: sampledAt,
+                lastErrorMessage: nil
+            )
+            privilegedTemperaturePausedUntilRetry = false
+            await publishTemperatureReading(
+                normalizedReading,
+                statusMessage: "Enhanced temperature mode active via Direct IOHID.",
+                lastSuccessMessage: "Last successful enhanced sample: \(sampledAt.formatted(date: .omitted, time: .standard)).",
+                healthy: true,
+                capturedAt: sampledAt,
+                fanHealthy: normalizedReading.fanTelemetryAvailable,
+                channelsAvailable: SensorChannelType.allCases.filter {
+                    Set(normalizedReading.channels.map(\.channelType)).contains($0)
+                },
+                activeSourceChain: normalizedReading.sourceChain,
+                sourceDiagnostics: normalizedReading.sourceDiagnostics
+            )
+            await temperatureCoordinator.setPrivilegedEnabled(false)
+            await applyTemperatureSamples(from: normalizedReading, at: sampledAt)
+            return true
+        } catch {
+            if var directTemperatureRuntimeState {
+                directTemperatureRuntimeState.lastErrorMessage = error.localizedDescription
+                self.directTemperatureRuntimeState = directTemperatureRuntimeState
+            }
+            return false
+        }
     }
 
     private func appendMemoryHistoryPointIfAvailable(at timestamp: Date) async {
@@ -725,6 +991,10 @@ final class AppCoordinator: ObservableObject {
         let status = await processCPUProvider.statusMessage()
         telemetryStore.updateCPUProcesses(entries, count: settingsController.cpuProcessCount, status: status)
         cpuProcessesSurfaceStore.update(entries: Array(entries.prefix(settingsController.cpuProcessCount)), status: telemetryStore.cpuProcessesStatusMessage)
+        batteryFeatureStore.updateEnergyContext(
+            modeLabel: currentEnergyModeLabel,
+            significantEnergyProcesses: Array(telemetryStore.topCPUProcesses.prefix(3))
+        )
         performanceDiagnosticsStore.recordCPUProcessPoll(at: date)
     }
 
@@ -745,6 +1015,36 @@ final class AppCoordinator: ObservableObject {
     private func refreshPrivilegedTemperatureStatus() async {
         performanceDiagnosticsStore.recordPrivilegedStatusRefresh()
         let status = await temperatureCoordinator.currentStatus()
+
+        if let directTemperatureRuntimeState {
+            let statusMessage: String
+            if let lastErrorMessage = directTemperatureRuntimeState.lastErrorMessage,
+               !lastErrorMessage.isEmpty {
+                statusMessage = "Enhanced temperature mode active via Direct IOHID. Last probe issue: \(lastErrorMessage)."
+            } else {
+                statusMessage = "Enhanced temperature mode active via Direct IOHID."
+            }
+            telemetryStore.updateTemperatureTelemetryStatus(
+                statusMessage: statusMessage,
+                lastSuccessMessage: "Last successful enhanced sample: \(directTemperatureRuntimeState.sampledAt.formatted(date: .omitted, time: .standard)).",
+                healthy: true
+            )
+            syncTemperatureFeatureStore()
+            return
+        }
+
+        if settingsController.privilegedTemperatureEnabled && privilegedTemperaturePausedUntilRetry {
+            telemetryStore.updateTemperatureTelemetryStatus(
+                statusMessage: "Privileged mode is paused until you retry. Standard thermal state stays active so PulseBar does not ask for admin access on every launch."
+                    + (telemetryStore.latestTemperatureCapturedAt.map {
+                        " Showing last updated sensors from \($0.formatted(date: .omitted, time: .standard))."
+                    } ?? ""),
+                lastSuccessMessage: telemetryStore.privilegedTemperatureLastSuccessMessage,
+                healthy: false
+            )
+            syncTemperatureFeatureStore()
+            return
+        }
 
         if !status.isEnabled {
             telemetryStore.clearTemperatureTelemetry(
@@ -795,60 +1095,33 @@ final class AppCoordinator: ObservableObject {
             "Last successful privileged sample: \($0.formatted(date: .omitted, time: .standard))."
         }
 
-        let mappedChannels = (status.latestReading?.channels ?? [])
-            .map { SensorDisplayNameMapper.present($0) }
-            .sorted { lhs, rhs in
-                if lhs.category != rhs.category {
-                    return lhs.category.rawValue < rhs.category.rawValue
-                }
-                if lhs.channelType != rhs.channelType {
-                    return lhs.channelType.rawValue < rhs.channelType.rawValue
-                }
-                if lhs.value != rhs.value {
-                    return lhs.value > rhs.value
-                }
-                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
-
-        await temperatureHistoryStore.append(channels: mappedChannels)
-        temperaturePaneModel.reconcileVisibleSensors(mappedChannels)
-
-        let fanChannelCount = mappedChannels.filter { $0.channelType == .fanRPM }.count
-        let reportedFanCount = status.latestReading?.fanCount ?? 0
-        let fanParityGateBlocked: Bool
-        let fanParityGateMessage: String?
-        if reportedFanCount > 0 && fanChannelCount == 0 {
-            fanParityGateBlocked = true
-            fanParityGateMessage = "Fan hardware detected but no RPM telemetry is available from current privileged probes."
-        } else if reportedFanCount <= 0 {
-            fanParityGateBlocked = false
-            fanParityGateMessage = "No fan hardware reported by current sources."
-        } else {
-            fanParityGateBlocked = false
-            fanParityGateMessage = nil
+        guard let latestReading = status.latestReading else {
+            telemetryStore.updateTemperatureTelemetryStatus(
+                statusMessage: statusMessage,
+                lastSuccessMessage: telemetryStore.privilegedTemperatureLastSuccessMessage,
+                healthy: false
+            )
+            syncTemperatureFeatureStore()
+            return
         }
 
-        telemetryStore.updateTemperatureTelemetry(
-            channels: mappedChannels,
-            temperatureSensors: mappedChannels
-                .filter { $0.channelType == .temperatureCelsius }
-                .map { TemperatureSensorReading(name: $0.displayName, celsius: $0.value) },
+        await publishTemperatureReading(
+            latestReading,
             statusMessage: statusMessage,
             lastSuccessMessage: lastSuccessMessage,
             healthy: isHealthy,
+            capturedAt: status.lastSuccessAt ?? Date(),
             fanHealthy: status.fanTelemetryHealthy,
             channelsAvailable: status.channelsAvailable,
             activeSourceChain: status.activeSourceChain,
-            sourceDiagnostics: status.sourceDiagnostics,
-            fanParityGateBlocked: fanParityGateBlocked,
-            fanParityGateMessage: fanParityGateMessage
+            sourceDiagnostics: status.sourceDiagnostics
         )
-        syncTemperatureFeatureStore()
     }
 
     private func handlePowerSourceChange(_ source: PowerSourceState) async {
         telemetryStore.currentPowerSourceDescription = source.label
         syncFeatureStoresFromLatestSamples()
+        await refreshNetworkContext(forceReload: true)
 
         // Power-source transitions are the most noticeable battery-telemetry changes,
         // so trigger an immediate sampling pass instead of waiting for the next timer tick.
@@ -890,6 +1163,10 @@ final class AppCoordinator: ObservableObject {
         )
         memoryFeatureStore.updateMetrics(from: telemetryStore.latestSamples)
         batteryFeatureStore.updateMetrics(from: telemetryStore.latestSamples)
+        batteryFeatureStore.updateEnergyContext(
+            modeLabel: currentEnergyModeLabel,
+            significantEnergyProcesses: Array(telemetryStore.topCPUProcesses.prefix(3))
+        )
         networkFeatureStore.updateMetrics(
             from: telemetryStore.latestSamples,
             interfaceRates: telemetryStore.latestNetworkInterfaces()
@@ -907,7 +1184,9 @@ final class AppCoordinator: ObservableObject {
             privilegedSourceDiagnostics: telemetryStore.privilegedSourceDiagnostics,
             fanParityGateBlocked: telemetryStore.fanParityGateBlocked,
             fanParityGateMessage: telemetryStore.fanParityGateMessage,
-            temperatureHistoryStoreStatusMessage: telemetryStore.temperatureHistoryStoreStatusMessage
+            temperatureHistoryStoreStatusMessage: telemetryStore.temperatureHistoryStoreStatusMessage,
+            latestCapturedAt: telemetryStore.latestTemperatureCapturedAt,
+            usingPersistedSnapshot: telemetryStore.usingPersistedTemperatureSnapshot
         )
     }
 
@@ -915,9 +1194,11 @@ final class AppCoordinator: ObservableObject {
         let timestamp = batch.timestamp
         cpuUsageSurfaceStore.appendSamples(batch.samples, at: timestamp)
         cpuLoadSurfaceStore.appendSamples(batch.samples, at: timestamp)
+        memoryFeatureStore.appendCompactSamples(batch.samples, at: timestamp)
         batteryFeatureStore.appendCompactSamples(batch.samples, at: timestamp)
         networkFeatureStore.appendCompactSamples(batch.samples, at: timestamp)
         diskFeatureStore.appendCompactSamples(batch.samples, at: timestamp)
+        temperatureFeatureStore.appendCompactSamples(batch.samples, at: timestamp)
     }
 
     private func reevaluatePresentationSchedulers() {
@@ -946,15 +1227,15 @@ final class AppCoordinator: ObservableObject {
     }
 
     private var needsCPUProcessPolling: Bool {
-        activeDashboardTab == .cpu && settingsController.cpuMenuLayout.visibleSections.contains(.processes)
+        dashboardVisible
     }
 
     private var needsMemoryProcessPolling: Bool {
-        activeDashboardTab == .memory && settingsController.memoryMenuLayout.visibleSections.contains(.processes)
+        dashboardVisible
     }
 
     private var needsFPSStatusRefresh: Bool {
-        activeDashboardTab == .cpu && settingsController.cpuMenuLayout.visibleSections.contains(.framesPerSecond)
+        dashboardVisible && settingsController.liveCompositorFPSEnabled
     }
 
     private func startCPUProcessPollingIfNeeded() {
@@ -1001,8 +1282,8 @@ final class AppCoordinator: ObservableObject {
 
     private var surfaceActivitySummary: String {
         var surfaces: [String] = []
-        if let activeDashboardTab {
-            surfaces.append("tab:\(activeDashboardTab.title)")
+        if dashboardVisible {
+            surfaces.append("dashboard:\(dashboardSection.rawValue)")
         }
         if cpuProcessPollingTask != nil {
             surfaces.append("cpu-processes")
@@ -1017,6 +1298,10 @@ final class AppCoordinator: ObservableObject {
             surfaces.append("priv-temp")
         }
         return surfaces.isEmpty ? "No active surfaces" : surfaces.joined(separator: " • ")
+    }
+
+    private var currentEnergyModeLabel: String {
+        ProcessInfo.processInfo.isLowPowerModeEnabled ? "Low Power" : "Automatic"
     }
 
     private func refreshCPUCompactCharts(forceReload: Bool) async {
@@ -1078,17 +1363,191 @@ final class AppCoordinator: ObservableObject {
         performanceDiagnosticsStore.recordCompactChartReload()
     }
 
+    private func refreshNetworkContext(forceReload: Bool) async {
+        guard forceReload || dashboardVisible else {
+            return
+        }
+
+        let context = await networkContextResolver.snapshot(interfaceRates: telemetryStore.latestNetworkInterfaces())
+        await MainActor.run {
+            self.networkFeatureStore.updateContext(context)
+        }
+    }
+
     private func schedulePrivilegedTemperatureRefresh() {
         guard privilegedTemperatureRefreshTask == nil else { return }
         privilegedTemperatureRefreshTask = Task { [weak self] in
             guard let self else { return }
-            await self.refreshPrivilegedTemperatureStatus()
+            while !Task.isCancelled {
+                if self.settingsController.privilegedTemperatureEnabled,
+                   (self.directTemperatureRuntimeState != nil || self.privilegedTemperaturePausedUntilRetry) {
+                    _ = await self.attemptDirectTemperatureProbe()
+                }
+
+                await self.refreshPrivilegedTemperatureStatus()
+
+                let interval = self.settingsController.globalSamplingInterval.clamped(to: 1...10)
+                try? await Task.sleep(for: .seconds(interval))
+            }
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.privilegedTemperatureRefreshTask = nil
                 self.performanceDiagnosticsStore.updateSurfaceActivitySummary(self.surfaceActivitySummary)
             }
         }
         performanceDiagnosticsStore.updateSurfaceActivitySummary(surfaceActivitySummary)
+    }
+
+    private func applyTemperatureSamples(
+        from reading: PowermetricsTemperatureReading,
+        at timestamp: Date
+    ) async {
+        let samples = [
+            MetricSample(
+                metricID: .temperaturePrimaryCelsius,
+                timestamp: timestamp,
+                value: reading.primaryCelsius,
+                unit: .celsius
+            ),
+            MetricSample(
+                metricID: .temperatureMaxCelsius,
+                timestamp: timestamp,
+                value: reading.maxCelsius,
+                unit: .celsius
+            )
+        ]
+        let batch = SamplingBatch(timestamp: timestamp, samples: samples, failures: [])
+        await metricHistoryStore.append(samples: samples, now: timestamp)
+        telemetryStore.apply(batch: batch, recentAlerts: alertDeliveryCenter.recentAlerts)
+        syncFeatureStoresFromLatestSamples()
+        applyVisibleSurfaceUpdates(from: batch)
+    }
+
+    private func normalizedDirectTemperatureReading(
+        from reading: PowermetricsTemperatureReading,
+        at timestamp: Date
+    ) -> PowermetricsTemperatureReading {
+        let normalizedChannels = reading.channels.map { channel in
+            SensorReading(
+                id: channel.id,
+                rawName: channel.rawName,
+                displayName: channel.displayName,
+                category: channel.category,
+                channelType: channel.channelType,
+                value: channel.value,
+                source: "direct-iohid",
+                timestamp: timestamp
+            )
+        }
+
+        return PowermetricsTemperatureReading(
+            primaryCelsius: reading.primaryCelsius,
+            maxCelsius: reading.maxCelsius,
+            sensorCount: reading.sensorCount,
+            sensors: reading.sensors,
+            channels: normalizedChannels,
+            source: "direct-iohid",
+            sourceChain: ["direct-iohid"],
+            sourceDiagnostics: [
+                SensorSourceDiagnostic(
+                    source: "direct-iohid",
+                    healthy: true,
+                    message: "Read temperature channels directly from IOHID without launching the helper"
+                )
+            ],
+            fanTelemetryAvailable: reading.fanTelemetryAvailable,
+            fanCount: reading.fanCount
+        )
+    }
+
+    private func publishTemperatureReading(
+        _ reading: PowermetricsTemperatureReading,
+        statusMessage: String,
+        lastSuccessMessage: String?,
+        healthy: Bool,
+        capturedAt: Date,
+        fanHealthy: Bool,
+        channelsAvailable: [SensorChannelType],
+        activeSourceChain: [String],
+        sourceDiagnostics: [SensorSourceDiagnostic]
+    ) async {
+        let mappedChannels = reading.channels
+            .map { SensorDisplayNameMapper.present($0) }
+            .sorted { lhs, rhs in
+                if lhs.category != rhs.category {
+                    return lhs.category.rawValue < rhs.category.rawValue
+                }
+                if lhs.channelType != rhs.channelType {
+                    return lhs.channelType.rawValue < rhs.channelType.rawValue
+                }
+                if lhs.value != rhs.value {
+                    return lhs.value > rhs.value
+                }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+
+        if mappedChannels.isEmpty && !healthy {
+            telemetryStore.updateTemperatureTelemetryStatus(
+                statusMessage: statusMessage,
+                lastSuccessMessage: telemetryStore.privilegedTemperatureLastSuccessMessage,
+                healthy: false
+            )
+            syncTemperatureFeatureStore()
+            return
+        }
+
+        let fanChannelCount = mappedChannels.filter { $0.channelType == .fanRPM }.count
+        let reportedFanCount = reading.fanCount ?? 0
+        let fanParityGateBlocked: Bool
+        let fanParityGateMessage: String?
+        if reportedFanCount > 0 && fanChannelCount == 0 {
+            fanParityGateBlocked = true
+            fanParityGateMessage = "Fan hardware detected but no RPM telemetry is available from current enhanced probes."
+        } else if reportedFanCount <= 0 {
+            fanParityGateBlocked = false
+            fanParityGateMessage = "No fan hardware reported by current sources."
+        } else {
+            fanParityGateBlocked = false
+            fanParityGateMessage = nil
+        }
+
+        let temperatureSensors = mappedChannels
+            .filter { $0.channelType == .temperatureCelsius }
+            .map { TemperatureSensorReading(name: $0.displayName, celsius: $0.value) }
+
+        temperaturePaneModel.reconcileVisibleSensors(mappedChannels)
+        telemetryStore.updateTemperatureTelemetry(
+            channels: mappedChannels,
+            temperatureSensors: temperatureSensors,
+            statusMessage: statusMessage,
+            lastSuccessMessage: lastSuccessMessage,
+            healthy: healthy,
+            fanHealthy: fanHealthy,
+            channelsAvailable: channelsAvailable,
+            activeSourceChain: activeSourceChain,
+            sourceDiagnostics: sourceDiagnostics,
+            fanParityGateBlocked: fanParityGateBlocked,
+            fanParityGateMessage: fanParityGateMessage,
+            capturedAt: capturedAt
+        )
+        if !mappedChannels.isEmpty {
+            settingsController.persistLatestTemperatureSnapshot(
+                LatestTemperatureSnapshot(
+                    channels: mappedChannels,
+                    temperatureSensors: temperatureSensors,
+                    lastSuccessMessage: lastSuccessMessage,
+                    sourceDiagnostics: sourceDiagnostics,
+                    fanHealthy: fanHealthy,
+                    channelsAvailable: channelsAvailable,
+                    activeSourceChain: activeSourceChain,
+                    fanParityGateBlocked: fanParityGateBlocked,
+                    fanParityGateMessage: fanParityGateMessage,
+                    capturedAt: capturedAt
+                )
+            )
+        }
+        syncTemperatureFeatureStore()
+        await temperatureHistoryStore.append(channels: mappedChannels)
     }
 
     private func isGPUSample(_ sample: MetricSample) -> Bool {

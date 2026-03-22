@@ -191,7 +191,7 @@ public enum UnitsFormatter {
         formatter.countStyle = .binary
         formatter.includesUnit = true
         formatter.isAdaptive = true
-        return formatter.string(fromByteCount: Int64(max(0, bytes)))
+        return formatter.string(fromByteCount: sanitizedByteCount(bytes))
     }
 
     public static func formatThroughput(_ bytesPerSecond: Double, displayUnit: ThroughputDisplayUnit) -> String {
@@ -205,7 +205,7 @@ public enum UnitsFormatter {
 
     private static func formatBits(_ bitsPerSecond: Double) -> String {
         let units = ["b", "Kb", "Mb", "Gb", "Tb"]
-        var scaled = max(0, bitsPerSecond)
+        var scaled = sanitizedNonNegativeMagnitude(bitsPerSecond)
         var unitIndex = 0
 
         while scaled >= 1000 && unitIndex < units.count - 1 {
@@ -217,6 +217,21 @@ public enum UnitsFormatter {
             return String(format: "%.0f %@", scaled, units[unitIndex])
         }
         return String(format: "%.1f %@", scaled, units[unitIndex])
+    }
+
+    private static func sanitizedByteCount(_ bytes: Double) -> Int64 {
+        let sanitized = sanitizedNonNegativeMagnitude(bytes)
+        if sanitized >= Double(Int64.max) {
+            return Int64.max
+        }
+        return Int64(sanitized)
+    }
+
+    private static func sanitizedNonNegativeMagnitude(_ value: Double) -> Double {
+        guard value.isFinite else {
+            return 0
+        }
+        return max(0, value)
     }
 
     private static func formatMinutes(_ minutes: Double) -> String {

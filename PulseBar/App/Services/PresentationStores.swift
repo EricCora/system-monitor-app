@@ -541,6 +541,7 @@ private func downsampleUsagePoints(_ points: [CompactCPUUsagePoint], maxPoints: 
 @MainActor
 final class MemoryFeatureStore: ObservableObject {
     @Published private(set) var pressurePercent = 0.0
+    @Published private(set) var usedBytes = 0.0
     @Published private(set) var wiredBytes = 0.0
     @Published private(set) var activeBytes = 0.0
     @Published private(set) var compressedBytes = 0.0
@@ -553,9 +554,11 @@ final class MemoryFeatureStore: ObservableObject {
     @Published private(set) var pageOutsBytesPerSecond = 0.0
     @Published private(set) var topProcesses: [MemoryProcessEntry] = []
     @Published private(set) var processesStatusMessage: String?
+    @Published private(set) var usedSamples: [MetricSample] = []
 
     func updateMetrics(from latestSamples: [MetricID: MetricSample]) {
         pressurePercent = latestSamples[.memoryPressureLevel]?.value ?? 0
+        usedBytes = latestSamples[.memoryUsedBytes]?.value ?? 0
         wiredBytes = latestSamples[.memoryWiredBytes]?.value ?? 0
         activeBytes = latestSamples[.memoryActiveBytes]?.value ?? 0
         compressedBytes = latestSamples[.memoryCompressedBytes]?.value ?? 0
@@ -572,6 +575,10 @@ final class MemoryFeatureStore: ObservableObject {
         topProcesses = entries
         processesStatusMessage = status
     }
+
+    func appendCompactSamples(_ samples: [MetricSample], at date: Date) {
+        appendLatest(metricID: .memoryUsedBytes, from: samples, to: &usedSamples, window: .oneHour, now: date)
+    }
 }
 
 @MainActor
@@ -586,6 +593,8 @@ final class BatteryFeatureStore: ObservableObject {
     @Published private(set) var chargeSamples: [MetricSample] = []
     @Published private(set) var powerSamples: [MetricSample] = []
     @Published private(set) var chartWindow: ChartWindow = .oneHour
+    @Published private(set) var energyModeLabel = "Automatic"
+    @Published private(set) var significantEnergyProcesses: [CPUProcessEntry] = []
 
     func updateMetrics(from latestSamples: [MetricID: MetricSample]) {
         chargePercent = latestSamples[.batteryChargePercent]?.value ?? 0
@@ -611,6 +620,11 @@ final class BatteryFeatureStore: ObservableObject {
         appendLatest(metricID: .batteryChargePercent, from: samples, to: &chargeSamples, window: chartWindow, now: date)
         appendLatest(metricID: .batteryPowerWatts, from: samples, to: &powerSamples, window: chartWindow, now: date)
     }
+
+    func updateEnergyContext(modeLabel: String, significantEnergyProcesses: [CPUProcessEntry]) {
+        energyModeLabel = modeLabel
+        self.significantEnergyProcesses = significantEnergyProcesses
+    }
 }
 
 @MainActor
@@ -621,6 +635,7 @@ final class NetworkFeatureStore: ObservableObject {
     @Published private(set) var inboundSamples: [MetricSample] = []
     @Published private(set) var outboundSamples: [MetricSample] = []
     @Published private(set) var chartWindow: ChartWindow = .oneHour
+    @Published private(set) var context = NetworkContextSnapshot()
 
     func updateMetrics(from latestSamples: [MetricID: MetricSample], interfaceRates: [NetworkInterfaceRate]) {
         inboundBytesPerSecond = latestSamples[.networkInBytesPerSec]?.value ?? 0
@@ -641,6 +656,10 @@ final class NetworkFeatureStore: ObservableObject {
     func appendCompactSamples(_ samples: [MetricSample], at date: Date) {
         appendLatest(metricID: .networkInBytesPerSec, from: samples, to: &inboundSamples, window: chartWindow, now: date)
         appendLatest(metricID: .networkOutBytesPerSec, from: samples, to: &outboundSamples, window: chartWindow, now: date)
+    }
+
+    func updateContext(_ context: NetworkContextSnapshot) {
+        self.context = context
     }
 }
 
@@ -693,6 +712,9 @@ final class TemperatureFeatureStore: ObservableObject {
     @Published private(set) var fanParityGateBlocked = false
     @Published private(set) var fanParityGateMessage: String?
     @Published private(set) var temperatureHistoryStoreStatusMessage: String?
+    @Published private(set) var latestCapturedAt: Date?
+    @Published private(set) var usingPersistedSnapshot = false
+    @Published private(set) var primarySamples: [MetricSample] = []
 
     func update(
         visibleSensors: [SensorReading],
@@ -702,7 +724,9 @@ final class TemperatureFeatureStore: ObservableObject {
         privilegedSourceDiagnostics: [SensorSourceDiagnostic],
         fanParityGateBlocked: Bool,
         fanParityGateMessage: String?,
-        temperatureHistoryStoreStatusMessage: String?
+        temperatureHistoryStoreStatusMessage: String?,
+        latestCapturedAt: Date?,
+        usingPersistedSnapshot: Bool
     ) {
         self.visibleSensors = visibleSensors
         groupedSensors = Self.makeGroups(from: visibleSensors)
@@ -713,6 +737,8 @@ final class TemperatureFeatureStore: ObservableObject {
         self.fanParityGateBlocked = fanParityGateBlocked
         self.fanParityGateMessage = fanParityGateMessage
         self.temperatureHistoryStoreStatusMessage = temperatureHistoryStoreStatusMessage
+        self.latestCapturedAt = latestCapturedAt
+        self.usingPersistedSnapshot = usingPersistedSnapshot
     }
 
     private static func makeGroups(from visibleSensors: [SensorReading]) -> [TemperatureSensorGroup] {
@@ -748,6 +774,10 @@ final class TemperatureFeatureStore: ObservableObject {
                 )
             }
             .sorted { $0.category.label < $1.category.label }
+    }
+
+    func appendCompactSamples(_ samples: [MetricSample], at date: Date) {
+        appendLatest(metricID: .temperaturePrimaryCelsius, from: samples, to: &primarySamples, window: .oneHour, now: date)
     }
 }
 

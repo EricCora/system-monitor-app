@@ -18,97 +18,99 @@ struct BatteryTabView: View {
 
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Charge")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: "Charge", tint: DashboardPalette.secondaryText)
                         Text(UnitsFormatter.format(featureStore.chargePercent, unit: .percent))
                             .font(.title3.monospacedDigit())
+                            .foregroundStyle(DashboardPalette.primaryText)
                     }
                     Spacer()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("State")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: "State", tint: DashboardPalette.secondaryText)
                         Text(batteryStateText)
                             .font(.title3.monospacedDigit())
+                            .foregroundStyle(DashboardPalette.primaryText)
                     }
                 }
+                .dashboardSurface()
 
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Current")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: "Current", tint: DashboardPalette.secondaryText)
                         if let current = featureStore.currentMilliamps {
                             Text(UnitsFormatter.format(current, unit: .milliamps))
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
                         } else {
                             Text("--")
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.tertiaryText)
                         }
                     }
                     Spacer()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(powerLabelTitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: powerLabelTitle, tint: DashboardPalette.secondaryText)
                         if let power = featureStore.powerWatts {
                             Text(UnitsFormatter.format(power, unit: .watts))
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
                         } else {
                             Text("--")
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.tertiaryText)
                         }
                     }
                     Spacer()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Time Remaining")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: "Time Remaining", tint: DashboardPalette.secondaryText)
                         if let minutes = featureStore.timeRemainingMinutes {
                             Text(UnitsFormatter.format(minutes, unit: .minutes))
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
                         } else {
                             Text("--")
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.tertiaryText)
                         }
                     }
                 }
+                .dashboardSurface()
 
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Health")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: "Health", tint: DashboardPalette.secondaryText)
                         if let health = featureStore.healthPercent {
                             Text(UnitsFormatter.format(health, unit: .percent))
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
                         } else {
                             Text("--")
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.tertiaryText)
                         }
                     }
                     Spacer()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Cycle Count")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DashboardSectionLabel(title: "Cycle Count", tint: DashboardPalette.secondaryText)
                         if let cycleCount = featureStore.cycleCount {
                             Text(String(format: "%.0f", cycleCount))
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
                         } else {
                             Text("--")
                                 .font(.title3.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.tertiaryText)
                         }
                     }
                 }
+                .dashboardSurface()
 
             MetricChartView(
                 title: "Battery Charge",
                 samples: featureStore.chargeSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.batteryAccent
             )
 
             MetricChartView(
@@ -116,16 +118,19 @@ struct BatteryTabView: View {
                 samples: featureStore.powerSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent
             )
             } else {
                 Text("Battery Unavailable")
                     .font(.headline)
+                    .foregroundStyle(DashboardPalette.primaryText)
                 Text("No internal battery telemetry is available on this device.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .task {
             coordinator.refreshBatterySurface()
         }

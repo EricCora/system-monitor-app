@@ -17,79 +17,78 @@ struct DiskTabView: View {
 
             Text(splitStatusText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
+                .dashboardSurface()
 
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Read")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "Read", tint: DashboardPalette.secondaryText)
                     Text(UnitsFormatter.format(
                         featureStore.readBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
                     .font(.title3.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                 }
 
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Write")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "Write", tint: DashboardPalette.secondaryText)
                     Text(UnitsFormatter.format(
                         featureStore.writeBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
                     .font(.title3.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                 }
 
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Free Space")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "Free Space", tint: DashboardPalette.secondaryText)
                     Text(UnitsFormatter.format(
                         featureStore.freeBytes,
                         unit: .bytes
                     ))
                     .font(.title3.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                 }
             }
+            .dashboardSurface()
 
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Combined")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "Combined", tint: DashboardPalette.secondaryText)
                     Text(UnitsFormatter.format(
                         featureStore.combinedBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
                     .font(.title3.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                 }
 
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("S.M.A.R.T.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "S.M.A.R.T.", tint: DashboardPalette.secondaryText)
                     Text(smartStatusText)
                         .font(.title3.monospacedDigit())
+                        .foregroundStyle(DashboardPalette.primaryText)
                 }
             }
+            .dashboardSurface()
 
             MetricChartView(
                 title: "Disk Read Throughput",
                 samples: featureStore.readSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.diskAccent
             )
 
             MetricChartView(
@@ -97,7 +96,8 @@ struct DiskTabView: View {
                 samples: featureStore.writeSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.cpuAccent
             )
 
             MetricChartView(
@@ -105,9 +105,11 @@ struct DiskTabView: View {
                 samples: featureStore.throughputSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.diskAccent
             )
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .task {
             coordinator.refreshDiskSurface()
         }

@@ -41,12 +41,12 @@ private struct ChartWindowChip: View {
         Button {
             selection = option
         } label: {
-            Text(option.label)
-                .font(style == .detached ? .headline : .subheadline.weight(.semibold))
-                .padding(.vertical, style == .detached ? 7 : 6)
-                .padding(.horizontal, style == .detached ? 12 : 10)
-                .background(backgroundColor, in: Capsule())
-                .foregroundStyle(selection == option ? Color.white : Color.primary)
+                Text(option.label)
+                    .font(style == .detached ? .headline : .subheadline.weight(.semibold))
+                    .padding(.vertical, style == .detached ? 7 : 6)
+                    .padding(.horizontal, style == .detached ? 12 : 10)
+                    .background(backgroundColor, in: Capsule())
+                .foregroundStyle(selection == option ? Color.white : DashboardPalette.primaryText)
                 .overlay(
                     Capsule()
                         .strokeBorder(borderColor, lineWidth: selection == option ? 0 : 1)
@@ -75,12 +75,12 @@ private struct ChartWindowChip: View {
 
     private var backgroundColor: Color {
         if selection == option {
-            return .accentColor
+            return DashboardPalette.cpuAccent
         }
-        return style == .detached ? Color.primary.opacity(0.08) : Color.primary.opacity(0.06)
+        return style == .detached ? DashboardPalette.insetFill : DashboardPalette.sectionFill
     }
 
     private var borderColor: Color {
-        style == .detached ? Color.primary.opacity(0.08) : Color.primary.opacity(0.12)
+        style == .detached ? DashboardPalette.divider : DashboardPalette.chromeBorder
     }
 }

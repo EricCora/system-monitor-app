@@ -7,7 +7,7 @@ struct PulseBarApp: App {
     var body: some Scene {
         MenuBarExtra {
             DashboardView(coordinator: coordinator, statusStore: coordinator.dashboardStatusStore)
-                .frame(minWidth: 520, minHeight: 420)
+                .frame(minWidth: 860, minHeight: 720)
         } label: {
             MenuBarSummaryView(coordinator: coordinator)
         }
@@ -18,7 +18,7 @@ struct PulseBarApp: App {
                 coordinator: coordinator,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
-                .frame(width: 460)
+                .frame(width: 620)
                 .padding()
         }
     }

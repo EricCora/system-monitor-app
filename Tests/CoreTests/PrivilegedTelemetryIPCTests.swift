@@ -84,4 +84,18 @@ final class PrivilegedTelemetryIPCTests: XCTestCase {
         XCTAssertTrue(decoded.activeSourceChain.isEmpty)
         XCTAssertTrue(decoded.sourceDiagnostics.isEmpty)
     }
+
+    func testDefaultConnectionConfigBuildsUserScopedPaths() {
+        let temporaryDirectory = URL(fileURLWithPath: "/tmp/codex-tests", isDirectory: true)
+        let config = PrivilegedHelperConnectionConfig.default(
+            temporaryDirectory: temporaryDirectory,
+            expectedUID: 501
+        )
+
+        XCTAssertEqual(config.runtimeDirectoryPath, "/tmp/codex-tests/PulseBar")
+        XCTAssertEqual(config.socketPath, "/tmp/codex-tests/PulseBar/privileged-helper.sock")
+        XCTAssertEqual(config.helperLogPath, "/tmp/codex-tests/PulseBar/privileged-helper.log")
+        XCTAssertEqual(config.helperPIDPath, "/tmp/codex-tests/PulseBar/privileged-helper.pid")
+        XCTAssertEqual(config.expectedUID, 501)
+    }
 }

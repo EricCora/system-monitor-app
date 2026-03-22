@@ -9,6 +9,8 @@ final class TelemetryStore: ObservableObject {
     @Published var privilegedTemperatureHealthy = false
     @Published var latestTemperatureSensors: [TemperatureSensorReading] = []
     @Published var latestSensorChannels: [SensorReading] = []
+    @Published var latestTemperatureCapturedAt: Date?
+    @Published var usingPersistedTemperatureSnapshot = false
     @Published var privilegedFanTelemetryHealthy = false
     @Published var privilegedChannelsAvailable: [SensorChannelType] = []
     @Published var privilegedActiveSourceChain: [String] = []
@@ -116,13 +118,17 @@ final class TelemetryStore: ObservableObject {
         activeSourceChain: [String],
         sourceDiagnostics: [SensorSourceDiagnostic],
         fanParityGateBlocked: Bool,
-        fanParityGateMessage: String?
+        fanParityGateMessage: String?,
+        capturedAt: Date,
+        fromPersistedSnapshot: Bool = false
     ) {
         privilegedTemperatureStatusMessage = statusMessage
         privilegedTemperatureLastSuccessMessage = lastSuccessMessage
         privilegedTemperatureHealthy = healthy
         latestSensorChannels = channels
         latestTemperatureSensors = temperatureSensors
+        latestTemperatureCapturedAt = capturedAt
+        usingPersistedTemperatureSnapshot = fromPersistedSnapshot
         privilegedFanTelemetryHealthy = fanHealthy
         privilegedChannelsAvailable = channelsAvailable
         privilegedActiveSourceChain = activeSourceChain
@@ -132,12 +138,46 @@ final class TelemetryStore: ObservableObject {
         temperatureHistoryRevision &+= 1
     }
 
+    func hydrateTemperatureTelemetry(
+        from snapshot: LatestTemperatureSnapshot,
+        statusMessage: String
+    ) {
+        updateTemperatureTelemetry(
+            channels: snapshot.channels,
+            temperatureSensors: snapshot.temperatureSensors,
+            statusMessage: statusMessage,
+            lastSuccessMessage: snapshot.lastSuccessMessage,
+            healthy: false,
+            fanHealthy: snapshot.fanHealthy,
+            channelsAvailable: snapshot.channelsAvailable,
+            activeSourceChain: snapshot.activeSourceChain,
+            sourceDiagnostics: snapshot.sourceDiagnostics,
+            fanParityGateBlocked: snapshot.fanParityGateBlocked,
+            fanParityGateMessage: snapshot.fanParityGateMessage,
+            capturedAt: snapshot.capturedAt,
+            fromPersistedSnapshot: true
+        )
+    }
+
+    func updateTemperatureTelemetryStatus(
+        statusMessage: String?,
+        lastSuccessMessage: String?,
+        healthy: Bool
+    ) {
+        privilegedTemperatureStatusMessage = statusMessage
+        privilegedTemperatureLastSuccessMessage = lastSuccessMessage
+        privilegedTemperatureHealthy = healthy
+        temperatureHistoryRevision &+= 1
+    }
+
     func clearTemperatureTelemetry(statusMessage: String?) {
         privilegedTemperatureStatusMessage = statusMessage
         privilegedTemperatureLastSuccessMessage = nil
         privilegedTemperatureHealthy = false
         latestTemperatureSensors = []
         latestSensorChannels = []
+        latestTemperatureCapturedAt = nil
+        usingPersistedTemperatureSnapshot = false
         privilegedFanTelemetryHealthy = false
         privilegedChannelsAvailable = []
         privilegedActiveSourceChain = []

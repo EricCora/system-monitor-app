@@ -17,38 +17,38 @@ struct NetworkTabView: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Inbound")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "Inbound", tint: DashboardPalette.secondaryText)
                     Text(UnitsFormatter.format(
                         featureStore.inboundBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
                     .font(.title3.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                 }
 
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Outbound")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DashboardSectionLabel(title: "Outbound", tint: DashboardPalette.secondaryText)
                     Text(UnitsFormatter.format(
                         featureStore.outboundBytesPerSecond,
                         unit: .bytesPerSecond,
                         throughputUnit: coordinator.throughputUnit
                     ))
                     .font(.title3.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
                 }
             }
+            .dashboardSurface()
 
             MetricChartView(
                 title: "Inbound Throughput",
                 samples: featureStore.inboundSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.networkAccent
             )
 
             MetricChartView(
@@ -56,35 +56,41 @@ struct NetworkTabView: View {
                 samples: featureStore.outboundSamples,
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+                diagnosticsStore: coordinator.performanceDiagnosticsStore,
+                seriesColor: DashboardPalette.cpuAccent
             )
 
             if !interfaceRates.isEmpty {
-                Divider()
-                Text("Interfaces")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    DashboardSectionLabel(title: "Interfaces", tint: DashboardPalette.secondaryText)
 
-                ForEach(Array(interfaceRates.enumerated()), id: \.element.id) { index, rate in
-                    HStack {
-                        Text(rate.interface)
-                            .font(.callout.monospacedDigit())
-                        if index == 0 {
-                            Text("Primary")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(.quaternary, in: Capsule())
+                    ForEach(Array(interfaceRates.enumerated()), id: \.element.id) { index, rate in
+                        HStack {
+                            Text(rate.interface)
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
+                            if index == 0 {
+                                Text("Primary")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(DashboardPalette.selectionFill, in: Capsule())
+                                    .foregroundStyle(DashboardPalette.primaryText)
+                            }
+                            Spacer()
+                            Text("↓\(UnitsFormatter.format(rate.inboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.networkAccent)
+                            Text("↑\(UnitsFormatter.format(rate.outboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.cpuAccent)
                         }
-                        Spacer()
-                        Text("↓\(UnitsFormatter.format(rate.inboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
-                            .font(.caption.monospacedDigit())
-                        Text("↑\(UnitsFormatter.format(rate.outboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
-                            .font(.caption.monospacedDigit())
                     }
                 }
+                .dashboardSurface()
             }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .task {
             coordinator.refreshNetworkSurface()
         }

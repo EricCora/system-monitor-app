@@ -19,7 +19,7 @@ struct QuickSettingsView: View {
 
                 Text(profileExplanation)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             quickCard("Sampling") {
@@ -28,7 +28,7 @@ struct QuickSettingsView: View {
                     Slider(value: $coordinator.globalSamplingInterval, in: 1...10, step: 1)
                     Text("\(Int(coordinator.globalSamplingInterval))s")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Toggle("Start PulseBar at login", isOn: $coordinator.launchAtLoginEnabled)
@@ -36,7 +36,7 @@ struct QuickSettingsView: View {
                 if let message = coordinator.launchAtLoginStatusMessage {
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
             }
 
@@ -46,28 +46,28 @@ struct QuickSettingsView: View {
                     Slider(value: $coordinator.chartAreaOpacity, in: 0.05...0.5, step: 0.01)
                     Text(String(format: "%.2f", coordinator.chartAreaOpacity))
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Text("Detached charts support drag-to-zoom and double-click reset.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             quickCard("Diagnostics") {
                 if let message = statusStore.snapshot.privilegedTemperatureStatusMessage {
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 } else {
                     Text("Temperature sampling is \(statusStore.snapshot.privilegedTemperatureHealthy ? "healthy" : "degraded").")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Text(providerFailureSummary)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
 
                 diagnosticsLine("Batch avg", value: millisecondsText(diagnosticsStore.snapshot.averageBatchHandlerMilliseconds))
                 diagnosticsLine("Chart prep avg", value: millisecondsText(diagnosticsStore.snapshot.averageChartPreparationMilliseconds))
@@ -85,6 +85,7 @@ struct QuickSettingsView: View {
             }
             .buttonStyle(.borderedProminent)
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -92,15 +93,11 @@ struct QuickSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title.uppercased())
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(DashboardPalette.cpuAccent)
 
             content()
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .dashboardSurface()
     }
 
     private var providerFailureSummary: String {
@@ -127,7 +124,7 @@ struct QuickSettingsView: View {
     private func diagnosticsLine(_ title: String, value: String) -> some View {
         HStack {
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Spacer()
             Text(value)
                 .monospacedDigit()

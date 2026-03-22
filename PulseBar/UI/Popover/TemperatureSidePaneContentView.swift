@@ -32,7 +32,7 @@ struct TemperaturePaneContentView: View {
                     if let activeSensor {
                         Text("\(activeSensor.category.label) • \(activeSensor.channelType == .fanRPM ? "Fan RPM" : "Temperature")")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DashboardPalette.secondaryText)
                     }
                 }
 
@@ -41,11 +41,11 @@ struct TemperaturePaneContentView: View {
                 if paneController.pinnedTarget != nil {
                     Text("Pinned")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 } else {
                     Text("Hover Preview")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
             }
 
@@ -88,10 +88,10 @@ struct TemperaturePaneContentView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "chart.xyaxis.line")
                             .font(.title2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DashboardPalette.secondaryText)
                         Text("Collecting \(activeSensor.displayName) history")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DashboardPalette.secondaryText)
                     }
                     .frame(maxWidth: .infinity, minHeight: 280)
                 } else {
@@ -120,7 +120,7 @@ struct TemperaturePaneContentView: View {
                             if let hoveredHistoryPoint {
                                 RuleMark(x: .value("Hover", hoveredHistoryPoint.timestamp))
                                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(DashboardPalette.chartRule)
                             }
                         }
                         .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
@@ -158,7 +158,7 @@ struct TemperaturePaneContentView: View {
                     HStack {
                         if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
                             Text(summaryPoint.timestamp.formatted(date: .omitted, time: .standard))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(DashboardPalette.secondaryText)
                             Spacer()
                             Text(TemperatureHistoryHelpers.valueText(for: activeSensor, value: summaryPoint.value))
                         } else {
@@ -174,18 +174,23 @@ struct TemperaturePaneContentView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "thermometer.medium")
                         .font(.title2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                     Text("No sensor selected")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DashboardPalette.secondaryText)
                 }
                 .frame(maxWidth: .infinity, minHeight: 280)
             }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+                .fill(DashboardPalette.sectionFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                )
         )
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
@@ -247,7 +252,7 @@ struct TemperaturePaneContentView: View {
                 sensorHistory,
                 key: activeSensor.id,
                 label: activeSensor.displayName,
-                color: activeSensor.channelType == .fanRPM ? .orange : .cyan
+                color: activeSensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent
             ),
             baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12)
         )

@@ -545,3 +545,219 @@ public struct AppSettingsV3: Codable, Sendable, Equatable {
         try container.encode(selectedMemoryPaneChart, forKey: .selectedMemoryPaneChart)
     }
 }
+
+public struct AppSettingsV4: Codable, Sendable, Equatable {
+    public var schemaVersion: Int
+    public var globalSamplingInterval: Double
+    public var liveCompositorFPSEnabled: Bool
+    public var activeProfile: ProfileID
+    public var customProfile: ProfileSettings
+    public var autoSwitchRules: ProfileAutoSwitchRules
+    public var privilegedTemperatureEnabled: Bool
+    public var cpuMenuLayout: MenuSectionLayout<CPUMenuSectionID>
+    public var memoryMenuLayout: MenuSectionLayout<MemoryMenuSectionID>
+    public var cpuProcessCount: Int
+    public var memoryProcessCount: Int
+    public var selectedCPUPaneChart: CPUPaneChart
+    public var selectedMemoryPaneChart: MemoryPaneChart
+    public var dashboardLayout: DashboardLayoutMode
+    public var dashboardCardOrder: [DashboardCardID]
+    public var menuBarDisplayMode: MenuBarDisplayMode
+    public var menuBarMetricStyles: [MenuBarMetricID: MenuBarMetricStyle]
+    public var favoriteSensorIDs: [String]
+    public var sensorPresets: [SensorPreset]
+    public var selectedSensorPresetID: String?
+
+    public init(
+        schemaVersion: Int = 4,
+        globalSamplingInterval: Double,
+        liveCompositorFPSEnabled: Bool = false,
+        activeProfile: ProfileID,
+        customProfile: ProfileSettings,
+        autoSwitchRules: ProfileAutoSwitchRules,
+        privilegedTemperatureEnabled: Bool,
+        cpuMenuLayout: MenuSectionLayout<CPUMenuSectionID> = .cpuDefault,
+        memoryMenuLayout: MenuSectionLayout<MemoryMenuSectionID> = .memoryDefault,
+        cpuProcessCount: Int = 5,
+        memoryProcessCount: Int = 5,
+        selectedCPUPaneChart: CPUPaneChart = .usage,
+        selectedMemoryPaneChart: MemoryPaneChart = .composition,
+        dashboardLayout: DashboardLayoutMode = .cardDashboard,
+        dashboardCardOrder: [DashboardCardID] = DashboardCardID.defaultOrder,
+        menuBarDisplayMode: MenuBarDisplayMode = .compact,
+        menuBarMetricStyles: [MenuBarMetricID: MenuBarMetricStyle] = MenuBarMetricID.defaultStyles,
+        favoriteSensorIDs: [String] = [],
+        sensorPresets: [SensorPreset] = [],
+        selectedSensorPresetID: String? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.globalSamplingInterval = globalSamplingInterval.clamped(to: 1...10)
+        self.liveCompositorFPSEnabled = liveCompositorFPSEnabled
+        self.activeProfile = activeProfile
+        self.customProfile = customProfile
+        self.autoSwitchRules = autoSwitchRules
+        self.privilegedTemperatureEnabled = privilegedTemperatureEnabled
+        self.cpuMenuLayout = cpuMenuLayout
+        self.memoryMenuLayout = memoryMenuLayout
+        self.cpuProcessCount = max(3, min(cpuProcessCount, 12))
+        self.memoryProcessCount = max(3, min(memoryProcessCount, 12))
+        self.selectedCPUPaneChart = selectedCPUPaneChart
+        self.selectedMemoryPaneChart = selectedMemoryPaneChart
+        self.dashboardLayout = dashboardLayout
+        self.dashboardCardOrder = Self.normalizedCardOrder(dashboardCardOrder)
+        self.menuBarDisplayMode = menuBarDisplayMode
+        self.menuBarMetricStyles = Self.normalizedMetricStyles(menuBarMetricStyles)
+        self.favoriteSensorIDs = Self.normalizedSensorIDs(favoriteSensorIDs)
+        self.sensorPresets = Self.normalizedSensorPresets(sensorPresets)
+        self.selectedSensorPresetID = selectedSensorPresetID
+    }
+
+    public func settings(for profile: ProfileID) -> ProfileSettings {
+        switch profile {
+        case .quiet:
+            return .quiet
+        case .balanced:
+            return .balanced
+        case .performance:
+            return .performance
+        case .custom:
+            return customProfile
+        }
+    }
+
+    public static func migrated(from v3: AppSettingsV3) -> AppSettingsV4 {
+        AppSettingsV4(
+            globalSamplingInterval: v3.globalSamplingInterval,
+            liveCompositorFPSEnabled: v3.liveCompositorFPSEnabled,
+            activeProfile: v3.activeProfile,
+            customProfile: v3.customProfile,
+            autoSwitchRules: v3.autoSwitchRules,
+            privilegedTemperatureEnabled: v3.privilegedTemperatureEnabled,
+            cpuMenuLayout: v3.cpuMenuLayout,
+            memoryMenuLayout: v3.memoryMenuLayout,
+            cpuProcessCount: v3.cpuProcessCount,
+            memoryProcessCount: v3.memoryProcessCount,
+            selectedCPUPaneChart: v3.selectedCPUPaneChart,
+            selectedMemoryPaneChart: v3.selectedMemoryPaneChart
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case globalSamplingInterval
+        case liveCompositorFPSEnabled
+        case activeProfile
+        case customProfile
+        case autoSwitchRules
+        case privilegedTemperatureEnabled
+        case cpuMenuLayout
+        case memoryMenuLayout
+        case cpuProcessCount
+        case memoryProcessCount
+        case selectedCPUPaneChart
+        case selectedMemoryPaneChart
+        case dashboardLayout
+        case dashboardCardOrder
+        case menuBarDisplayMode
+        case menuBarMetricStyles
+        case favoriteSensorIDs
+        case sensorPresets
+        case selectedSensorPresetID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 4
+        globalSamplingInterval = (try container.decode(Double.self, forKey: .globalSamplingInterval)).clamped(to: 1...10)
+        liveCompositorFPSEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveCompositorFPSEnabled) ?? false
+        activeProfile = try container.decode(ProfileID.self, forKey: .activeProfile)
+        customProfile = try container.decode(ProfileSettings.self, forKey: .customProfile)
+        autoSwitchRules = try container.decode(ProfileAutoSwitchRules.self, forKey: .autoSwitchRules)
+        privilegedTemperatureEnabled = try container.decode(Bool.self, forKey: .privilegedTemperatureEnabled)
+        cpuMenuLayout = try container.decodeIfPresent(MenuSectionLayout<CPUMenuSectionID>.self, forKey: .cpuMenuLayout) ?? .cpuDefault
+        memoryMenuLayout = try container.decodeIfPresent(MenuSectionLayout<MemoryMenuSectionID>.self, forKey: .memoryMenuLayout) ?? .memoryDefault
+        cpuProcessCount = max(3, min((try container.decodeIfPresent(Int.self, forKey: .cpuProcessCount) ?? 5), 12))
+        memoryProcessCount = max(3, min((try container.decodeIfPresent(Int.self, forKey: .memoryProcessCount) ?? 5), 12))
+        selectedCPUPaneChart = try container.decodeIfPresent(CPUPaneChart.self, forKey: .selectedCPUPaneChart) ?? .usage
+        selectedMemoryPaneChart = try container.decodeIfPresent(MemoryPaneChart.self, forKey: .selectedMemoryPaneChart) ?? .composition
+        dashboardLayout = try container.decodeIfPresent(DashboardLayoutMode.self, forKey: .dashboardLayout) ?? .cardDashboard
+        dashboardCardOrder = Self.normalizedCardOrder(
+            try container.decodeIfPresent([DashboardCardID].self, forKey: .dashboardCardOrder) ?? DashboardCardID.defaultOrder
+        )
+        menuBarDisplayMode = try container.decodeIfPresent(MenuBarDisplayMode.self, forKey: .menuBarDisplayMode) ?? .compact
+        menuBarMetricStyles = Self.normalizedMetricStyles(
+            try container.decodeIfPresent([MenuBarMetricID: MenuBarMetricStyle].self, forKey: .menuBarMetricStyles) ?? MenuBarMetricID.defaultStyles
+        )
+        favoriteSensorIDs = Self.normalizedSensorIDs(
+            try container.decodeIfPresent([String].self, forKey: .favoriteSensorIDs) ?? []
+        )
+        sensorPresets = Self.normalizedSensorPresets(
+            try container.decodeIfPresent([SensorPreset].self, forKey: .sensorPresets) ?? []
+        )
+        selectedSensorPresetID = try container.decodeIfPresent(String.self, forKey: .selectedSensorPresetID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(globalSamplingInterval, forKey: .globalSamplingInterval)
+        try container.encode(liveCompositorFPSEnabled, forKey: .liveCompositorFPSEnabled)
+        try container.encode(activeProfile, forKey: .activeProfile)
+        try container.encode(customProfile, forKey: .customProfile)
+        try container.encode(autoSwitchRules, forKey: .autoSwitchRules)
+        try container.encode(privilegedTemperatureEnabled, forKey: .privilegedTemperatureEnabled)
+        try container.encode(cpuMenuLayout, forKey: .cpuMenuLayout)
+        try container.encode(memoryMenuLayout, forKey: .memoryMenuLayout)
+        try container.encode(cpuProcessCount, forKey: .cpuProcessCount)
+        try container.encode(memoryProcessCount, forKey: .memoryProcessCount)
+        try container.encode(selectedCPUPaneChart, forKey: .selectedCPUPaneChart)
+        try container.encode(selectedMemoryPaneChart, forKey: .selectedMemoryPaneChart)
+        try container.encode(dashboardLayout, forKey: .dashboardLayout)
+        try container.encode(dashboardCardOrder, forKey: .dashboardCardOrder)
+        try container.encode(menuBarDisplayMode, forKey: .menuBarDisplayMode)
+        try container.encode(menuBarMetricStyles, forKey: .menuBarMetricStyles)
+        try container.encode(favoriteSensorIDs, forKey: .favoriteSensorIDs)
+        try container.encode(sensorPresets, forKey: .sensorPresets)
+        try container.encodeIfPresent(selectedSensorPresetID, forKey: .selectedSensorPresetID)
+    }
+
+    private static func normalizedCardOrder(_ cards: [DashboardCardID]) -> [DashboardCardID] {
+        var normalized: [DashboardCardID] = []
+        for card in cards where !normalized.contains(card) {
+            normalized.append(card)
+        }
+        for card in DashboardCardID.allCases where !normalized.contains(card) {
+            normalized.append(card)
+        }
+        return normalized.isEmpty ? DashboardCardID.defaultOrder : normalized
+    }
+
+    private static func normalizedMetricStyles(
+        _ styles: [MenuBarMetricID: MenuBarMetricStyle]
+    ) -> [MenuBarMetricID: MenuBarMetricStyle] {
+        var normalized = MenuBarMetricID.defaultStyles
+        for metric in MenuBarMetricID.allCases {
+            if let value = styles[metric] {
+                normalized[metric] = value
+            }
+        }
+        return normalized
+    }
+
+    private static func normalizedSensorIDs(_ sensorIDs: [String]) -> [String] {
+        Array(NSOrderedSet(array: sensorIDs.compactMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        })) as? [String] ?? []
+    }
+
+    private static func normalizedSensorPresets(_ presets: [SensorPreset]) -> [SensorPreset] {
+        var seenIDs = Set<String>()
+        return presets.compactMap { preset in
+            guard !preset.name.isEmpty else { return nil }
+            guard !seenIDs.contains(preset.id) else { return nil }
+            seenIDs.insert(preset.id)
+            return SensorPreset(id: preset.id, name: preset.name, sensorIDs: preset.sensorIDs)
+        }
+    }
+}

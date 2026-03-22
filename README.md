@@ -6,23 +6,25 @@ It is an original implementation inspired by iStat-style capabilities, with no c
 ## MVP Status
 
 Implemented in this repo:
-- Menu bar summary (CPU, Memory, Battery, Network, optional Disk/Temperature)
-- Popover dashboard tabs: CPU, Memory, Battery, Network, Temperature, Disk, Settings
+- Menu bar summary v2 with compact / balanced / dense layouts plus per-metric text, icon, or sparkline rendering
+- Overview-first popover with a card dashboard plus restored detailed CPU, Memory, Battery, Network, Temperature, Disk, and Settings sections
 - Unified chart windows across compact tabs and detached panes: 15m / 1h / 6h / 1d / 1w / 1mo
 - Persistent chart history across launches with shared chart-window rollups for metric, memory, and temperature history
 - Generic metric history persistence: CPU, battery, network, disk, FPS, and other plot-backed samples persist for 30 days while preserving offline gaps between sessions
 - Providers: CPU (Mach user/system/idle + per-core + load average + uptime), Battery (IOKit power sources), Memory (Mach VM stats + native macOS pressure level + swap usage + paging rates), Process CPU (`ps` top list with cache), Process memory (`ps` top list with cache), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback), FPS (ScreenCaptureKit compositor frame stream with display-refresh fallback when screen capture access is unavailable), GPU summary (private IOAccelerator/AGX performance statistics for processor + memory usage)
+- Dashboard context enrichments: active network interface, SSID, VPN heuristics, private IP addresses, battery energy mode, significant-energy processes, sensor favorites, and sensor presets
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
   - privileged mode via helper source chain: IOHID temperature sensors + AppleSMC fan probe + `powermetrics` fallback
-  - iStat-style temperature tab with compact sensor list plus a detached adjacent history pane (hover preview, click pinning, hide/reset sensor controls, shared chart windows, drag-to-zoom, double-click reset)
-- Memory tab parity panel: compact pressure/memory/process/swap/pages summary menu with detached hover-expanded history panes
-- CPU tab parity panel: compact CPU/process/GPU/FPS/load-average/uptime summary menu with detached hover-expanded history panes
-  - compact CPU usage/load charts use prepared rolling render models rather than live Swift Charts rebuilds
-  - startup latest-sample hydration uses a maintained latest-metric cache table instead of grouping the full metric history database on launch
+  - Sensors overview card with favorites-first curation and a direct drill-down into the restored temperature detail surface with detached adjacent history pane (hover preview, click pinning, hide/reset sensor controls, shared chart windows, drag-to-zoom, double-click reset)
+  - Temperature detail tab now keeps thermal-state history visible in standard mode and shows aggregate primary/maximum traces whenever those metric histories exist, even if privileged per-sensor channels are unavailable
+- last-known privileged temperature snapshot persists across relaunches so quiet startup still shows sensors without triggering admin prompts
+- Shared light-theme palette now applies across overview, detailed tabs, detached panes, chart controls, and settings so the popover no longer switches between polished and washed-out surfaces
+- Dashboard cards reuse prepared rolling render models rather than rebuilding live Swift Charts for every refresh
+- Startup latest-sample hydration uses a maintained latest-metric cache table instead of grouping the full metric history database on launch
 - Profiles: Quiet / Balanced / Performance / Custom
 - Power-source auto-switch rules (AC and Battery profile mapping)
-- Settings persistence via `UserDefaults` + `settings.v3` migration model, including per-surface chart-window memory and visible-window preferences
+- Settings persistence via `UserDefaults` + `settings.v4` migration model, including dashboard layout/order, menu bar display preferences, sensor favorites/presets, and per-surface chart-window memory
 - Internal settings ownership now lives in `SettingsController`, while runtime presentation state and provider failures are published via `TelemetryStore`
 - Global refresh frequency (`1s...10s`) that applies uniformly to the sampling engine, privileged temperature sampling, and subprocess-backed providers
 - Launch-at-login toggle using `SMAppService`
@@ -72,8 +74,10 @@ Privileged temperature sampling is enabled by default for local personal builds.
 - Some macOS/tool versions expose only power or thermal-pressure data via `powermetrics`; when that happens, PulseBar still prefers IOHID Celsius sensors and degrades to standard thermal state only if privileged sources are unavailable.
 - Fan parity gate: if fan hardware is detected but no RPM channels are decoded, UI surfaces an explicit parity-blocked status.
 - Enabling privileged mode may trigger a macOS admin authentication prompt.
+- Launching PulseBar does not auto-trigger administrator elevation; it first probes direct app-side IOHID channels, then reuses an already-running helper, and otherwise keeps the last-known sensor snapshot visible until you explicitly retry privileged sampling.
 - Privileged mode now performs an immediate probe on enable/retry so status updates are not delayed until the next sampling tick.
 - Helper payload now includes channel metadata (`temperatureCelsius` + `fanRPM`), source chain, and source diagnostics.
+- Helper IPC now uses a user-scoped runtime directory with locked-down permissions and peer-UID validation instead of a world-writable fixed `/tmp` socket.
 - If helper binary is missing, build it once:
   ```bash
   swift build --product PulseBarPrivilegedHelper
@@ -92,7 +96,7 @@ Privileged temperature sampling is enabled by default for local personal builds.
 Run helper manually (advanced/debug):
 
 ```bash
-.build/debug/PulseBarPrivilegedHelper --socket /tmp/pulsebar-temp.sock
+.build/debug/PulseBarPrivilegedHelper --socket "$TMPDIR/PulseBar/pulsebar-temp.sock" --expected-uid "$(id -u)"
 ```
 
 ## Disk Throughput Note

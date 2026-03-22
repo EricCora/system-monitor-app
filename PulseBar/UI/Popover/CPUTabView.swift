@@ -52,27 +52,28 @@ struct CPUTabView: View {
             if let processStatus = processesStore.snapshot.statusMessage {
                 Text(processStatus)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             if let gpuStatus = gpuStore.snapshot.summary?.statusMessage, gpuStore.snapshot.summary?.available == false {
                 Text(gpuStatus)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             if let fpsStatus = fpsStore.snapshot.statusMessage {
                 Text(fpsStatus)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
 
             if let historyStatus = coordinator.historyStoreStatusMessage {
                 Text(historyStatus)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             PopoverWindowAccessor { window in
@@ -110,7 +111,11 @@ struct CPUTabView: View {
                 .padding(10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(paneController.isActive(target) ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.05))
+                        .fill(paneController.isActive(target) ? DashboardPalette.selectionFill : DashboardPalette.sectionFill)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(paneController.isActive(target) ? DashboardPalette.cpuAccent.opacity(0.45) : DashboardPalette.chromeBorder, lineWidth: 1)
+                        )
                 )
         }
         .buttonStyle(.plain)
@@ -155,9 +160,9 @@ private struct CPUUsageSection: View {
                     .frame(width: 78, height: 92)
             }
 
-            CPULegendRow(title: "User", color: .cyan, value: snapshot.summary.userPercent)
-            CPULegendRow(title: "System", color: .red, value: snapshot.summary.systemPercent)
-            CPULegendRow(title: "Idle", color: .gray, value: snapshot.summary.idlePercent)
+            CPULegendRow(title: "User", color: DashboardPalette.cpuAccent, value: snapshot.summary.userPercent)
+            CPULegendRow(title: "System", color: DashboardPalette.memoryAccent, value: snapshot.summary.systemPercent)
+            CPULegendRow(title: "Idle", color: DashboardPalette.tertiaryText, value: snapshot.summary.idlePercent)
         }
     }
 }
@@ -173,7 +178,7 @@ private struct CPUProcessesSection: View {
             if store.snapshot.entries.isEmpty {
                 Text("Collecting CPU processes")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             } else {
                 ForEach(store.snapshot.entries.prefix(processCount)) { process in
                     HStack(spacing: 8) {
@@ -187,11 +192,7 @@ private struct CPUProcessesSection: View {
                 }
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .dashboardSurface()
     }
 }
 
@@ -204,14 +205,14 @@ private struct CPUGPUSection: View {
             CPUSectionTitle(gpu?.deviceName.uppercased() ?? "APPLE SILICON")
 
             if let gpu, gpu.available {
-                CPUMetricBarRow(title: "Processor", value: gpu.processorPercent ?? 0, color: .cyan)
-                CPUMetricBarRow(title: "Memory", value: gpu.memoryPercent ?? 0, color: .blue)
+                CPUMetricBarRow(title: "Processor", value: gpu.processorPercent ?? 0, color: DashboardPalette.cpuAccent)
+                CPUMetricBarRow(title: "Memory", value: gpu.memoryPercent ?? 0, color: DashboardPalette.networkAccent)
             } else {
-                CPUMetricBarRow(title: "Processor", value: 0, color: .cyan)
-                CPUMetricBarRow(title: "Memory", value: 0, color: .blue)
+                CPUMetricBarRow(title: "Processor", value: 0, color: DashboardPalette.cpuAccent)
+                CPUMetricBarRow(title: "Memory", value: 0, color: DashboardPalette.networkAccent)
                 Text(gpu?.statusMessage ?? "GPU telemetry unavailable")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
             }
         }
     }
@@ -225,7 +226,7 @@ private struct CPUFPSSection: View {
             CPUSectionTitle("FRAMES PER SECOND")
             HStack {
                 Text("Frames Per Second")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
                 Spacer()
                 if let fps = store.snapshot.framesPerSecond {
                     Text(String(format: "%.1f", fps))
@@ -256,9 +257,9 @@ private struct CPULoadSection: View {
             .frame(height: 92)
 
             HStack(spacing: 12) {
-                CPULoadBadge(value: snapshot.loadAverages.one, color: .cyan)
-                CPULoadBadge(value: snapshot.loadAverages.five, color: .red)
-                CPULoadBadge(value: snapshot.loadAverages.fifteen, color: .gray)
+                CPULoadBadge(value: snapshot.loadAverages.one, color: DashboardPalette.cpuAccent)
+                CPULoadBadge(value: snapshot.loadAverages.five, color: DashboardPalette.memoryAccent)
+                CPULoadBadge(value: snapshot.loadAverages.fifteen, color: DashboardPalette.tertiaryText)
             }
         }
     }
@@ -273,11 +274,7 @@ private struct CPUUptimeSection: View {
             Text(UnitsFormatter.format(store.snapshot.summary.uptimeSeconds, unit: .seconds))
                 .font(.body.monospacedDigit())
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .dashboardSurface()
     }
 }
 
@@ -291,7 +288,7 @@ private struct CPUSectionTitle: View {
     var body: some View {
         Text(text)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.cyan)
+            .foregroundStyle(DashboardPalette.cpuAccent)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 }
@@ -307,7 +304,7 @@ private struct CPULegendRow: View {
                 .fill(color)
                 .frame(width: 9, height: 9)
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DashboardPalette.secondaryText)
             Spacer()
             Text(UnitsFormatter.format(value, unit: .percent))
                 .font(.body.monospacedDigit())
@@ -325,15 +322,16 @@ private struct CPUMetricBarRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DashboardPalette.secondaryText)
                 Spacer()
                 Text(UnitsFormatter.format(value, unit: .percent))
                     .font(.body.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.primary.opacity(0.12))
+                        .fill(DashboardPalette.insetFill)
                     Capsule()
                         .fill(color)
                         .frame(width: proxy.size.width * min(max(value / 100.0, 0), 1))
@@ -385,7 +383,7 @@ private struct CompactCPUUsageCanvasChart: View {
                 yDomain: yDomain,
                 size: size
             )
-            context.fill(totalArea, with: .color(.red.opacity(areaOpacity)))
+            context.fill(totalArea, with: .color(DashboardPalette.memoryAccent.opacity(areaOpacity)))
 
             let userArea = areaPath(
                 points: segment.points,
@@ -396,16 +394,16 @@ private struct CompactCPUUsageCanvasChart: View {
                 yDomain: yDomain,
                 size: size
             )
-            context.fill(userArea, with: .color(.cyan.opacity(areaOpacity)))
+            context.fill(userArea, with: .color(DashboardPalette.cpuAccent.opacity(areaOpacity)))
 
             context.stroke(
                 linePath(points: segment.points, timestamp: \.timestamp, value: \.totalValue, xDomain: xDomain, yDomain: yDomain, size: size),
-                with: .color(.red.opacity(0.9)),
+                with: .color(DashboardPalette.memoryAccent.opacity(0.95)),
                 lineWidth: 1.5
             )
             context.stroke(
                 linePath(points: segment.points, timestamp: \.timestamp, value: \.userValue, xDomain: xDomain, yDomain: yDomain, size: size),
-                with: .color(.cyan.opacity(0.95)),
+                with: .color(DashboardPalette.cpuAccent.opacity(0.98)),
                 lineWidth: 1.5
             )
         }
@@ -419,9 +417,9 @@ private struct CompactCPULoadCanvasChart: View {
     var body: some View {
         GeometryReader { proxy in
             Canvas(rendersAsynchronously: true) { context, size in
-                drawSeries(segments: model.fifteenMinuteSegments, color: .gray, context: &context, size: size)
-                drawSeries(segments: model.fiveMinuteSegments, color: .red, context: &context, size: size)
-                drawSeries(segments: model.oneMinuteSegments, color: .cyan, context: &context, size: size)
+                drawSeries(segments: model.fifteenMinuteSegments, color: DashboardPalette.tertiaryText, context: &context, size: size)
+                drawSeries(segments: model.fiveMinuteSegments, color: DashboardPalette.memoryAccent, context: &context, size: size)
+                drawSeries(segments: model.oneMinuteSegments, color: DashboardPalette.cpuAccent, context: &context, size: size)
             }
         }
     }
@@ -467,7 +465,7 @@ private struct CompactCPUBars: View {
             HStack(alignment: .bottom, spacing: spacing) {
                 ForEach(coreSamples, id: \.metricID) { sample in
                     Rectangle()
-                        .fill(Color.cyan.opacity(0.9))
+                        .fill(DashboardPalette.cpuAccent.opacity(0.95))
                         .frame(width: barWidth, height: proxy.size.height * CGFloat(min(max(sample.value / 100.0, 0), 1)))
                 }
             }
