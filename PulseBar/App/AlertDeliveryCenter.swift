@@ -60,4 +60,8 @@ final class AlertDeliveryCenter {
         }
         return alert
     }
+
+    func clearRecentAlerts() {
+        recentAlerts.removeAll()
+    }
 }

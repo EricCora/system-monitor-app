@@ -234,6 +234,11 @@ final class AppCoordinator: ObservableObject {
         set { settingsController.liveCompositorFPSEnabled = newValue }
     }
 
+    func clearRecentAlerts() {
+        alertDeliveryCenter.clearRecentAlerts()
+        telemetryStore.recentAlerts = alertDeliveryCenter.recentAlerts
+    }
+
     var selectedTemperatureSensorID: String {
         get { temperaturePaneModel.selectedTemperatureSensorID }
         set { temperaturePaneModel.selectedTemperatureSensorID = newValue }

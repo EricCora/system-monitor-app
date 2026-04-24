@@ -456,6 +456,16 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(DashboardPalette.secondaryText)
                 } else {
+                    HStack {
+                        Text("\(coordinator.recentAlerts.count) alerts in this session")
+                            .font(.caption)
+                            .foregroundStyle(DashboardPalette.secondaryText)
+                        Spacer()
+                        Button("Clear") {
+                            coordinator.clearRecentAlerts()
+                        }
+                    }
+
                     ForEach(coordinator.recentAlerts) { alert in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(alert.title)
