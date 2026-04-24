@@ -57,7 +57,7 @@ public actor MemoryProvider: MetricProvider {
 
     public typealias VMStatsReader = @Sendable () throws -> MemoryVMStatsSnapshot
     public typealias SwapUsageReader = @Sendable () -> MemorySwapUsageSnapshot?
-    public typealias PressureLevelReader = @Sendable () -> Double?
+    public typealias PressureLevelReader = @Sendable () -> Int32?
 
     private let vmStatsReader: VMStatsReader
     private let swapUsageReader: SwapUsageReader
@@ -67,7 +67,7 @@ public actor MemoryProvider: MetricProvider {
     public init(
         vmStatsReader: @escaping VMStatsReader = { try MemoryProvider.readVMStatsSnapshot() },
         swapUsageReader: @escaping SwapUsageReader = { MemoryProvider.readSwapUsageSnapshot() },
-        pressureLevelReader: @escaping PressureLevelReader = { MemoryProvider.readPressureLevelPercent() }
+        pressureLevelReader: @escaping PressureLevelReader = { MemoryProvider.readPressureStatusLevel() }
     ) {
         self.vmStatsReader = vmStatsReader
         self.swapUsageReader = swapUsageReader
@@ -88,15 +88,13 @@ public actor MemoryProvider: MetricProvider {
         let usedBytes = activeBytes + inactiveBytes + wiredBytes + compressedBytes
         let appBytes = max(0, activeBytes + inactiveBytes - cacheBytes)
 
-        let fallbackPressurePercent: Double
-        if vmStats.totalMemoryBytes > 0 {
-            fallbackPressurePercent = min(max((usedBytes / vmStats.totalMemoryBytes) * 100.0, 0), 100)
-        } else {
-            fallbackPressurePercent = 0
-        }
-
-        // macOS memory pressure is an OS health signal, not just "percent of RAM used."
-        let pressurePercent = min(max(pressureLevelReader() ?? fallbackPressurePercent, 0), 100)
+        let pressurePercent = Self.estimatedMemoryPressurePercent(
+            totalMemoryBytes: vmStats.totalMemoryBytes,
+            freeBytes: freeBytes,
+            inactiveBytes: inactiveBytes,
+            cacheBytes: cacheBytes,
+            nativeStatusLevel: pressureLevelReader()
+        )
 
         let swapUsedBytes = max(0, swapUsage?.usedBytes ?? 0)
         let swapTotalBytes = max(swapUsedBytes, max(0, swapUsage?.totalBytes ?? 0))
@@ -139,6 +137,38 @@ public actor MemoryProvider: MetricProvider {
             max(0, (Double(pageInsDelta) * pageSize) / elapsed),
             max(0, (Double(pageOutsDelta) * pageSize) / elapsed)
         )
+    }
+
+    static func estimatedMemoryPressurePercent(
+        totalMemoryBytes: Double,
+        freeBytes: Double,
+        inactiveBytes: Double,
+        cacheBytes: Double,
+        nativeStatusLevel: Int32?
+    ) -> Double {
+        guard totalMemoryBytes > 0 else {
+            return 0
+        }
+
+        let reclaimableBytes = min(
+            totalMemoryBytes,
+            max(0, freeBytes) + max(0, inactiveBytes) + max(0, cacheBytes)
+        )
+        let reclaimabilityPressure = (1.0 - (reclaimableBytes / totalMemoryBytes)) * 100.0
+
+        // memorystatus_get_level is a coarse state (normal/warn/critical), not a percent.
+        // Use it only to keep warning/critical OS states visibly elevated.
+        let nativeStatusFloor: Double
+        switch nativeStatusLevel {
+        case let level? where level >= 4:
+            nativeStatusFloor = 90
+        case let level? where level >= 2:
+            nativeStatusFloor = 67
+        default:
+            nativeStatusFloor = 0
+        }
+
+        return min(max(max(reclaimabilityPressure, nativeStatusFloor), 0), 100)
     }
 
     public static func readVMStatsSnapshot() throws -> MemoryVMStatsSnapshot {
@@ -186,12 +216,12 @@ public actor MemoryProvider: MetricProvider {
         )
     }
 
-    public static func readPressureLevelPercent() -> Double? {
+    public static func readPressureStatusLevel() -> Int32? {
         var level: Int32 = 0
         let result = memorystatus_get_level(&level)
         guard result == 0 else {
             return nil
         }
-        return Double(level)
+        return level
     }
 }

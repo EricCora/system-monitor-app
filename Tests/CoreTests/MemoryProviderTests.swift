@@ -19,7 +19,7 @@ final class MemoryProviderTests: XCTestCase {
         let provider = MemoryProvider(
             vmStatsReader: { snapshot },
             swapUsageReader: { MemorySwapUsageSnapshot(totalBytes: 2_048, usedBytes: 1_024) },
-            pressureLevelReader: { 61 }
+            pressureLevelReader: { 1 }
         )
 
         let samples = try await provider.sample(at: Date())
@@ -37,7 +37,6 @@ final class MemoryProviderTests: XCTestCase {
         XCTAssertTrue(metricIDs.contains(.memoryPressureLevel))
         XCTAssertTrue(metricIDs.contains(.memoryPageInsBytesPerSec))
         XCTAssertTrue(metricIDs.contains(.memoryPageOutsBytesPerSec))
-        XCTAssertEqual(metricValue(.memoryPressureLevel, in: samples), 61, accuracy: 0.001)
     }
 
     func testPageRateDeltaIsZeroOnBootstrapAndComputedOnNextSample() async throws {
@@ -70,7 +69,7 @@ final class MemoryProviderTests: XCTestCase {
         let provider = MemoryProvider(
             vmStatsReader: { sequence.next() },
             swapUsageReader: { nil },
-            pressureLevelReader: { 33 }
+            pressureLevelReader: { 1 }
         )
 
         let start = Date(timeIntervalSince1970: 1_700_000_000)
@@ -100,7 +99,7 @@ final class MemoryProviderTests: XCTestCase {
         let provider = MemoryProvider(
             vmStatsReader: { snapshot },
             swapUsageReader: { nil },
-            pressureLevelReader: { 48 }
+            pressureLevelReader: { 1 }
         )
 
         let samples = try await provider.sample(at: Date())
@@ -109,7 +108,7 @@ final class MemoryProviderTests: XCTestCase {
         XCTAssertEqual(metricValue(.memorySwapTotalBytes, in: samples), 0, accuracy: 0.001)
     }
 
-    func testPressureFallsBackToUsedMemoryRatioWhenNativePressureUnavailable() async throws {
+    func testPressureUsesReclaimableMemoryInsteadOfRawUsedRatio() async throws {
         let snapshot = MemoryVMStatsSnapshot(
             pageSizeBytes: 100,
             totalMemoryBytes: 1_000,
@@ -118,7 +117,7 @@ final class MemoryProviderTests: XCTestCase {
             inactivePages: 3,
             wiredPages: 1,
             compressedPages: 1,
-            cachePages: 0,
+            cachePages: 2,
             pageIns: 0,
             pageOuts: 0
         )
@@ -130,7 +129,55 @@ final class MemoryProviderTests: XCTestCase {
 
         let samples = try await provider.sample(at: Date())
 
+        XCTAssertEqual(metricValue(.memoryPressureLevel, in: samples), 40, accuracy: 0.001)
+    }
+
+    func testNativeNormalPressureLevelIsNotPresentedAsOnePercent() async throws {
+        let snapshot = MemoryVMStatsSnapshot(
+            pageSizeBytes: 100,
+            totalMemoryBytes: 1_000,
+            freePages: 1,
+            activePages: 5,
+            inactivePages: 1,
+            wiredPages: 2,
+            compressedPages: 1,
+            cachePages: 1,
+            pageIns: 0,
+            pageOuts: 0
+        )
+        let provider = MemoryProvider(
+            vmStatsReader: { snapshot },
+            swapUsageReader: { nil },
+            pressureLevelReader: { 1 }
+        )
+
+        let samples = try await provider.sample(at: Date())
+
         XCTAssertEqual(metricValue(.memoryPressureLevel, in: samples), 70, accuracy: 0.001)
+    }
+
+    func testNativeWarningPressureLevelActsAsFloorNotPercent() async throws {
+        let snapshot = MemoryVMStatsSnapshot(
+            pageSizeBytes: 100,
+            totalMemoryBytes: 1_000,
+            freePages: 8,
+            activePages: 1,
+            inactivePages: 1,
+            wiredPages: 0,
+            compressedPages: 0,
+            cachePages: 0,
+            pageIns: 0,
+            pageOuts: 0
+        )
+        let provider = MemoryProvider(
+            vmStatsReader: { snapshot },
+            swapUsageReader: { nil },
+            pressureLevelReader: { 2 }
+        )
+
+        let samples = try await provider.sample(at: Date())
+
+        XCTAssertEqual(metricValue(.memoryPressureLevel, in: samples), 67, accuracy: 0.001)
     }
 
     private func metricValue(_ metricID: MetricID, in samples: [MetricSample]) -> Double {
