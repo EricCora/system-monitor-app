@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AppKit
 import PulseBarCore
 import ServiceManagement
 
@@ -260,6 +261,18 @@ final class AppCoordinator: ObservableObject {
     func clearRecentAlerts() {
         alertDeliveryCenter.clearRecentAlerts()
         telemetryStore.recentAlerts = alertDeliveryCenter.recentAlerts
+    }
+
+    func quitApplication() {
+        NSApp.terminate(nil)
+    }
+
+    func restartApplication() {
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            relaunchBundleApplication()
+            return
+        }
+        relaunchExecutableProcess()
     }
 
     var selectedTemperatureSensorID: String {
@@ -1828,6 +1841,35 @@ final class AppCoordinator: ObservableObject {
         }
 
         return output
+    }
+
+    private func relaunchBundleApplication() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { [weak self] app, error in
+            Task { @MainActor [weak self] in
+                guard error == nil, app != nil else {
+                    self?.launchAtLoginStatusMessage = "Unable to restart PulseBar. Reopen it manually."
+                    return
+                }
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    private func relaunchExecutableProcess() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        process.arguments = Array(CommandLine.arguments.dropFirst())
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            launchAtLoginStatusMessage = "Unable to restart PulseBar. Reopen it manually."
+        }
     }
 
     private func updateLaunchAtLogin(enabled: Bool) async {

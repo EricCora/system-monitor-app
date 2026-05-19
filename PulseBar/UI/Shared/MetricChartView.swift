@@ -67,18 +67,22 @@ struct MetricChartView: View {
                 .chartYScale(domain: chartModel.chartScale.yDomain)
                 .chartYAxis {
                     if isThermalStateChart {
-                        DashboardChartStyle.leadingNumericAxis(values: [0, 1, 2, 3]) { numericValue in
+                        DashboardChartStyle.leadingNumericAxis(
+                            values: [0, 1, 2, 3],
+                            showsMinorGrid: displayOptions.showsMinorGrid
+                        ) { numericValue in
                             axisLabel(for: numericValue)
                         }
                     } else {
-                        DashboardChartStyle.leadingNumericAxis { numericValue in
+                        DashboardChartStyle.leadingNumericAxis(showsMinorGrid: displayOptions.showsMinorGrid) { numericValue in
                             axisLabel(for: numericValue)
                         }
                     }
                 }
                 .chartXAxis {
-                    DashboardChartStyle.timeXAxis()
+                    DashboardChartStyle.timeXAxis(showsMinorGrid: displayOptions.showsMinorGrid)
                 }
+                .chartXScale(range: .plotDimension(startPadding: DashboardChartStyle.xAxisStartPadding, endPadding: DashboardChartStyle.xAxisEndPadding))
                 .chartPlotStyle { plot in
                     plot
                         .background(

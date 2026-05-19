@@ -40,6 +40,16 @@ struct TemperatureTabView: View {
                     set: { coordinator.selectedTemperatureHistoryWindow = $0 }
                 )
             )
+            ChartToolsStrip(
+                smoothingAlpha: Binding(
+                    get: { coordinator.chartSmoothingAlpha },
+                    set: { coordinator.chartSmoothingAlpha = $0 }
+                ),
+                showsMinorGrid: Binding(
+                    get: { coordinator.chartMinorGridEnabled },
+                    set: { coordinator.chartMinorGridEnabled = $0 }
+                )
+            )
 
             headerPanel
             sensorListPanel

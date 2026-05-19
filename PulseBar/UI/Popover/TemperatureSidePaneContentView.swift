@@ -24,6 +24,11 @@ struct TemperaturePaneContentView: View {
                 paneController: paneController,
                 style: .detached
             )
+            ChartToolsStrip(
+                smoothingAlpha: $coordinator.chartSmoothingAlpha,
+                showsMinorGrid: $coordinator.chartMinorGridEnabled,
+                style: .detached
+            )
 
             paneHeader
 
@@ -110,13 +115,14 @@ struct TemperaturePaneContentView: View {
                             .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
                             .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
                             .chartYAxis {
-                                DashboardChartStyle.leadingNumericAxis { value in
+                                DashboardChartStyle.leadingNumericAxis(showsMinorGrid: coordinator.chartMinorGridEnabled) { value in
                                     axisLabel(for: value, sensor: activeSensor)
                                 }
                             }
                             .chartXAxis {
-                                DashboardChartStyle.timeXAxis()
+                                DashboardChartStyle.timeXAxis(showsMinorGrid: coordinator.chartMinorGridEnabled)
                             }
+                            .chartXScale(range: .plotDimension(startPadding: DashboardChartStyle.xAxisStartPadding, endPadding: DashboardChartStyle.xAxisEndPadding))
                             .chartPlotStyle { plot in
                                 plot
                                     .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: coordinator.chartMinorGridEnabled))
@@ -132,6 +138,7 @@ struct TemperaturePaneContentView: View {
                                             proxy: proxy,
                                             geometry: geometry,
                                             paneController: paneController,
+                                            zoomMode: .bothAxes,
                                             hoveredDate: Binding(
                                                 get: { hoveredHistoryPoint?.timestamp },
                                                 set: { newDate in

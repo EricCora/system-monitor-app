@@ -30,6 +30,11 @@ struct MemoryPaneContentView: View {
                 paneController: paneController,
                 style: .detached
             )
+            ChartToolsStrip(
+                smoothingAlpha: $coordinator.chartSmoothingAlpha,
+                showsMinorGrid: $coordinator.chartMinorGridEnabled,
+                style: .detached
+            )
 
             paneHeader
 
@@ -518,13 +523,14 @@ private struct MemoryCompositionChart: View {
         .chartXScale(domain: viewport.xDomain ?? model.xDomain)
         .chartYScale(domain: 0...100)
         .chartYAxis {
-            DashboardChartStyle.leadingNumericAxis(values: [0, 25, 50, 75, 100]) { percent in
+            DashboardChartStyle.leadingNumericAxis(values: [0, 25, 50, 75, 100], showsMinorGrid: displayOptions.showsMinorGrid) { percent in
                 String(format: "%.0f%%", percent)
             }
         }
         .chartXAxis {
-            DashboardChartStyle.timeXAxis()
+            DashboardChartStyle.timeXAxis(showsMinorGrid: displayOptions.showsMinorGrid)
         }
+        .chartXScale(range: .plotDimension(startPadding: DashboardChartStyle.xAxisStartPadding, endPadding: DashboardChartStyle.xAxisEndPadding))
         .chartPlotStyle { plot in
             plot
                 .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
@@ -539,6 +545,7 @@ private struct MemoryCompositionChart: View {
                         proxy: proxy,
                         geometry: geometry,
                         paneController: paneController,
+                        zoomMode: .bothAxes,
                         hoveredDate: $hoveredDate,
                         viewport: $viewport,
                         selectionRect: $zoomSelectionRect
@@ -601,13 +608,14 @@ private struct MetricLinePaneChart: View {
         .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
         .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
         .chartYAxis {
-            DashboardChartStyle.leadingNumericAxis { value in
+            DashboardChartStyle.leadingNumericAxis(showsMinorGrid: displayOptions.showsMinorGrid) { value in
                 DashboardChartStyle.valueLabel(for: value, unit: model.primaryUnit, throughputUnit: throughputUnit)
             }
         }
         .chartXAxis {
-            DashboardChartStyle.timeXAxis()
+            DashboardChartStyle.timeXAxis(showsMinorGrid: displayOptions.showsMinorGrid)
         }
+        .chartXScale(range: .plotDimension(startPadding: DashboardChartStyle.xAxisStartPadding, endPadding: DashboardChartStyle.xAxisEndPadding))
         .chartPlotStyle { plot in
             plot
                 .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
@@ -622,6 +630,7 @@ private struct MetricLinePaneChart: View {
                         proxy: proxy,
                         geometry: geometry,
                         paneController: paneController,
+                        zoomMode: .bothAxes,
                         hoveredDate: $hoveredDate,
                         viewport: $viewport,
                         selectionRect: $zoomSelectionRect

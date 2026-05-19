@@ -14,6 +14,16 @@ struct NetworkTabView: View {
                     set: { coordinator.networkChartWindow = $0 }
                 )
             )
+            ChartToolsStrip(
+                smoothingAlpha: Binding(
+                    get: { coordinator.chartSmoothingAlpha },
+                    set: { coordinator.chartSmoothingAlpha = $0 }
+                ),
+                showsMinorGrid: Binding(
+                    get: { coordinator.chartMinorGridEnabled },
+                    set: { coordinator.chartMinorGridEnabled = $0 }
+                )
+            )
 
             HStack {
                 DashboardReadoutCell(

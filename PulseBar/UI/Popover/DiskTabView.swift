@@ -14,6 +14,16 @@ struct DiskTabView: View {
                     set: { coordinator.diskChartWindow = $0 }
                 )
             )
+            ChartToolsStrip(
+                smoothingAlpha: Binding(
+                    get: { coordinator.chartSmoothingAlpha },
+                    set: { coordinator.chartSmoothingAlpha = $0 }
+                ),
+                showsMinorGrid: Binding(
+                    get: { coordinator.chartMinorGridEnabled },
+                    set: { coordinator.chartMinorGridEnabled = $0 }
+                )
+            )
 
             Text(splitStatusText)
                 .font(.caption)

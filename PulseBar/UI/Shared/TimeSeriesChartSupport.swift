@@ -396,8 +396,18 @@ enum ChartSeriesPipeline {
 }
 
 enum DashboardChartStyle {
+    static let xAxisStartPadding: CGFloat = 10
+    static let xAxisEndPadding: CGFloat = 24
+
     @AxisContentBuilder
-    static func timeXAxis() -> some AxisContent {
+    static func timeXAxis(showsMinorGrid: Bool = false) -> some AxisContent {
+        if showsMinorGrid {
+            AxisMarks(values: .automatic(desiredCount: 9)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8, dash: [1, 3]))
+                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
+            }
+        }
+
         AxisMarks(values: .automatic(desiredCount: 3)) { value in
             AxisGridLine()
                 .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
@@ -415,8 +425,16 @@ enum DashboardChartStyle {
     @AxisContentBuilder
     static func leadingNumericAxis(
         values: [Double]? = nil,
+        showsMinorGrid: Bool = false,
         label: @escaping (Double) -> String
     ) -> some AxisContent {
+        if showsMinorGrid {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 7)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8, dash: [1, 3]))
+                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
+            }
+        }
+
         if let values {
             AxisMarks(preset: .aligned, position: .leading, values: values) { value in
                 AxisGridLine()
@@ -483,23 +501,9 @@ struct DashboardMinorGridOverlay: View {
     @Environment(\.dashboardChartDisplayOptions) private var displayOptions
 
     var body: some View {
-        GeometryReader { proxy in
+        GeometryReader { _ in
             if isEnabled ?? displayOptions.showsMinorGrid {
-                Path { path in
-                    let verticalCount = 10
-                    let horizontalCount = 6
-                    for index in 1..<verticalCount {
-                        let x = proxy.size.width * CGFloat(index) / CGFloat(verticalCount)
-                        path.move(to: CGPoint(x: x, y: 0))
-                        path.addLine(to: CGPoint(x: x, y: proxy.size.height))
-                    }
-                    for index in 1..<horizontalCount {
-                        let y = proxy.size.height * CGFloat(index) / CGFloat(horizontalCount)
-                        path.move(to: CGPoint(x: 0, y: y))
-                        path.addLine(to: CGPoint(x: proxy.size.width, y: y))
-                    }
-                }
-                .stroke(DashboardPalette.chartGrid.opacity(0.42), style: StrokeStyle(lineWidth: 0.8, dash: [1, 3]))
+                EmptyView()
             }
         }
         .allowsHitTesting(false)
@@ -635,9 +639,34 @@ struct DetachedChartInteractionOverlay: View {
         verticalDistance: CGFloat,
         zoomMode: ZoomMode
     ) -> (shouldZoomX: Bool, shouldZoomY: Bool) {
-        let shouldZoomX = horizontalDistance >= 12
-        let shouldZoomY = zoomMode == .bothAxes && verticalDistance >= 12
-        return (shouldZoomX, shouldZoomY)
+        let minimumDistance: CGFloat = 12
+        guard horizontalDistance >= minimumDistance || verticalDistance >= minimumDistance else {
+            return (false, false)
+        }
+
+        guard zoomMode == .bothAxes else {
+            return (horizontalDistance >= minimumDistance, false)
+        }
+
+        let directionalBias: CGFloat = 1.35
+
+        if horizontalDistance >= minimumDistance && verticalDistance < minimumDistance {
+            return (true, false)
+        }
+
+        if verticalDistance >= minimumDistance && horizontalDistance < minimumDistance {
+            return (false, true)
+        }
+
+        if horizontalDistance > (verticalDistance * directionalBias) {
+            return (true, false)
+        }
+
+        if verticalDistance > (horizontalDistance * directionalBias) {
+            return (false, true)
+        }
+
+        return (true, true)
     }
 
     static func selectionRect(

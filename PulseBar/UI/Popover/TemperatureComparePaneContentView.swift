@@ -23,6 +23,11 @@ struct TemperatureComparePaneContentView: View {
                 paneController: paneController,
                 style: .detached
             )
+            ChartToolsStrip(
+                smoothingAlpha: $coordinator.chartSmoothingAlpha,
+                showsMinorGrid: $coordinator.chartMinorGridEnabled,
+                style: .detached
+            )
 
             paneHeader
             toolbar
@@ -155,13 +160,14 @@ struct TemperatureComparePaneContentView: View {
                 .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
                 .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
                 .chartYAxis {
-                    DashboardChartStyle.leadingNumericAxis { value in
+                    DashboardChartStyle.leadingNumericAxis(showsMinorGrid: coordinator.chartMinorGridEnabled) { value in
                         String(format: "%.0f C", value)
                     }
                 }
                 .chartXAxis {
-                    DashboardChartStyle.timeXAxis()
+                    DashboardChartStyle.timeXAxis(showsMinorGrid: coordinator.chartMinorGridEnabled)
                 }
+                .chartXScale(range: .plotDimension(startPadding: DashboardChartStyle.xAxisStartPadding, endPadding: DashboardChartStyle.xAxisEndPadding))
                 .chartPlotStyle { plot in
                     plot
                         .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: coordinator.chartMinorGridEnabled))
@@ -177,6 +183,7 @@ struct TemperatureComparePaneContentView: View {
                                 proxy: proxy,
                                 geometry: geometry,
                                 paneController: paneController,
+                                zoomMode: .bothAxes,
                                 hoveredDate: $hoveredDate,
                                 viewport: $viewport,
                                 selectionRect: $zoomSelectionRect

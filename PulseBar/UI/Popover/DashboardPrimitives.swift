@@ -176,7 +176,6 @@ extension DashboardPalette {
                 RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                     .strokeBorder(chartPlotBorder.opacity(0.9), lineWidth: 1)
             )
-            .overlay(DashboardMinorGridOverlay(isEnabled: showsMinorGrid))
     }
 }
 
@@ -404,6 +403,10 @@ struct DashboardCard<Content: View>: View {
                 )
         )
         .shadow(color: DashboardPalette.shadowHeavy, radius: 18, x: 0, y: 10)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onTapGesture {
+            action?()
+        }
     }
 }
 

@@ -2,10 +2,16 @@ import SwiftUI
 import PulseBarCore
 
 struct DashboardView: View {
+    private enum AppActionToConfirm {
+        case restart
+        case quit
+    }
+
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var statusStore: DashboardStatusStore
     @StateObject private var paneController = DetachedMetricsPaneController()
     @Namespace private var sectionTabsNamespace
+    @State private var pendingAppAction: AppActionToConfirm?
 
     private var contentPadding: CGFloat {
         coordinator.dashboardDensity == .compact ? 16 : 22
@@ -59,6 +65,40 @@ struct DashboardView: View {
             coordinator.setDashboardVisible(false)
             coordinator.resetDashboardSectionForPresentation()
             paneController.shutdown()
+        }
+        .confirmationDialog(
+            pendingAppAction == .restart ? "Restart PulseBar?" : "Quit PulseBar?",
+            isPresented: Binding(
+                get: { pendingAppAction != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingAppAction = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if pendingAppAction == .restart {
+                Button("Restart Now") {
+                    coordinator.restartApplication()
+                    pendingAppAction = nil
+                }
+            }
+            if pendingAppAction == .quit {
+                Button("Quit Now", role: .destructive) {
+                    coordinator.quitApplication()
+                    pendingAppAction = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingAppAction = nil
+            }
+        } message: {
+            if pendingAppAction == .restart {
+                Text("PulseBar will close and reopen immediately.")
+            } else if pendingAppAction == .quit {
+                Text("PulseBar will close immediately.")
+            }
         }
     }
 
@@ -267,6 +307,24 @@ struct DashboardView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
+
+                    HStack(spacing: 6) {
+                        appActionButton(
+                            systemImage: "arrow.clockwise.circle.fill",
+                            tint: DashboardPalette.cpuAccent,
+                            helpText: "Restart PulseBar"
+                        ) {
+                            pendingAppAction = .restart
+                        }
+
+                        appActionButton(
+                            systemImage: "power.circle.fill",
+                            tint: DashboardPalette.danger,
+                            helpText: "Quit PulseBar"
+                        ) {
+                            pendingAppAction = .quit
+                        }
+                    }
                 }
             }
 
@@ -336,6 +394,31 @@ struct DashboardView: View {
                 )
                 .shadow(color: DashboardPalette.shadow, radius: 14, x: 0, y: 8)
         )
+    }
+
+    private func appActionButton(
+        systemImage: String,
+        tint: Color,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(DashboardPalette.sectionFill)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .accessibilityLabel(helpText)
     }
 
     private func headerBadge(title: String, value: String, tint: Color, systemImage: String) -> some View {

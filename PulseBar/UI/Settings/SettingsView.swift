@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import PulseBarCore
 
 struct SettingsView: View {
@@ -7,6 +8,7 @@ struct SettingsView: View {
     @ObservedObject var diagnosticsStore: PerformanceDiagnosticsStore
     @State private var selectedSection: SettingsSection? = .general
     @State private var newSensorPresetName = ""
+    @State private var draggingDashboardCard: DashboardCardID?
 
     var body: some View {
         NavigationSplitView {
@@ -136,17 +138,28 @@ struct SettingsView: View {
             }
 
             settingsCard("App Control") {
-                Text("Quit PulseBar without using Activity Monitor.")
+                Text("Restart or quit PulseBar immediately.")
                     .font(.caption)
                     .foregroundStyle(DashboardPalette.secondaryText)
 
-                Button(role: .destructive) {
-                    NSApp.terminate(nil)
-                } label: {
-                    Label("Quit PulseBar", systemImage: "power")
-                        .frame(maxWidth: .infinity)
+                HStack(spacing: 10) {
+                    settingsAppActionButton(
+                        systemImage: "arrow.clockwise.circle.fill",
+                        tint: DashboardPalette.cpuAccent,
+                        helpText: "Restart PulseBar"
+                    ) {
+                        coordinator.restartApplication()
+                    }
+
+                    settingsAppActionButton(
+                        systemImage: "power.circle.fill",
+                        tint: DashboardPalette.danger,
+                        helpText: "Quit PulseBar"
+                    ) {
+                        coordinator.quitApplication()
+                    }
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -206,7 +219,7 @@ struct SettingsView: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
-                Text("Detached charts support click-drag horizontal zoom and double-click reset.")
+                Text("Detached charts support directional drag zoom (X, Y, or XY) and double-click reset.")
                     .font(.caption)
                     .foregroundStyle(DashboardPalette.secondaryText)
             }
@@ -595,6 +608,31 @@ struct SettingsView: View {
         .dashboardSurface(padding: 16, cornerRadius: 14)
     }
 
+    private func settingsAppActionButton(
+        systemImage: String,
+        tint: Color,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(DashboardPalette.sectionFill)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .accessibilityLabel(helpText)
+    }
+
     private func dashboardCardEditorRow(_ card: DashboardCardID, index: Int) -> some View {
         HStack(spacing: 12) {
             Toggle(
@@ -606,6 +644,15 @@ struct SettingsView: View {
             )
 
             Spacer()
+
+            Image(systemName: "line.3.horizontal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(DashboardPalette.secondaryText)
+                .padding(.trailing, 2)
+                .onDrag {
+                    draggingDashboardCard = card
+                    return NSItemProvider(object: card.rawValue as NSString)
+                }
 
             Button {
                 coordinator.moveDashboardCard(from: index, direction: -1)
@@ -634,6 +681,19 @@ struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                 )
+        )
+        .onDrop(
+            of: [UTType.text.identifier],
+            delegate: DashboardCardDropDelegate(
+                item: card,
+                items: coordinator.dashboardCardOrder,
+                draggingItem: $draggingDashboardCard
+            ) { source, destination in
+                coordinator.moveDashboardCard(
+                    fromOffsets: IndexSet(integer: source),
+                    toOffset: destination > source ? destination + 1 : destination
+                )
+            }
         )
     }
 
@@ -771,6 +831,32 @@ struct SettingsView: View {
                 Text(style.label).tag(style)
             }
         }
+    }
+}
+
+private struct DashboardCardDropDelegate: DropDelegate {
+    let item: DashboardCardID
+    let items: [DashboardCardID]
+    @Binding var draggingItem: DashboardCardID?
+    let onMove: (_ source: Int, _ destination: Int) -> Void
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingItem = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingItem,
+              draggingItem != item,
+              let source = items.firstIndex(of: draggingItem),
+              let destination = items.firstIndex(of: item) else {
+            return
+        }
+        onMove(source, destination)
     }
 }
 
