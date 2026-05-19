@@ -54,7 +54,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "PulseBarApp",
-            dependencies: ["PulseBarCore"],
+            dependencies: ["PulseBarCore", "PulseBarSMCBridge"],
             path: "PulseBar",
             exclude: [
                 "Core",

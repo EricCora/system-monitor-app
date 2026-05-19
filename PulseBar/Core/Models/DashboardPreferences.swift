@@ -2,11 +2,45 @@ import Foundation
 
 public enum DashboardLayoutMode: String, Codable, CaseIterable, Sendable {
     case cardDashboard
+    case focusGrid
+    case compactMatrix
 
     public var label: String {
         switch self {
         case .cardDashboard:
-            return "Card Dashboard"
+            return "Balanced Grid"
+        case .focusGrid:
+            return "Focus Grid"
+        case .compactMatrix:
+            return "Compact Matrix"
+        }
+    }
+}
+
+public enum DashboardDensityMode: String, Codable, CaseIterable, Sendable {
+    case comfortable
+    case compact
+
+    public var label: String {
+        switch self {
+        case .comfortable:
+            return "Comfortable"
+        case .compact:
+            return "Compact"
+        }
+    }
+}
+
+public enum DashboardCardSizeMode: String, Codable, CaseIterable, Sendable {
+    case standard
+    case expanded
+
+    public var label: String {
+        switch self {
+        case .standard:
+            return "Standard"
+        case .expanded:
+            return "Expanded"
         }
     }
 }
@@ -163,6 +197,7 @@ public struct SensorPreset: Codable, Sendable, Equatable, Identifiable {
 
 public extension DashboardCardID {
     static let defaultOrder = DashboardCardID.allCases
+    static let defaultVisibility = Dictionary(uniqueKeysWithValues: DashboardCardID.allCases.map { ($0, true) })
 
     var detailSection: DashboardSection {
         switch self {

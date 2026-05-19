@@ -64,6 +64,27 @@ struct ChartMetricSeriesDescriptor<Sample> {
     }
 }
 
+struct ChartDisplayOptions: Equatable {
+    var showsMinorGrid: Bool = false
+    var smoothingAlpha: Double = 1.0
+
+    var normalizedSmoothingAlpha: Double {
+        guard smoothingAlpha.isFinite else { return 1.0 }
+        return min(max(smoothingAlpha, 0.05), 1.0)
+    }
+}
+
+private struct DashboardChartDisplayOptionsKey: EnvironmentKey {
+    static let defaultValue = ChartDisplayOptions()
+}
+
+extension EnvironmentValues {
+    var dashboardChartDisplayOptions: ChartDisplayOptions {
+        get { self[DashboardChartDisplayOptionsKey.self] }
+        set { self[DashboardChartDisplayOptionsKey.self] = newValue }
+    }
+}
+
 enum ChartSeriesPipeline {
     static func metricSamples(
         _ samples: [MetricSample],
@@ -157,6 +178,44 @@ enum ChartSeriesPipeline {
         }
         return latestByTimestamp.values.sorted {
             $0[keyPath: timestamp] < $1[keyPath: timestamp]
+        }
+    }
+
+    static func lowPass(_ samples: [MetricSample], alpha: Double) -> [MetricSample] {
+        let normalizedAlpha = normalizedAlpha(alpha)
+        guard normalizedAlpha < 0.999, samples.count > 1 else { return samples }
+
+        var previousByMetric: [MetricID: Double] = [:]
+        return samples.map { sample in
+            let previous = previousByMetric[sample.metricID] ?? sample.value
+            let smoothed = (normalizedAlpha * sample.value) + ((1 - normalizedAlpha) * previous)
+            previousByMetric[sample.metricID] = smoothed
+            return MetricSample(metricID: sample.metricID, timestamp: sample.timestamp, value: smoothed, unit: sample.unit)
+        }
+    }
+
+    static func lowPass(_ points: [MetricHistoryPoint], alpha: Double) -> [MetricHistoryPoint] {
+        let normalizedAlpha = normalizedAlpha(alpha)
+        guard normalizedAlpha < 0.999, points.count > 1 else { return points }
+
+        var previous = points.first?.value ?? 0
+        return points.map { point in
+            let smoothed = (normalizedAlpha * point.value) + ((1 - normalizedAlpha) * previous)
+            previous = smoothed
+            return MetricHistoryPoint(timestamp: point.timestamp, value: smoothed, unit: point.unit)
+        }
+    }
+
+    static func lowPass(_ points: [TemperatureHistoryPoint], alpha: Double) -> [TemperatureHistoryPoint] {
+        let normalizedAlpha = normalizedAlpha(alpha)
+        guard normalizedAlpha < 0.999, points.count > 1 else { return points }
+
+        var previousBySensor: [String: Double] = [:]
+        return points.map { point in
+            let previous = previousBySensor[point.sensorID] ?? point.value
+            let smoothed = (normalizedAlpha * point.value) + ((1 - normalizedAlpha) * previous)
+            previousBySensor[point.sensorID] = smoothed
+            return TemperatureHistoryPoint(sensorID: point.sensorID, timestamp: point.timestamp, value: smoothed, channelType: point.channelType)
         }
     }
 
@@ -329,6 +388,11 @@ enum ChartSeriesPipeline {
         let sorted = deltas.sorted()
         return sorted[sorted.count / 2]
     }
+
+    private static func normalizedAlpha(_ alpha: Double) -> Double {
+        guard alpha.isFinite else { return 1.0 }
+        return min(max(alpha, 0.05), 1.0)
+    }
 }
 
 enum DashboardChartStyle {
@@ -411,6 +475,34 @@ enum DashboardChartStyle {
         case .scalar:
             return String(format: "%.1f", value)
         }
+    }
+}
+
+struct DashboardMinorGridOverlay: View {
+    var isEnabled: Bool?
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
+
+    var body: some View {
+        GeometryReader { proxy in
+            if isEnabled ?? displayOptions.showsMinorGrid {
+                Path { path in
+                    let verticalCount = 10
+                    let horizontalCount = 6
+                    for index in 1..<verticalCount {
+                        let x = proxy.size.width * CGFloat(index) / CGFloat(verticalCount)
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: proxy.size.height))
+                    }
+                    for index in 1..<horizontalCount {
+                        let y = proxy.size.height * CGFloat(index) / CGFloat(horizontalCount)
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: proxy.size.width, y: y))
+                    }
+                }
+                .stroke(DashboardPalette.chartGrid.opacity(0.42), style: StrokeStyle(lineWidth: 0.8, dash: [1, 3]))
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

@@ -13,10 +13,12 @@ struct MetricChartView: View {
     var areaOpacity: Double = 0.18
     var diagnosticsStore: PerformanceDiagnosticsStore?
     var seriesColor: Color = DashboardPalette.cpuAccent
+    var displayOptions = ChartDisplayOptions()
 
     @State private var hoveredSample: MetricSample?
     @State private var isHoveringChart = false
     @State private var chartModel = PreparedMetricChartModel.empty
+    @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -36,7 +38,7 @@ struct MetricChartView: View {
                 .frame(maxWidth: .infinity, minHeight: 180)
                 .dashboardInset()
             } else {
-                Chart(chartModel.chartPoints) { point in
+                Chart(visibleChartPoints) { point in
                     AreaMark(
                         x: .value("Time", point.timestamp),
                         yStart: .value("Baseline", chartModel.chartScale.areaBaseline),
@@ -79,7 +81,12 @@ struct MetricChartView: View {
                 }
                 .chartPlotStyle { plot in
                     plot
-                        .background(DashboardPalette.chartPlotBackground(cornerRadius: Layout.plotCornerRadius))
+                        .background(
+                            DashboardPalette.chartPlotBackground(
+                                cornerRadius: Layout.plotCornerRadius,
+                                showsMinorGrid: displayOptions.showsMinorGrid
+                            )
+                        )
                         .clipShape(RoundedRectangle(cornerRadius: Layout.plotCornerRadius, style: .continuous))
                 }
                 .frame(height: 180)
@@ -108,7 +115,9 @@ struct MetricChartView: View {
                     }
                 }
 
-                ChartLegendStrip(items: legendItems)
+                ChartLegendStrip(items: legendItems, hiddenItemIDs: hiddenLegendIDs) { item in
+                    toggleLegend(item.id)
+                }
                 hoverSummaryRow
             }
         }
@@ -158,6 +167,10 @@ struct MetricChartView: View {
                 }
             )
         ]
+    }
+
+    private var visibleChartPoints: [TimeSeriesChartPoint] {
+        chartModel.chartPoints.filter { !hiddenLegendIDs.contains($0.seriesKey) }
     }
 
     @ViewBuilder
@@ -222,7 +235,7 @@ struct MetricChartView: View {
         let first = samples.first?.timestamp.timeIntervalSince1970 ?? 0
         let last = samples.last?.timestamp.timeIntervalSince1970 ?? 0
         let lastValue = samples.last?.value ?? 0
-        return "\(title)-\(samples.count)-\(first)-\(last)-\(lastValue)"
+        return "\(title)-\(samples.count)-\(first)-\(last)-\(lastValue)-\(displayOptions.smoothingAlpha)-\(displayOptions.showsMinorGrid)"
     }
 
     private func rebuildChartModel() {
@@ -231,10 +244,19 @@ struct MetricChartView: View {
             samples: samples,
             title: title,
             baselinePolicy: baselinePolicy,
-            color: seriesColor
+            color: seriesColor,
+            smoothingAlpha: displayOptions.normalizedSmoothingAlpha
         )
         let elapsed = start.duration(to: ContinuousClock.now)
         diagnosticsStore?.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
+    }
+
+    private func toggleLegend(_ id: String) {
+        if hiddenLegendIDs.contains(id) {
+            hiddenLegendIDs.remove(id)
+        } else {
+            hiddenLegendIDs.insert(id)
+        }
     }
 }
 
@@ -243,8 +265,9 @@ private struct PreparedMetricChartModel {
     let chartPoints: [TimeSeriesChartPoint]
     let chartScale: ChartScale
 
-    init(samples: [MetricSample], title: String, baselinePolicy: ChartBaselinePolicy, color: Color) {
-        sanitizedSamples = ChartSeriesPipeline.sanitize(samples, timestamp: \.timestamp)
+    init(samples: [MetricSample], title: String, baselinePolicy: ChartBaselinePolicy, color: Color, smoothingAlpha: Double = 1.0) {
+        let sanitized = ChartSeriesPipeline.sanitize(samples, timestamp: \.timestamp)
+        sanitizedSamples = ChartSeriesPipeline.lowPass(sanitized, alpha: smoothingAlpha)
         chartPoints = ChartSeriesPipeline.metricSamples(
             sanitizedSamples,
             key: title,

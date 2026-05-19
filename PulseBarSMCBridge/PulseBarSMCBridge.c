@@ -39,6 +39,7 @@ typedef struct {
     PulseBarSMCVersion version;
     PulseBarSMCPLimitData p_limit_data;
     PulseBarSMCKeyInfoData key_info;
+    uint16_t padding;
     uint8_t result;
     uint8_t status;
     uint8_t data8;
@@ -51,6 +52,29 @@ static void pulsebar_set_error(char *buffer, size_t size, const char *message) {
         return;
     }
     snprintf(buffer, size, "%s", message);
+}
+
+static void pulsebar_set_kernel_error(
+    char *buffer,
+    size_t size,
+    const char *operation,
+    kern_return_t code
+) {
+    if (code == kIOReturnNotPrivileged) {
+        char message[192];
+        snprintf(
+            message,
+            sizeof(message),
+            "%s requires privileged helper access (kIOReturnNotPrivileged)",
+            operation
+        );
+        pulsebar_set_error(buffer, size, message);
+        return;
+    }
+
+    char message[192];
+    snprintf(message, sizeof(message), "%s failed (0x%x)", operation, code);
+    pulsebar_set_error(buffer, size, message);
 }
 
 static uint32_t pulsebar_key_from_string(const char *key) {
@@ -98,7 +122,7 @@ static int pulsebar_read_key(io_connect_t connection, const char *key_name, Puls
     input.data8 = PULSEBAR_SMC_CMD_READ_KEYINFO;
     kern_return_t result = pulsebar_call_smc(connection, &input, &local_output);
     if (result != KERN_SUCCESS) {
-        pulsebar_set_error(error_buffer, error_buffer_size, "SMC read key-info command failed");
+        pulsebar_set_kernel_error(error_buffer, error_buffer_size, "SMC read key-info command", result);
         return -1;
     }
 
@@ -106,7 +130,7 @@ static int pulsebar_read_key(io_connect_t connection, const char *key_name, Puls
     input.data8 = PULSEBAR_SMC_CMD_READ_BYTES;
     result = pulsebar_call_smc(connection, &input, &local_output);
     if (result != KERN_SUCCESS) {
-        pulsebar_set_error(error_buffer, error_buffer_size, "SMC read-bytes command failed");
+        pulsebar_set_kernel_error(error_buffer, error_buffer_size, "SMC read-bytes command", result);
         return -1;
     }
 
@@ -120,7 +144,6 @@ static int pulsebar_open_smc_connection(io_connect_t *connection, char *error_bu
         "AppleSMCKeysEndpoint",
         "SMCEndpoint1"
     };
-    const uint32_t type_candidates[] = {0, 1};
 
     for (size_t service_index = 0; service_index < sizeof(service_names) / sizeof(service_names[0]); service_index++) {
         CFMutableDictionaryRef matching = IOServiceMatching(service_names[service_index]);
@@ -133,19 +156,17 @@ static int pulsebar_open_smc_connection(io_connect_t *connection, char *error_bu
             continue;
         }
 
-        for (size_t type_index = 0; type_index < sizeof(type_candidates) / sizeof(type_candidates[0]); type_index++) {
-            io_connect_t local_connection = IO_OBJECT_NULL;
-            kern_return_t open_result = IOServiceOpen(
-                service,
-                mach_task_self(),
-                type_candidates[type_index],
-                &local_connection
-            );
-            if (open_result == KERN_SUCCESS && local_connection != IO_OBJECT_NULL) {
-                IOObjectRelease(service);
-                *connection = local_connection;
-                return 0;
-            }
+        io_connect_t local_connection = IO_OBJECT_NULL;
+        kern_return_t open_result = IOServiceOpen(
+            service,
+            mach_task_self(),
+            0,
+            &local_connection
+        );
+        if (open_result == KERN_SUCCESS && local_connection != IO_OBJECT_NULL) {
+            IOObjectRelease(service);
+            *connection = local_connection;
+            return 0;
         }
 
         IOObjectRelease(service);
@@ -193,14 +214,23 @@ static int pulsebar_decode_fan_rpm(const PulseBarSMCParamStruct *entry, double *
     }
 
     if (pulsebar_data_type_matches(entry->key_info.data_type, "flt ") && entry->key_info.data_size >= 4) {
-        uint32_t raw = ((uint32_t)entry->bytes[0] << 24)
-            | ((uint32_t)entry->bytes[1] << 16)
-            | ((uint32_t)entry->bytes[2] << 8)
-            | ((uint32_t)entry->bytes[3]);
-        float as_float;
-        memcpy(&as_float, &raw, sizeof(float));
-        if (as_float >= 0) {
-            *value = (double)as_float;
+        float native_float = 0.0f;
+        memcpy(&native_float, entry->bytes, sizeof(float));
+        if (native_float >= 0.0f && native_float <= 10000.0f) {
+            *value = (double)native_float;
+            return 0;
+        }
+
+        uint8_t swapped_bytes[4] = {
+            entry->bytes[3],
+            entry->bytes[2],
+            entry->bytes[1],
+            entry->bytes[0]
+        };
+        float swapped_float = 0.0f;
+        memcpy(&swapped_float, swapped_bytes, sizeof(float));
+        if (swapped_float >= 0.0f && swapped_float <= 10000.0f) {
+            *value = (double)swapped_float;
             return 0;
         }
     }
@@ -235,6 +265,11 @@ int pulsebar_read_fans(PulseBarFanSnapshot *out_snapshot, char *error_buffer, si
         max_readable = PULSEBAR_SMC_MAX_FANS;
     }
 
+    int fan_decode_attempted = 0;
+    int fan_decode_failures = 0;
+    uint32_t first_failed_data_type = 0;
+    uint32_t first_failed_data_size = 0;
+
     for (int fan_index = 0; fan_index < max_readable; fan_index++) {
         char key_name[5];
         snprintf(key_name, sizeof(key_name), "F%dAc", fan_index);
@@ -245,7 +280,13 @@ int pulsebar_read_fans(PulseBarFanSnapshot *out_snapshot, char *error_buffer, si
         }
 
         double rpm = 0;
+        fan_decode_attempted += 1;
         if (pulsebar_decode_fan_rpm(&fan_entry, &rpm) != 0) {
+            fan_decode_failures += 1;
+            if (first_failed_data_type == 0) {
+                first_failed_data_type = fan_entry.key_info.data_type;
+                first_failed_data_size = fan_entry.key_info.data_size;
+            }
             continue;
         }
 
@@ -265,9 +306,40 @@ int pulsebar_read_fans(PulseBarFanSnapshot *out_snapshot, char *error_buffer, si
 
     IOServiceClose(connection);
     if (fan_count_read_ok || out_snapshot->rpm_count > 0) {
-        pulsebar_set_error(error_buffer, error_buffer_size, "");
+        if (fan_count_read_ok && out_snapshot->fan_count > 0 && out_snapshot->rpm_count == 0) {
+            if (fan_decode_failures > 0) {
+                char type_name[5];
+                type_name[0] = (char)((first_failed_data_type >> 24) & 0xFF);
+                type_name[1] = (char)((first_failed_data_type >> 16) & 0xFF);
+                type_name[2] = (char)((first_failed_data_type >> 8) & 0xFF);
+                type_name[3] = (char)(first_failed_data_type & 0xFF);
+                type_name[4] = '\0';
+                char message[160];
+                snprintf(
+                    message,
+                    sizeof(message),
+                    "Fan hardware detected but no RPM channels decoded (type=%s size=%u attempts=%d)",
+                    type_name,
+                    first_failed_data_size,
+                    fan_decode_attempted
+                );
+                pulsebar_set_error(error_buffer, error_buffer_size, message);
+            } else {
+                pulsebar_set_error(
+                    error_buffer,
+                    error_buffer_size,
+                    "Fan hardware detected but no RPM channels decoded"
+                );
+            }
+        } else {
+            pulsebar_set_error(error_buffer, error_buffer_size, "");
+        }
     } else {
-        pulsebar_set_error(error_buffer, error_buffer_size, "Unable to decode fan count");
+        if (error_buffer != NULL && error_buffer[0] != '\0') {
+            // Preserve earlier probe errors (for example permission failures).
+        } else {
+            pulsebar_set_error(error_buffer, error_buffer_size, "Unable to decode fan count");
+        }
     }
     return 0;
 }

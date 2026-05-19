@@ -79,7 +79,8 @@ struct DiskTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.diskAccent
+                seriesColor: DashboardPalette.diskAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
             MetricChartView(
@@ -88,7 +89,8 @@ struct DiskTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.cpuAccent
+                seriesColor: DashboardPalette.cpuAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
             MetricChartView(
@@ -97,7 +99,8 @@ struct DiskTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.diskAccent
+                seriesColor: DashboardPalette.diskAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
         }
         .foregroundStyle(DashboardPalette.primaryText)

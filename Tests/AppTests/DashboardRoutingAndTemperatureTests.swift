@@ -40,6 +40,99 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         }
     }
 
+    func testStartupDirectIOHIDProbeMergesSMCFanTelemetryOnM1() async throws {
+        let defaults = makeDefaults()
+        let reading = makeDirectReading()
+        let controller = SettingsController(defaults: defaults)
+        controller.privilegedTemperatureEnabled = true
+
+        let sampledAt = Date(timeIntervalSince1970: 1_700_010_200)
+        let fanChannel = SensorReading(
+            id: "smc:fanRPM:fan-1",
+            rawName: "System Fan 1",
+            displayName: "System Fan 1",
+            category: .fan,
+            channelType: .fanRPM,
+            value: 2150,
+            source: "smc",
+            timestamp: sampledAt
+        )
+        let fanSample = AppFanTelemetrySample(
+            channels: [fanChannel],
+            fanCount: 1,
+            hasFanHardware: true,
+            diagnostic: SensorSourceDiagnostic(
+                source: "smc",
+                healthy: true,
+                message: "Fan telemetry active (1/1 channels)",
+                collectedAt: sampledAt
+            )
+        )
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
+                fanTelemetryDataSource: FixedFanTelemetryDataSource(sample: fanSample),
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+            try await waitUntil {
+                telemetryStore.privilegedTemperatureHealthy
+                    && telemetryStore.latestSensorChannels.contains(where: { $0.channelType == .fanRPM && $0.value == 2150 })
+                    && telemetryStore.fanParityGateMessage == nil
+                    && telemetryStore.privilegedSourceDiagnostics.contains(where: { $0.source == "smc" && $0.healthy })
+            }
+
+            await coordinator.shutdown()
+        }
+    }
+
+    func testStartupDirectIOHIDProbeSurfacesFanPrivilegeRequirement() async throws {
+        let defaults = makeDefaults()
+        let reading = makeDirectReading()
+        let controller = SettingsController(defaults: defaults)
+        controller.privilegedTemperatureEnabled = true
+
+        let sampledAt = Date(timeIntervalSince1970: 1_700_010_210)
+        let fanSample = AppFanTelemetrySample(
+            channels: [],
+            fanCount: 0,
+            hasFanHardware: false,
+            diagnostic: SensorSourceDiagnostic(
+                source: "smc",
+                healthy: false,
+                message: "Fan telemetry requires privileged helper access.",
+                collectedAt: sampledAt
+            )
+        )
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
+                fanTelemetryDataSource: FixedFanTelemetryDataSource(sample: fanSample),
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+            try await waitUntil {
+                telemetryStore.privilegedTemperatureHealthy
+                    && telemetryStore.fanParityGateBlocked == false
+                    && telemetryStore.fanParityGateMessage == "Fan telemetry requires privileged helper access."
+            }
+
+            await coordinator.shutdown()
+        }
+    }
+
     func testStartupDirectIOHIDProbeAppendsTemperatureHistoryPromptly() async throws {
         let defaults = makeDefaults()
         let reading = makeDirectReading()
@@ -685,5 +778,13 @@ private struct FixedTemperatureDataSource: TemperatureDataSource {
 private struct FailingTemperatureDataSource: TemperatureDataSource {
     func readTemperatures() async throws -> PowermetricsTemperatureReading {
         throw ProviderError.unavailable("stubbed direct IOHID failure")
+    }
+}
+
+private struct FixedFanTelemetryDataSource: FanTelemetryDataSource {
+    let sample: AppFanTelemetrySample
+
+    func readFans(at timestamp: Date) -> AppFanTelemetrySample {
+        sample
     }
 }

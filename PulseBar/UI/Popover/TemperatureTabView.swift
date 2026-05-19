@@ -209,7 +209,8 @@ struct TemperatureTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.temperatureAccent
+                seriesColor: DashboardPalette.temperatureAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
             MetricChartView(
@@ -218,7 +219,8 @@ struct TemperatureTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.memoryAccent
+                seriesColor: DashboardPalette.memoryAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
             MetricChartView(
@@ -227,7 +229,8 @@ struct TemperatureTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.cpuAccent
+                seriesColor: DashboardPalette.cpuAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
         }
         .dashboardSurface(padding: 16, cornerRadius: 20)

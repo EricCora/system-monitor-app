@@ -75,7 +75,8 @@ struct BatteryTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.batteryAccent
+                seriesColor: DashboardPalette.batteryAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
             MetricChartView(
@@ -84,7 +85,8 @@ struct BatteryTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent
+                seriesColor: featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
             } else {
                 Text("Battery Unavailable")

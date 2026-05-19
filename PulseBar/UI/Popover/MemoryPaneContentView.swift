@@ -20,6 +20,7 @@ struct MemoryPaneContentView: View {
     @State private var swapChartModel: PreparedMetricLineChartModel?
     @State private var pagesChartModel: PreparedMetricLineChartModel?
     @State private var deferredRefreshTriggerID: String?
+    @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -55,7 +56,9 @@ struct MemoryPaneContentView: View {
                 DashboardSectionLabel(title: activeChart.historyTitle, tint: DashboardPalette.secondaryText)
                 chartBody
                     .frame(maxWidth: .infinity, minHeight: 300)
-                ChartLegendStrip(items: legendItems)
+                ChartLegendStrip(items: legendItems, hiddenItemIDs: hiddenLegendIDs) { item in
+                    toggleLegend(item.id)
+                }
                 summaryRow
             }
             .padding(12)
@@ -68,6 +71,7 @@ struct MemoryPaneContentView: View {
                 hoveredDate = nil
                 viewport.reset()
                 zoomSelectionRect = nil
+                hiddenLegendIDs = []
                 lastRefreshContextID = contextRefreshID
             }
             if isInteractionActive {
@@ -113,6 +117,7 @@ struct MemoryPaneContentView: View {
                 MemoryCompositionChart(
                     model: compositionChartModel ?? PreparedMemoryCompositionChartModel.empty,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -127,6 +132,7 @@ struct MemoryPaneContentView: View {
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -141,6 +147,7 @@ struct MemoryPaneContentView: View {
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -155,6 +162,7 @@ struct MemoryPaneContentView: View {
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -349,7 +357,10 @@ struct MemoryPaneContentView: View {
             pageInHistory = []
             pageOutHistory = []
 
-            compositionChartModel = PreparedMemoryCompositionChartModel(history: compositionHistory)
+            compositionChartModel = PreparedMemoryCompositionChartModel(
+                history: compositionHistory,
+                smoothingAlpha: coordinator.chartSmoothingAlpha
+            )
             pressureChartModel = nil
             swapChartModel = nil
             pagesChartModel = nil
@@ -362,8 +373,9 @@ struct MemoryPaneContentView: View {
             pageOutHistory = []
 
             pressureChartModel = PreparedMetricLineChartModel(
-                series: [ChartMetricSeriesDescriptor(key: "Series", label: "Series", color: .cyan, samples: pressureHistory)],
-                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+                series: [ChartMetricSeriesDescriptor(key: "memory.pressure", label: "Pressure", color: .cyan, samples: pressureHistory)],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                smoothingAlpha: coordinator.chartSmoothingAlpha
             )
             compositionChartModel = nil
             swapChartModel = nil
@@ -377,8 +389,9 @@ struct MemoryPaneContentView: View {
             pageOutHistory = []
 
             swapChartModel = PreparedMetricLineChartModel(
-                series: [ChartMetricSeriesDescriptor(key: "Series", label: "Series", color: .cyan, samples: swapHistory)],
-                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+                series: [ChartMetricSeriesDescriptor(key: "memory.swap", label: "Swap Used", color: .cyan, samples: swapHistory)],
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                smoothingAlpha: coordinator.chartSmoothingAlpha
             )
             compositionChartModel = nil
             pressureChartModel = nil
@@ -396,10 +409,11 @@ struct MemoryPaneContentView: View {
 
             pagesChartModel = PreparedMetricLineChartModel(
                 series: [
-                    ChartMetricSeriesDescriptor(key: "Page Ins", label: "Page Ins", color: .cyan, samples: pageInHistory),
-                    ChartMetricSeriesDescriptor(key: "Page Outs", label: "Page Outs", color: .orange, samples: pageOutHistory)
+                    ChartMetricSeriesDescriptor(key: "memory.pageIns", label: "Page Ins", color: .cyan, samples: pageInHistory),
+                    ChartMetricSeriesDescriptor(key: "memory.pageOuts", label: "Page Outs", color: .orange, samples: pageOutHistory)
                 ],
-                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                smoothingAlpha: coordinator.chartSmoothingAlpha
             )
             compositionChartModel = nil
             pressureChartModel = nil
@@ -423,6 +437,14 @@ struct MemoryPaneContentView: View {
 
     private var isInteractionActive: Bool {
         hoveredDate != nil || zoomSelectionRect != nil
+    }
+
+    private func toggleLegend(_ id: String) {
+        if hiddenLegendIDs.contains(id) {
+            hiddenLegendIDs.remove(id)
+        } else {
+            hiddenLegendIDs.insert(id)
+        }
     }
 }
 
@@ -470,12 +492,14 @@ private extension MemoryPaneChart {
 private struct MemoryCompositionChart: View {
     let model: PreparedMemoryCompositionChartModel
     let paneController: DetachedMetricsPaneController
+    let hiddenLegendIDs: Set<String>
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
     @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart(model.points) { point in
+        Chart(visiblePoints) { point in
             AreaMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Percent", point.percent),
@@ -503,7 +527,7 @@ private struct MemoryCompositionChart: View {
         }
         .chartPlotStyle { plot in
             plot
-                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .chartOverlay { proxy in
@@ -530,6 +554,10 @@ private struct MemoryCompositionChart: View {
         }
         .frame(height: 300)
     }
+
+    private var visiblePoints: [MemoryCompositionSeriesPoint] {
+        model.points.filter { !hiddenLegendIDs.contains("memory.\($0.component.rawValue)") }
+    }
 }
 
 private struct MetricLinePaneChart: View {
@@ -537,12 +565,14 @@ private struct MetricLinePaneChart: View {
     let areaOpacity: Double
     let throughputUnit: ThroughputDisplayUnit
     let paneController: DetachedMetricsPaneController
+    let hiddenLegendIDs: Set<String>
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
     @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart(model.points) { point in
+        Chart(visiblePoints) { point in
             AreaMark(
                 x: .value("Time", point.timestamp),
                 yStart: .value("Baseline", model.scale.renderedAreaBaseline(viewport: viewport)),
@@ -580,7 +610,7 @@ private struct MetricLinePaneChart: View {
         }
         .chartPlotStyle { plot in
             plot
-                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .chartOverlay { proxy in
@@ -606,6 +636,10 @@ private struct MetricLinePaneChart: View {
             }
         }
         .frame(height: 300)
+    }
+
+    private var visiblePoints: [TimeSeriesChartPoint] {
+        model.points.filter { !hiddenLegendIDs.contains($0.seriesKey) }
     }
 }
 
@@ -642,16 +676,35 @@ private struct PreparedMemoryCompositionChartModel {
     let points: [MemoryCompositionSeriesPoint]
     let xDomain: ClosedRange<Date>
 
-    init(history: [MemoryHistoryPoint]) {
+    init(history: [MemoryHistoryPoint], smoothingAlpha: Double = 1.0) {
         let sanitizedHistory = ChartSeriesPipeline.sanitize(history, timestamp: \.timestamp)
         let continuityKeys = ChartSeriesPipeline.continuityKeys(for: sanitizedHistory, seriesKey: "memory.composition", timestamp: \.timestamp)
+        var previous: MemoryHistoryPoint?
         points = zip(sanitizedHistory, continuityKeys).flatMap { point, continuityKey in
-            let total = max(1, point.totalBytes)
+            let alpha = min(max(smoothingAlpha, 0.05), 1.0)
+            let displayPoint: MemoryHistoryPoint
+            if let previous, alpha < 0.999 {
+                displayPoint = MemoryHistoryPoint(
+                    timestamp: point.timestamp,
+                    appBytes: (alpha * point.appBytes) + ((1 - alpha) * previous.appBytes),
+                    wiredBytes: (alpha * point.wiredBytes) + ((1 - alpha) * previous.wiredBytes),
+                    activeBytes: (alpha * point.activeBytes) + ((1 - alpha) * previous.activeBytes),
+                    compressedBytes: (alpha * point.compressedBytes) + ((1 - alpha) * previous.compressedBytes),
+                    cacheBytes: (alpha * point.cacheBytes) + ((1 - alpha) * previous.cacheBytes),
+                    freeBytes: (alpha * point.freeBytes) + ((1 - alpha) * previous.freeBytes),
+                    totalBytes: (alpha * point.totalBytes) + ((1 - alpha) * previous.totalBytes),
+                    pressurePercent: (alpha * point.pressurePercent) + ((1 - alpha) * previous.pressurePercent)
+                )
+            } else {
+                displayPoint = point
+            }
+            previous = displayPoint
+            let total = max(1, displayPoint.totalBytes)
             return [
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .wired, continuityKey: "\(continuityKey).wired", percent: min(max((point.wiredBytes / total) * 100, 0), 100)),
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .active, continuityKey: "\(continuityKey).active", percent: min(max((point.activeBytes / total) * 100, 0), 100)),
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .compressed, continuityKey: "\(continuityKey).compressed", percent: min(max((point.compressedBytes / total) * 100, 0), 100)),
-                MemoryCompositionSeriesPoint(timestamp: point.timestamp, component: .free, continuityKey: "\(continuityKey).free", percent: min(max((point.freeBytes / total) * 100, 0), 100))
+                MemoryCompositionSeriesPoint(timestamp: displayPoint.timestamp, component: .wired, continuityKey: "\(continuityKey).wired", percent: min(max((displayPoint.wiredBytes / total) * 100, 0), 100)),
+                MemoryCompositionSeriesPoint(timestamp: displayPoint.timestamp, component: .active, continuityKey: "\(continuityKey).active", percent: min(max((displayPoint.activeBytes / total) * 100, 0), 100)),
+                MemoryCompositionSeriesPoint(timestamp: displayPoint.timestamp, component: .compressed, continuityKey: "\(continuityKey).compressed", percent: min(max((displayPoint.compressedBytes / total) * 100, 0), 100)),
+                MemoryCompositionSeriesPoint(timestamp: displayPoint.timestamp, component: .free, continuityKey: "\(continuityKey).free", percent: min(max((displayPoint.freeBytes / total) * 100, 0), 100))
             ]
         }
         xDomain = Self.makeXDomain(from: points.map(\.timestamp))
@@ -675,11 +728,21 @@ private struct PreparedMetricLineChartModel {
     let fallbackXDomain: ClosedRange<Date>
     let primaryUnit: MetricUnit?
 
-    init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy) {
-        points = ChartSeriesPipeline.metricHistory(series: series.filter { !$0.label.isEmpty })
+    init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy, smoothingAlpha: Double = 1.0) {
+        let smoothedSeries = series
+            .filter { !$0.label.isEmpty }
+            .map {
+                ChartMetricSeriesDescriptor(
+                    key: $0.key,
+                    label: $0.label,
+                    color: $0.color,
+                    samples: ChartSeriesPipeline.lowPass($0.samples, alpha: smoothingAlpha)
+                )
+            }
+        points = ChartSeriesPipeline.metricHistory(series: smoothedSeries)
         scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
         fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
-        primaryUnit = series
+        primaryUnit = smoothedSeries
             .lazy
             .flatMap(\.samples)
             .first?

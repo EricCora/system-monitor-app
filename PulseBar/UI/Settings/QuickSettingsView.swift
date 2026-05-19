@@ -52,6 +52,80 @@ struct QuickSettingsView: View {
                 Text("Detached charts support horizontal time-range zoom and double-click reset.")
                     .font(.caption)
                     .foregroundStyle(DashboardPalette.secondaryText)
+
+                Toggle("Show minor grid", isOn: $coordinator.chartMinorGridEnabled)
+
+                HStack {
+                    Text("LPF Alpha")
+                    Slider(value: $coordinator.chartSmoothingAlpha, in: 0.05...1.0, step: 0.05)
+                    Text(String(format: "%.2f", coordinator.chartSmoothingAlpha))
+                        .monospacedDigit()
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+            }
+
+            quickCard("Dashboard") {
+                Picker("Preset", selection: $coordinator.dashboardLayout) {
+                    ForEach(DashboardLayoutMode.allCases, id: \.self) { layout in
+                        Text(layout.label).tag(layout)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker("Density", selection: $coordinator.dashboardDensity) {
+                    ForEach(DashboardDensityMode.allCases, id: \.self) { density in
+                        Text(density.label).tag(density)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("\(coordinator.visibleDashboardCards.count) overview cards visible.")
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+
+                Divider()
+                    .overlay(DashboardPalette.divider)
+
+                ForEach(Array(coordinator.dashboardCardOrder.enumerated()), id: \.element) { index, card in
+                    HStack(spacing: 8) {
+                        Toggle(
+                            card.label,
+                            isOn: Binding(
+                                get: { coordinator.dashboardCardVisibility[card] ?? true },
+                                set: { coordinator.setDashboardCard(card, isVisible: $0) }
+                            )
+                        )
+
+                        Spacer()
+
+                        Button {
+                            coordinator.moveDashboardCard(from: index, direction: -1)
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .frame(width: 20, height: 20)
+                        }
+                        .help("Move \(card.label) up")
+                        .disabled(index == 0)
+
+                        Button {
+                            coordinator.moveDashboardCard(from: index, direction: 1)
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .frame(width: 20, height: 20)
+                        }
+                        .help("Move \(card.label) down")
+                        .disabled(index == coordinator.dashboardCardOrder.count - 1)
+                    }
+                    .font(.caption)
+                }
+
+                Button {
+                    coordinator.resetDashboardLayoutEditor()
+                } label: {
+                    Label("Reset Dashboard Layout", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             }
 
             quickCard("Diagnostics") {

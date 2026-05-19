@@ -35,7 +35,6 @@ struct SettingsView: View {
             )
             .navigationTitle(selectedSection?.title ?? SettingsSection.general.title)
         }
-        .preferredColorScheme(.light)
         .foregroundStyle(DashboardPalette.primaryText)
     }
 
@@ -46,6 +45,8 @@ struct SettingsView: View {
             generalSection
         case .charts:
             chartsSection
+        case .dashboard:
+            dashboardSection
         case .cpu:
             cpuSection
         case .memory:
@@ -134,30 +135,6 @@ struct SettingsView: View {
                 metricStylePicker(.temperature)
             }
 
-            settingsCard("Dashboard Layout") {
-                Picker("Layout", selection: $coordinator.dashboardLayout) {
-                    ForEach(DashboardLayoutMode.allCases, id: \.self) { layout in
-                        Text(layout.label).tag(layout)
-                    }
-                }
-
-                ForEach(Array(coordinator.dashboardCardOrder.enumerated()), id: \.element) { index, card in
-                    HStack {
-                        Text(card.label)
-                        Spacer()
-                        Button("Up") {
-                            coordinator.moveDashboardCard(from: index, direction: -1)
-                        }
-                        .disabled(index == 0)
-
-                        Button("Down") {
-                            coordinator.moveDashboardCard(from: index, direction: 1)
-                        }
-                        .disabled(index == coordinator.dashboardCardOrder.count - 1)
-                    }
-                }
-            }
-
             settingsCard("App Control") {
                 Text("Quit PulseBar without using Activity Monitor.")
                     .font(.caption)
@@ -174,6 +151,50 @@ struct SettingsView: View {
         }
     }
 
+    private var dashboardSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            settingsCard("Overview Layout") {
+                Picker("Preset", selection: $coordinator.dashboardLayout) {
+                    ForEach(DashboardLayoutMode.allCases, id: \.self) { layout in
+                        Text(layout.label).tag(layout)
+                    }
+                }
+
+                Picker("Density", selection: $coordinator.dashboardDensity) {
+                    ForEach(DashboardDensityMode.allCases, id: \.self) { density in
+                        Text(density.label).tag(density)
+                    }
+                }
+
+                Picker("Card Size", selection: $coordinator.dashboardCardSize) {
+                    ForEach(DashboardCardSizeMode.allCases, id: \.self) { size in
+                        Text(size.label).tag(size)
+                    }
+                }
+
+                Text(dashboardLayoutDescription)
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            }
+
+            settingsCard("Card Editor") {
+                ForEach(Array(coordinator.dashboardCardOrder.enumerated()), id: \.element) { index, card in
+                    dashboardCardEditorRow(card, index: index)
+                }
+
+                HStack {
+                    Text("\(coordinator.visibleDashboardCards.count) cards visible")
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                    Spacer()
+                    Button("Reset Layout") {
+                        coordinator.resetDashboardLayoutEditor()
+                    }
+                }
+            }
+        }
+    }
+
     private var chartsSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             settingsCard("Appearance") {
@@ -186,6 +207,22 @@ struct SettingsView: View {
                 }
 
                 Text("Detached charts support click-drag horizontal zoom and double-click reset.")
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            }
+
+            settingsCard("Chart Readability") {
+                Toggle("Show minor grid", isOn: $coordinator.chartMinorGridEnabled)
+
+                HStack {
+                    Text("LPF Alpha")
+                    Slider(value: $coordinator.chartSmoothingAlpha, in: 0.05...1.0, step: 0.05)
+                    Text(String(format: "%.2f", coordinator.chartSmoothingAlpha))
+                        .monospacedDigit()
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+
+                Text("Lower alpha smooths jitter more. 1.00 shows the raw chart sample path.")
                     .font(.caption)
                     .foregroundStyle(DashboardPalette.secondaryText)
             }
@@ -558,6 +595,48 @@ struct SettingsView: View {
         .dashboardSurface(padding: 16, cornerRadius: 14)
     }
 
+    private func dashboardCardEditorRow(_ card: DashboardCardID, index: Int) -> some View {
+        HStack(spacing: 12) {
+            Toggle(
+                card.label,
+                isOn: Binding(
+                    get: { coordinator.dashboardCardVisibility[card] ?? true },
+                    set: { coordinator.setDashboardCard(card, isVisible: $0) }
+                )
+            )
+
+            Spacer()
+
+            Button {
+                coordinator.moveDashboardCard(from: index, direction: -1)
+            } label: {
+                Image(systemName: "arrow.up")
+                    .frame(width: 22, height: 22)
+            }
+            .help("Move \(card.label) up")
+            .disabled(index == 0)
+
+            Button {
+                coordinator.moveDashboardCard(from: index, direction: 1)
+            } label: {
+                Image(systemName: "arrow.down")
+                    .frame(width: 22, height: 22)
+            }
+            .help("Move \(card.label) down")
+            .disabled(index == coordinator.dashboardCardOrder.count - 1)
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DashboardPalette.insetFill.opacity(coordinator.dashboardCardVisibility[card] ?? true ? 0.82 : 0.42))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+                )
+        )
+    }
+
     private func alertCard(
         _ title: String,
         enabled: Binding<Bool>,
@@ -611,6 +690,17 @@ struct SettingsView: View {
             return "Performance: fastest sampling and fullest metric visibility."
         case .custom:
             return "Custom: your personalized settings. Edit controls below to tune behavior."
+        }
+    }
+
+    private var dashboardLayoutDescription: String {
+        switch coordinator.dashboardLayout {
+        case .cardDashboard:
+            return "Balanced Grid keeps the overview familiar while tightening spacing and hierarchy."
+        case .focusGrid:
+            return "Focus Grid gives major cards more room for diagnosis when you prefer larger summaries."
+        case .compactMatrix:
+            return "Compact Matrix fits more cards into the first viewport for frequent monitoring."
         }
     }
 
@@ -687,6 +777,7 @@ struct SettingsView: View {
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case charts
+    case dashboard
     case cpu
     case memory
     case temperature
@@ -701,6 +792,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
             return "General"
         case .charts:
             return "Charts"
+        case .dashboard:
+            return "Dashboard"
         case .cpu:
             return "CPU"
         case .memory:
@@ -720,6 +813,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
             return "slider.horizontal.3"
         case .charts:
             return "chart.xyaxis.line"
+        case .dashboard:
+            return "rectangle.grid.2x2"
         case .cpu:
             return "cpu"
         case .memory:

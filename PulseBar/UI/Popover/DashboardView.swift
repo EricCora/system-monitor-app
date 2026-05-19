@@ -7,17 +7,35 @@ struct DashboardView: View {
     @StateObject private var paneController = DetachedMetricsPaneController()
     @Namespace private var sectionTabsNamespace
 
-    private let columns = [
-        GridItem(.flexible(minimum: 320), spacing: 18),
-        GridItem(.flexible(minimum: 320), spacing: 18)
-    ]
+    private var contentPadding: CGFloat {
+        coordinator.dashboardDensity == .compact ? 16 : 22
+    }
+
+    private var gridSpacing: CGFloat {
+        coordinator.dashboardDensity == .compact ? 12 : 18
+    }
+
+    private var overviewColumns: [GridItem] {
+        let minimumWidth: CGFloat
+        switch coordinator.dashboardLayout {
+        case .cardDashboard:
+            minimumWidth = coordinator.dashboardCardSize == .expanded ? 400 : 320
+        case .focusGrid:
+            minimumWidth = coordinator.dashboardCardSize == .expanded ? 460 : 380
+        case .compactMatrix:
+            minimumWidth = coordinator.dashboardCardSize == .expanded ? 320 : 260
+        }
+        return [
+            GridItem(.adaptive(minimum: minimumWidth), spacing: gridSpacing, alignment: .top)
+        ]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             dashboardHeader
-                .padding(.horizontal, 22)
-                .padding(.top, 22)
-                .padding(.bottom, 18)
+                .padding(.horizontal, contentPadding)
+                .padding(.top, contentPadding)
+                .padding(.bottom, 14)
 
             Divider()
                 .overlay(DashboardPalette.divider)
@@ -25,7 +43,13 @@ struct DashboardView: View {
             contentView
         }
         .dashboardCanvasBackground()
-        .preferredColorScheme(.light)
+        .environment(
+            \.dashboardChartDisplayOptions,
+            ChartDisplayOptions(
+                showsMinorGrid: coordinator.chartMinorGridEnabled,
+                smoothingAlpha: coordinator.chartSmoothingAlpha
+            )
+        )
         .onAppear {
             coordinator.resetDashboardSectionForPresentation()
             coordinator.setDashboardVisible(true)
@@ -44,22 +68,56 @@ struct DashboardView: View {
         case .overview:
             ScrollView {
                 overviewContent
-                    .padding(22)
+                    .padding(contentPadding)
             }
         case .cpu, .memory, .battery, .network, .temperature, .disk, .settings:
             ScrollView {
-                detailContent
-                    .padding(22)
+                detailSection
+                    .padding(contentPadding)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
     }
 
     private var overviewContent: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
-            ForEach(coordinator.dashboardCardOrder, id: \.self) { card in
-                cardView(for: card)
+        VStack(alignment: .leading, spacing: gridSpacing) {
+            overviewSummaryPanel
+
+            LazyVGrid(columns: overviewColumns, alignment: .leading, spacing: gridSpacing) {
+                ForEach(coordinator.visibleDashboardCards, id: \.self) { card in
+                    cardView(for: card)
+                }
             }
+        }
+    }
+
+    private var detailSection: some View {
+        VStack(alignment: .leading, spacing: gridSpacing) {
+            HStack(alignment: .center, spacing: 12) {
+                sectionIcon(for: coordinator.dashboardSection)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(accent(for: coordinator.dashboardSection))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(accent(for: coordinator.dashboardSection).opacity(0.14))
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(coordinator.dashboardSection.label)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(DashboardPalette.primaryText)
+                    Text(detailSubtitle(for: coordinator.dashboardSection))
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+
+                Spacer()
+            }
+            .padding(14)
+            .dashboardSurface(padding: 0, cornerRadius: 8)
+
+            detailContent
         }
     }
 
@@ -139,25 +197,47 @@ struct DashboardView: View {
     }
 
     private var dashboardHeader: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 20) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("LIVE SYSTEM")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .tracking(1.8)
-                        .foregroundStyle(DashboardPalette.temperatureAccent)
+                    HStack(spacing: 8) {
+                        statusDot(tint: statusStore.snapshot.privilegedTemperatureHealthy ? DashboardPalette.success : DashboardPalette.warning)
+                        Text("LIVE SYSTEM")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .tracking(1.2)
+                            .foregroundStyle(DashboardPalette.secondaryText)
+                    }
 
                     Text("PulseBar")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .font(.system(size: 30, weight: .semibold, design: .rounded))
                         .foregroundStyle(DashboardPalette.primaryText)
-                    Text("Overview first, deep inspection one tap away.")
+                    Text("Menu bar monitor")
                         .font(.subheadline)
                         .foregroundStyle(DashboardPalette.secondaryText)
                 }
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 10) {
+                HStack(spacing: 8) {
+                    headerBadge(
+                        title: "Power",
+                        value: statusStore.snapshot.currentPowerSourceDescription,
+                        tint: DashboardPalette.batteryAccent,
+                        systemImage: "powerplug"
+                    )
+                    headerBadge(
+                        title: "Refresh",
+                        value: "\(Int(coordinator.globalSamplingInterval))s",
+                        tint: DashboardPalette.cpuAccent,
+                        systemImage: "arrow.clockwise"
+                    )
+                    headerBadge(
+                        title: "Thermals",
+                        value: statusStore.snapshot.privilegedTemperatureHealthy ? "Live" : "Fallback",
+                        tint: statusStore.snapshot.privilegedTemperatureHealthy ? DashboardPalette.success : DashboardPalette.warning,
+                        systemImage: "thermometer.medium"
+                    )
+
                     Menu {
                         ForEach(ProfileID.allCases, id: \.self) { profile in
                             Button(profile.label) {
@@ -166,92 +246,66 @@ struct DashboardView: View {
                         }
                     } label: {
                         HStack(spacing: 8) {
-                            Text("Profile")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundStyle(DashboardPalette.secondaryText)
-
-                            Spacer(minLength: 8)
-
+                            Image(systemName: "person.crop.circle")
                             Text(coordinator.selectedProfileID.label)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(DashboardPalette.primaryText)
                                 .lineLimit(1)
-
                             Image(systemName: "chevron.up.chevron.down")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(DashboardPalette.secondaryText)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 11)
-                        .frame(width: 220)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(DashboardPalette.primaryText)
+                        .padding(.horizontal, 10)
+                        .frame(height: 42)
                         .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.white.opacity(0.94))
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(DashboardPalette.sectionFill)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                                 )
                         )
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
-
-                    HStack(spacing: 10) {
-                        headerBadge(
-                            title: "Power",
-                            value: statusStore.snapshot.currentPowerSourceDescription,
-                            tint: DashboardPalette.batteryAccent
-                        )
-                        headerBadge(
-                            title: "Refresh",
-                            value: "\(Int(coordinator.globalSamplingInterval))s",
-                            tint: DashboardPalette.cpuAccent
-                        )
-                        headerBadge(
-                            title: "Thermals",
-                            value: statusStore.snapshot.privilegedTemperatureHealthy ? "Live" : "Fallback",
-                            tint: statusStore.snapshot.privilegedTemperatureHealthy ? DashboardPalette.success : DashboardPalette.warning
-                        )
-                        headerBadge(
-                            title: "Section",
-                            value: coordinator.dashboardSection.label,
-                            tint: accent(for: coordinator.dashboardSection)
-                        )
-                    }
                 }
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(DashboardSection.allCases, id: \.self) { section in
                         Button {
                             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                                 coordinator.setDashboardSection(section)
                             }
                         } label: {
-                            Text(section.label)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(
-                                    coordinator.dashboardSection == section
-                                    ? Color.white
-                                    : DashboardPalette.primaryText
-                                )
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.9)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 14)
-                                .frame(minWidth: 88)
+                            HStack(spacing: 6) {
+                                sectionIcon(for: section)
+                                    .font(.caption.weight(.semibold))
+                                Text(section.label)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                            }
+                            .foregroundStyle(
+                                coordinator.dashboardSection == section
+                                ? Color.white
+                                : DashboardPalette.primaryText
+                            )
+                            .padding(.vertical, 7)
+                            .padding(.horizontal, 11)
+                            .frame(minWidth: 78)
+                            .contentShape(Rectangle())
                                 .background(
                                     ZStack {
                                         if coordinator.dashboardSection == section {
-                                            Capsule(style: .continuous)
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
                                                 .fill(accent(for: section))
                                                 .matchedGeometryEffect(id: "dashboard-section-pill", in: sectionTabsNamespace)
                                         } else {
-                                            Capsule(style: .continuous)
-                                                .fill(Color.white.opacity(0.84))
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                .fill(DashboardPalette.sectionFill)
                                                 .overlay(
-                                                    Capsule(style: .continuous)
+                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                                                         .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                                                 )
                                         }
@@ -263,59 +317,220 @@ struct DashboardView: View {
                 }
                 .padding(6)
                 .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.36))
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DashboardPalette.insetFill.opacity(0.62))
                         .overlay(
-                            Capsule(style: .continuous)
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                         )
                 )
             }
         }
-        .padding(20)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.white.opacity(0.50))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DashboardPalette.cardTop.opacity(0.72))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                 )
-                .shadow(color: DashboardPalette.shadow, radius: 18, x: 0, y: 10)
+                .shadow(color: DashboardPalette.shadow, radius: 14, x: 0, y: 8)
         )
     }
 
-    private func headerBadge(title: String, value: String, tint: Color) -> some View {
-        VStack(alignment: .center, spacing: 4) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(tint)
-                    .frame(width: 7, height: 7)
+    private func headerBadge(title: String, value: String, tint: Color, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 18)
 
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title.uppercased())
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .foregroundStyle(DashboardPalette.tertiaryText)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                Text(value)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(DashboardPalette.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-            Text(value)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(DashboardPalette.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
-        .frame(width: 108, height: 68, alignment: .center)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .frame(width: 108, height: 42, alignment: .leading)
+        .padding(.horizontal, 10)
         .background(
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.98))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DashboardPalette.sectionFill)
                 .overlay(
-                    Capsule(style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                 )
         )
+    }
+
+    private func statusDot(tint: Color) -> some View {
+        Circle()
+            .fill(tint)
+            .frame(width: 8, height: 8)
+            .overlay(
+                Circle()
+                    .stroke(tint.opacity(0.22), lineWidth: 5)
+            )
+    }
+
+    @ViewBuilder
+    private func sectionIcon(for section: DashboardSection) -> some View {
+        switch section {
+        case .overview:
+            Image(systemName: "rectangle.grid.2x2")
+        case .cpu:
+            Image(systemName: "cpu")
+        case .memory:
+            Image(systemName: "memorychip")
+        case .battery:
+            Image(systemName: "battery.75")
+        case .network:
+            Image(systemName: "network")
+        case .temperature:
+            Image(systemName: "thermometer.medium")
+        case .disk:
+            Image(systemName: "internaldrive")
+        case .settings:
+            Image(systemName: "gearshape")
+        }
+    }
+
+    private func detailSubtitle(for section: DashboardSection) -> String {
+        switch section {
+        case .overview:
+            return "Live summary"
+        case .cpu:
+            return "Load, GPU, FPS, processes"
+        case .memory:
+            return "Pressure, composition, swap, pages"
+        case .battery:
+            return "Charge, draw, health, energy"
+        case .network:
+            return "Throughput, interfaces, IP, VPN"
+        case .temperature:
+            return "Sensors, presets, fans, history"
+        case .disk:
+            return "Capacity, read/write, SMART"
+        case .settings:
+            return "Controls, diagnostics, layout"
+        }
+    }
+
+    private var overviewSummaryPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Overview")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(DashboardPalette.primaryText)
+                    Text("Live summary")
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+
+                Spacer()
+
+                Text(statusStore.snapshot.privilegedTemperatureHealthy ? "Live sensors" : "Sensor fallback")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusStore.snapshot.privilegedTemperatureHealthy ? DashboardPalette.success : DashboardPalette.warning)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill((statusStore.snapshot.privilegedTemperatureHealthy ? DashboardPalette.success : DashboardPalette.warning).opacity(0.12))
+                    )
+            }
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(minimum: 120), spacing: 10, alignment: .leading), count: 6),
+                alignment: .leading,
+                spacing: 10
+            ) {
+                summaryTile("CPU", value: cpuSummaryText, caption: "Total load", tint: DashboardPalette.cpuAccent, systemImage: "cpu")
+                summaryTile("Memory", value: memorySummaryText, caption: "Used", tint: DashboardPalette.memoryAccent, systemImage: "memorychip")
+                summaryTile("Battery", value: batterySummaryText, caption: coordinator.batteryFeatureStore.isCharging ? "Charging" : "Charge", tint: DashboardPalette.batteryAccent, systemImage: "battery.75")
+                summaryTile("Temp", value: temperatureSummaryText, caption: "Primary sensor", tint: DashboardPalette.temperatureAccent, systemImage: "thermometer.medium")
+                summaryTile("Network", value: networkSummaryText, caption: "Down / Up", tint: DashboardPalette.networkAccent, systemImage: "network")
+                summaryTile("Disk", value: diskSummaryText, caption: "Free", tint: DashboardPalette.diskAccent, systemImage: "internaldrive")
+            }
+        }
+        .padding(14)
+        .dashboardSurface(padding: 0, cornerRadius: 8)
+    }
+
+    private func summaryTile(_ title: String, value: String, caption: String, tint: Color, systemImage: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(tint.opacity(0.13))
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(DashboardPalette.tertiaryText)
+                Text(value)
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(DashboardPalette.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DashboardPalette.insetFill.opacity(0.72))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+                )
+        )
+    }
+
+    private var cpuSummaryText: String {
+        let percent = max(0, 100 - coordinator.cpuUsageSurfaceStore.snapshot.summary.idlePercent)
+        return UnitsFormatter.format(percent, unit: .percent)
+    }
+
+    private var memorySummaryText: String {
+        let store = coordinator.memoryFeatureStore
+        let total = max(store.usedBytes + store.freeBytes, 1)
+        return UnitsFormatter.format((store.usedBytes / total) * 100, unit: .percent)
+    }
+
+    private var batterySummaryText: String {
+        UnitsFormatter.format(coordinator.batteryFeatureStore.chargePercent, unit: .percent)
+    }
+
+    private var temperatureSummaryText: String {
+        guard let latest = coordinator.temperatureFeatureStore.primarySamples.last?.value else { return "--" }
+        return UnitsFormatter.format(latest, unit: .celsius)
+    }
+
+    private var networkSummaryText: String {
+        let store = coordinator.networkFeatureStore
+        let down = UnitsFormatter.format(store.inboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit)
+        let up = UnitsFormatter.format(store.outboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit)
+        return "\(down) / \(up)"
+    }
+
+    private var diskSummaryText: String {
+        UnitsFormatter.format(coordinator.diskFeatureStore.freeBytes, unit: .bytes)
     }
 
     private func accent(for section: DashboardSection) -> Color {
@@ -766,27 +981,24 @@ private struct SensorsDashboardCard: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(coordinator.dashboardSensorReadings(), id: \.id) { sensor in
-                    HStack(spacing: 8) {
+                ForEach(temperatureCategorySummaries, id: \.category) { summary in
+                    VStack(alignment: .leading, spacing: 6) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(sensor.displayName)
+                            Text(summary.category.label)
                                 .font(.subheadline)
                                 .lineLimit(1)
-                            Text(sensor.category.label)
+                            Text("\(summary.count) sensor\(summary.count == 1 ? "" : "s")")
                                 .font(.caption2)
                                 .foregroundStyle(DashboardPalette.secondaryText)
                         }
 
-                        Spacer()
-
-                        Text(TemperatureHistoryHelpers.valueText(for: sensor))
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(DashboardPalette.primaryText)
-
-                        Capsule()
-                            .fill(sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent)
-                            .frame(width: 34, height: 8)
+                        HStack(spacing: 8) {
+                            temperatureAggregatePill("Min", value: summary.minimum)
+                            temperatureAggregatePill("Avg", value: summary.average)
+                            temperatureAggregatePill("Max", value: summary.maximum)
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
             }
 
@@ -797,6 +1009,51 @@ private struct SensorsDashboardCard: View {
             }
         }
     }
+
+    private var temperatureCategorySummaries: [TemperatureCategorySummary] {
+        featureStore.groupedSensors.compactMap { group in
+            let values = group.channels
+                .filter { $0.channelType == .temperatureCelsius }
+                .map(\.value)
+            guard let minimum = values.min(), let maximum = values.max(), !values.isEmpty else {
+                return nil
+            }
+            let average = values.reduce(0, +) / Double(values.count)
+            return TemperatureCategorySummary(
+                category: group.category,
+                count: values.count,
+                minimum: minimum,
+                average: average,
+                maximum: maximum
+            )
+        }
+    }
+
+    private func temperatureAggregatePill(_ label: String, value: Double) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(DashboardPalette.tertiaryText)
+            Text(UnitsFormatter.format(value, unit: .celsius))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(DashboardPalette.primaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DashboardPalette.insetFill.opacity(0.72))
+        )
+    }
+}
+
+private struct TemperatureCategorySummary {
+    let category: SensorCategory
+    let count: Int
+    let minimum: Double
+    let average: Double
+    let maximum: Double
 }
 
 private struct RootVolumeSnapshot {

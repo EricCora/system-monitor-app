@@ -96,7 +96,7 @@ private struct ChartWindowChip: View {
         if selection == option {
             return DashboardPalette.cpuAccent
         }
-        return style == .detached ? DashboardPalette.sectionFill : Color.white.opacity(0.84)
+        return style == .detached ? DashboardPalette.sectionFill : DashboardPalette.insetFill.opacity(0.84)
     }
 
     private var borderColor: Color {
