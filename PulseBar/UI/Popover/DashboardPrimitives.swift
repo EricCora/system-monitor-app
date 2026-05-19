@@ -1,39 +1,58 @@
+import AppKit
 import SwiftUI
 
+private extension Color {
+    static func pulseBarAdaptive(
+        light: (Double, Double, Double, Double),
+        dark: (Double, Double, Double, Double)
+    ) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let source = isDark ? dark : light
+            return NSColor(
+                calibratedRed: CGFloat(source.0),
+                green: CGFloat(source.1),
+                blue: CGFloat(source.2),
+                alpha: CGFloat(source.3)
+            )
+        })
+    }
+}
+
 enum DashboardPalette {
-    static let canvasTop = Color(red: 0.94, green: 0.95, blue: 0.97)
-    static let canvasBottom = Color(red: 0.88, green: 0.91, blue: 0.95)
-    static let cardTop = Color(red: 0.99, green: 0.995, blue: 0.998)
-    static let cardBottom = Color(red: 0.94, green: 0.955, blue: 0.975)
-    static let chromeFill = Color(red: 0.90, green: 0.93, blue: 0.96)
-    static let chromeBorder = Color(red: 0.76, green: 0.80, blue: 0.86)
-    static let divider = Color(red: 0.81, green: 0.85, blue: 0.90)
-    static let primaryText = Color(red: 0.13, green: 0.15, blue: 0.19)
-    static let secondaryText = Color(red: 0.36, green: 0.40, blue: 0.46)
-    static let tertiaryText = Color(red: 0.52, green: 0.56, blue: 0.63)
-    static let windowBackground = Color(red: 0.95, green: 0.96, blue: 0.98)
-    static let sectionFill = Color(red: 0.975, green: 0.982, blue: 0.992)
-    static let insetFill = Color(red: 0.91, green: 0.935, blue: 0.965)
-    static let hoverFill = Color(red: 0.90, green: 0.94, blue: 0.98)
-    static let selectionFill = Color(red: 0.86, green: 0.91, blue: 0.98)
-    static let chartGrid = Color(red: 0.67, green: 0.73, blue: 0.81)
-    static let chartRule = Color(red: 0.29, green: 0.35, blue: 0.44)
-    static let chartAxisText = Color(red: 0.35, green: 0.40, blue: 0.48)
-    static let chartAxisStrong = Color(red: 0.24, green: 0.29, blue: 0.37)
-    static let chartPlotTop = Color(red: 0.92, green: 0.945, blue: 0.975)
-    static let chartPlotBottom = Color(red: 0.87, green: 0.91, blue: 0.955)
-    static let chartPlotBorder = Color(red: 0.73, green: 0.79, blue: 0.87)
-    static let shellHighlight = Color.white.opacity(0.88)
-    static let shadow = Color(red: 0.11, green: 0.14, blue: 0.20).opacity(0.10)
-    static let shadowHeavy = Color(red: 0.11, green: 0.14, blue: 0.20).opacity(0.16)
-    static let success = Color(red: 0.20, green: 0.61, blue: 0.36)
-    static let warning = Color(red: 0.84, green: 0.58, blue: 0.12)
-    static let danger = Color(red: 0.78, green: 0.24, blue: 0.22)
-    static let cpuAccent = Color(red: 0.10, green: 0.52, blue: 0.95)
+    static var canvasTop: Color { .pulseBarAdaptive(light: (0.955, 0.965, 0.975, 1), dark: (0.075, 0.085, 0.10, 1)) }
+    static var canvasBottom: Color { .pulseBarAdaptive(light: (0.905, 0.925, 0.955, 1), dark: (0.115, 0.13, 0.155, 1)) }
+    static var cardTop: Color { .pulseBarAdaptive(light: (0.995, 0.997, 1, 1), dark: (0.165, 0.175, 0.20, 1)) }
+    static var cardBottom: Color { .pulseBarAdaptive(light: (0.955, 0.965, 0.985, 1), dark: (0.115, 0.125, 0.15, 1)) }
+    static var chromeFill: Color { .pulseBarAdaptive(light: (0.925, 0.945, 0.97, 1), dark: (0.19, 0.205, 0.235, 1)) }
+    static var chromeBorder: Color { .pulseBarAdaptive(light: (0.75, 0.79, 0.85, 1), dark: (0.30, 0.33, 0.38, 1)) }
+    static var divider: Color { .pulseBarAdaptive(light: (0.82, 0.86, 0.91, 1), dark: (0.25, 0.28, 0.33, 1)) }
+    static var primaryText: Color { .pulseBarAdaptive(light: (0.11, 0.13, 0.17, 1), dark: (0.925, 0.94, 0.96, 1)) }
+    static var secondaryText: Color { .pulseBarAdaptive(light: (0.36, 0.40, 0.46, 1), dark: (0.66, 0.70, 0.76, 1)) }
+    static var tertiaryText: Color { .pulseBarAdaptive(light: (0.52, 0.56, 0.63, 1), dark: (0.49, 0.54, 0.61, 1)) }
+    static var windowBackground: Color { .pulseBarAdaptive(light: (0.95, 0.96, 0.98, 1), dark: (0.105, 0.115, 0.135, 1)) }
+    static var sectionFill: Color { .pulseBarAdaptive(light: (0.975, 0.982, 0.992, 1), dark: (0.135, 0.15, 0.18, 1)) }
+    static var insetFill: Color { .pulseBarAdaptive(light: (0.92, 0.94, 0.965, 1), dark: (0.18, 0.195, 0.23, 1)) }
+    static var hoverFill: Color { .pulseBarAdaptive(light: (0.90, 0.94, 0.98, 1), dark: (0.21, 0.24, 0.285, 1)) }
+    static var selectionFill: Color { .pulseBarAdaptive(light: (0.86, 0.91, 0.98, 1), dark: (0.16, 0.22, 0.31, 1)) }
+    static var chartGrid: Color { .pulseBarAdaptive(light: (0.67, 0.73, 0.81, 1), dark: (0.30, 0.35, 0.43, 1)) }
+    static var chartRule: Color { .pulseBarAdaptive(light: (0.29, 0.35, 0.44, 1), dark: (0.58, 0.65, 0.74, 1)) }
+    static var chartAxisText: Color { .pulseBarAdaptive(light: (0.35, 0.40, 0.48, 1), dark: (0.62, 0.67, 0.74, 1)) }
+    static var chartAxisStrong: Color { .pulseBarAdaptive(light: (0.24, 0.29, 0.37, 1), dark: (0.76, 0.80, 0.86, 1)) }
+    static var chartPlotTop: Color { .pulseBarAdaptive(light: (0.92, 0.945, 0.975, 1), dark: (0.16, 0.18, 0.22, 1)) }
+    static var chartPlotBottom: Color { .pulseBarAdaptive(light: (0.87, 0.91, 0.955, 1), dark: (0.12, 0.14, 0.175, 1)) }
+    static var chartPlotBorder: Color { .pulseBarAdaptive(light: (0.73, 0.79, 0.87, 1), dark: (0.28, 0.32, 0.39, 1)) }
+    static var shellHighlight: Color { .pulseBarAdaptive(light: (1, 1, 1, 0.88), dark: (1, 1, 1, 0.10)) }
+    static var shadow: Color { .pulseBarAdaptive(light: (0.11, 0.14, 0.20, 0.10), dark: (0, 0, 0, 0.28)) }
+    static var shadowHeavy: Color { .pulseBarAdaptive(light: (0.11, 0.14, 0.20, 0.16), dark: (0, 0, 0, 0.38)) }
+    static let success = Color(red: 0.20, green: 0.66, blue: 0.42)
+    static let warning = Color(red: 0.90, green: 0.62, blue: 0.17)
+    static let danger = Color(red: 0.82, green: 0.27, blue: 0.25)
+    static let cpuAccent = Color(red: 0.11, green: 0.50, blue: 0.92)
     static let memoryAccent = Color(red: 0.84, green: 0.33, blue: 0.66)
-    static let batteryAccent = Color(red: 0.20, green: 0.66, blue: 0.43)
+    static let batteryAccent = Color(red: 0.18, green: 0.65, blue: 0.42)
     static let networkAccent = Color(red: 0.00, green: 0.62, blue: 0.78)
-    static let diskAccent = Color(red: 0.95, green: 0.54, blue: 0.17)
+    static let diskAccent = Color(red: 0.95, green: 0.56, blue: 0.18)
     static let temperatureAccent = Color(red: 0.86, green: 0.30, blue: 0.26)
 }
 
@@ -42,10 +61,11 @@ private struct DashboardSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
+        let resolvedRadius = min(cornerRadius, 8)
         content
             .padding(padding)
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -57,11 +77,11 @@ private struct DashboardSurfaceModifier: ViewModifier {
                         )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                             .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                     )
                     .overlay(alignment: .top) {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                             .stroke(DashboardPalette.shellHighlight, lineWidth: 1)
                             .blur(radius: 0.5)
                             .mask(
@@ -81,9 +101,10 @@ private struct DashboardInsetModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
+        let resolvedRadius = min(cornerRadius, 8)
         content
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -95,7 +116,7 @@ private struct DashboardInsetModifier: ViewModifier {
                         )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                             .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                     )
             )
@@ -103,11 +124,11 @@ private struct DashboardInsetModifier: ViewModifier {
 }
 
 extension View {
-    func dashboardSurface(padding: CGFloat = 10, cornerRadius: CGFloat = 12) -> some View {
+    func dashboardSurface(padding: CGFloat = 10, cornerRadius: CGFloat = 8) -> some View {
         modifier(DashboardSurfaceModifier(padding: padding, cornerRadius: cornerRadius))
     }
 
-    func dashboardInset(cornerRadius: CGFloat = 12) -> some View {
+    func dashboardInset(cornerRadius: CGFloat = 8) -> some View {
         modifier(DashboardInsetModifier(cornerRadius: cornerRadius))
     }
 
@@ -138,8 +159,9 @@ extension View {
 }
 
 extension DashboardPalette {
-    static func chartPlotBackground(cornerRadius: CGFloat = 14) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    static func chartPlotBackground(cornerRadius: CGFloat = 8, showsMinorGrid: Bool? = nil) -> some View {
+        let resolvedRadius = min(cornerRadius, 8)
+        return RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [
@@ -151,9 +173,10 @@ extension DashboardPalette {
                 )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                     .strokeBorder(chartPlotBorder.opacity(0.9), lineWidth: 1)
             )
+            .overlay(DashboardMinorGridOverlay(isEnabled: showsMinorGrid))
     }
 }
 
@@ -186,6 +209,8 @@ struct ChartLegendItem: Identifiable {
 struct ChartLegendStrip: View {
     let items: [ChartLegendItem]
     var minimumItemWidth: CGFloat = 118
+    var hiddenItemIDs: Set<String> = []
+    var onToggle: ((ChartLegendItem) -> Void)?
 
     private var columns: [GridItem] {
         [
@@ -200,9 +225,12 @@ struct ChartLegendStrip: View {
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 7) {
             ForEach(items) { item in
-                HStack(spacing: 6) {
+                Button {
+                    onToggle?(item)
+                } label: {
+                    HStack(spacing: 6) {
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(item.color)
+                        .fill(hiddenItemIDs.contains(item.id) ? DashboardPalette.tertiaryText : item.color)
                         .frame(width: 9, height: 9)
 
                     Text(item.label)
@@ -219,6 +247,11 @@ struct ChartLegendStrip: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(hiddenItemIDs.contains(item.id) ? 0.45 : 1)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(onToggle == nil)
             }
         }
     }
@@ -289,10 +322,10 @@ struct DashboardInfoBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(fill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                 )
         )
@@ -354,7 +387,7 @@ struct DashboardCard<Content: View>: View {
         .foregroundStyle(DashboardPalette.primaryText)
         .padding(18)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -366,11 +399,11 @@ struct DashboardCard<Content: View>: View {
                     )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                 )
         )
-        .shadow(color: DashboardPalette.shadowHeavy, radius: 24, x: 0, y: 12)
+        .shadow(color: DashboardPalette.shadowHeavy, radius: 18, x: 0, y: 10)
     }
 }
 
@@ -382,7 +415,7 @@ struct DashboardSparklineView: View {
     var body: some View {
         GeometryReader { proxy in
             if plottedValues.count < 2 {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -397,7 +430,7 @@ struct DashboardSparklineView: View {
                 let points = scaledPoints(in: proxy.size)
 
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(DashboardPalette.chromeFill)
 
                     Path { path in
@@ -459,7 +492,7 @@ struct DashboardBidirectionalSparklineView: View {
             let maxValue = max((plottedPositive + plottedNegative).max() ?? 1, 1)
 
             ZStack(alignment: .center) {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -605,10 +638,10 @@ struct DashboardReadoutCell: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(DashboardPalette.insetFill.opacity(0.88))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                 )
         )

@@ -59,13 +59,13 @@
 - `UI/`
   - Menu bar summary v2 with compact / balanced / dense layouts and per-metric text, icon, or sparkline rendering
   - Overview-first popover navigation with `Overview`, `CPU`, `Memory`, `Battery`, `Network`, `Temperature`, `Disk`, and `Settings` sections
-  - `Overview` renders the card dashboard (CPU & GPU, Memory, Battery, Network, Disk, Sensors) with shared rounded-card primitives, hero values, compact gauges, and short supporting lists
-  - Detailed sections reuse the existing CPU/memory/battery/network/temperature/disk module views, chart-window pickers, and detached-pane hover/pin interactions, now themed with the same shared light palette used by `Overview`
+  - `Overview` renders a scan-focused summary strip plus the customizable card dashboard (CPU & GPU, Memory, Battery, Network, Disk, Sensors) with shared adaptive primitives, hero values, compact gauges, and short supporting lists
+  - Detailed sections reuse the existing CPU/memory/battery/network/temperature/disk module views, chart-window pickers, and detached-pane hover/pin interactions, now themed with the same shared adaptive palette used by `Overview`
   - Sensors overview card supports favorites-first curation, preset switching, and a direct drill-down into the restored temperature detail surface
   - Dashboard cards reuse prepared compact CPU/memory/network/battery/temperature surface models rather than rebuilding large live charts every tick
-  - Shared chart rendering through `ChartSeriesPipeline` and detached chart viewport overlays (single sanitization boundary, stable series identity, shared y-domain policy, shared hover/zoom interactions)
+  - Shared chart rendering through `ChartSeriesPipeline` and detached chart viewport overlays (single sanitization boundary, stable series identity, shared y-domain policy, optional minor grid overlay, view-level LPF smoothing, shared hover/zoom interactions)
   - Temperature detail view combines always-available thermal-state history with aggregate primary/maximum temperature traces when metric history exists, while the sensor list presents per-group max/avg/min rows backed by raw privileged/hydrated channels and a detached aggregate comparison pane
-  - Full sidebar-based settings window for detailed configuration of profiles, dashboard layout/order, menu bar display styles, alerts, and sensor presets
+  - Full sidebar-based settings window for detailed configuration of profiles, dashboard layout/order/visibility/density, chart readability, menu bar display styles, alerts, and sensor presets
 
 ## Data Flow
 

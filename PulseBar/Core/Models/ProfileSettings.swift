@@ -560,8 +560,13 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
     public var memoryProcessCount: Int
     public var selectedCPUPaneChart: CPUPaneChart
     public var selectedMemoryPaneChart: MemoryPaneChart
+    public var chartMinorGridEnabled: Bool
+    public var chartSmoothingAlpha: Double
     public var dashboardLayout: DashboardLayoutMode
+    public var dashboardDensity: DashboardDensityMode
+    public var dashboardCardSize: DashboardCardSizeMode
     public var dashboardCardOrder: [DashboardCardID]
+    public var dashboardCardVisibility: [DashboardCardID: Bool]
     public var menuBarDisplayMode: MenuBarDisplayMode
     public var menuBarMetricStyles: [MenuBarMetricID: MenuBarMetricStyle]
     public var favoriteSensorIDs: [String]
@@ -582,8 +587,13 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
         memoryProcessCount: Int = 5,
         selectedCPUPaneChart: CPUPaneChart = .usage,
         selectedMemoryPaneChart: MemoryPaneChart = .composition,
+        chartMinorGridEnabled: Bool = false,
+        chartSmoothingAlpha: Double = 1.0,
         dashboardLayout: DashboardLayoutMode = .cardDashboard,
+        dashboardDensity: DashboardDensityMode = .compact,
+        dashboardCardSize: DashboardCardSizeMode = .standard,
         dashboardCardOrder: [DashboardCardID] = DashboardCardID.defaultOrder,
+        dashboardCardVisibility: [DashboardCardID: Bool] = DashboardCardID.defaultVisibility,
         menuBarDisplayMode: MenuBarDisplayMode = .compact,
         menuBarMetricStyles: [MenuBarMetricID: MenuBarMetricStyle] = MenuBarMetricID.defaultStyles,
         favoriteSensorIDs: [String] = [],
@@ -603,8 +613,13 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
         self.memoryProcessCount = max(3, min(memoryProcessCount, 12))
         self.selectedCPUPaneChart = selectedCPUPaneChart
         self.selectedMemoryPaneChart = selectedMemoryPaneChart
+        self.chartMinorGridEnabled = chartMinorGridEnabled
+        self.chartSmoothingAlpha = Self.normalizedSmoothingAlpha(chartSmoothingAlpha)
         self.dashboardLayout = dashboardLayout
+        self.dashboardDensity = dashboardDensity
+        self.dashboardCardSize = dashboardCardSize
         self.dashboardCardOrder = Self.normalizedCardOrder(dashboardCardOrder)
+        self.dashboardCardVisibility = Self.normalizedCardVisibility(dashboardCardVisibility)
         self.menuBarDisplayMode = menuBarDisplayMode
         self.menuBarMetricStyles = Self.normalizedMetricStyles(menuBarMetricStyles)
         self.favoriteSensorIDs = Self.normalizedSensorIDs(favoriteSensorIDs)
@@ -656,8 +671,13 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
         case memoryProcessCount
         case selectedCPUPaneChart
         case selectedMemoryPaneChart
+        case chartMinorGridEnabled
+        case chartSmoothingAlpha
         case dashboardLayout
+        case dashboardDensity
+        case dashboardCardSize
         case dashboardCardOrder
+        case dashboardCardVisibility
         case menuBarDisplayMode
         case menuBarMetricStyles
         case favoriteSensorIDs
@@ -680,9 +700,18 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
         memoryProcessCount = max(3, min((try container.decodeIfPresent(Int.self, forKey: .memoryProcessCount) ?? 5), 12))
         selectedCPUPaneChart = try container.decodeIfPresent(CPUPaneChart.self, forKey: .selectedCPUPaneChart) ?? .usage
         selectedMemoryPaneChart = try container.decodeIfPresent(MemoryPaneChart.self, forKey: .selectedMemoryPaneChart) ?? .composition
+        chartMinorGridEnabled = try container.decodeIfPresent(Bool.self, forKey: .chartMinorGridEnabled) ?? false
+        chartSmoothingAlpha = Self.normalizedSmoothingAlpha(
+            try container.decodeIfPresent(Double.self, forKey: .chartSmoothingAlpha) ?? 1.0
+        )
         dashboardLayout = try container.decodeIfPresent(DashboardLayoutMode.self, forKey: .dashboardLayout) ?? .cardDashboard
+        dashboardDensity = try container.decodeIfPresent(DashboardDensityMode.self, forKey: .dashboardDensity) ?? .compact
+        dashboardCardSize = try container.decodeIfPresent(DashboardCardSizeMode.self, forKey: .dashboardCardSize) ?? .standard
         dashboardCardOrder = Self.normalizedCardOrder(
             try container.decodeIfPresent([DashboardCardID].self, forKey: .dashboardCardOrder) ?? DashboardCardID.defaultOrder
+        )
+        dashboardCardVisibility = Self.normalizedCardVisibility(
+            try container.decodeIfPresent([DashboardCardID: Bool].self, forKey: .dashboardCardVisibility) ?? DashboardCardID.defaultVisibility
         )
         menuBarDisplayMode = try container.decodeIfPresent(MenuBarDisplayMode.self, forKey: .menuBarDisplayMode) ?? .compact
         menuBarMetricStyles = Self.normalizedMetricStyles(
@@ -712,8 +741,13 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
         try container.encode(memoryProcessCount, forKey: .memoryProcessCount)
         try container.encode(selectedCPUPaneChart, forKey: .selectedCPUPaneChart)
         try container.encode(selectedMemoryPaneChart, forKey: .selectedMemoryPaneChart)
+        try container.encode(chartMinorGridEnabled, forKey: .chartMinorGridEnabled)
+        try container.encode(chartSmoothingAlpha, forKey: .chartSmoothingAlpha)
         try container.encode(dashboardLayout, forKey: .dashboardLayout)
+        try container.encode(dashboardDensity, forKey: .dashboardDensity)
+        try container.encode(dashboardCardSize, forKey: .dashboardCardSize)
         try container.encode(dashboardCardOrder, forKey: .dashboardCardOrder)
+        try container.encode(dashboardCardVisibility, forKey: .dashboardCardVisibility)
         try container.encode(menuBarDisplayMode, forKey: .menuBarDisplayMode)
         try container.encode(menuBarMetricStyles, forKey: .menuBarMetricStyles)
         try container.encode(favoriteSensorIDs, forKey: .favoriteSensorIDs)
@@ -730,6 +764,26 @@ public struct AppSettingsV4: Codable, Sendable, Equatable {
             normalized.append(card)
         }
         return normalized.isEmpty ? DashboardCardID.defaultOrder : normalized
+    }
+
+    private static func normalizedSmoothingAlpha(_ value: Double) -> Double {
+        guard value.isFinite else { return 1.0 }
+        return min(max(value, 0.05), 1.0)
+    }
+
+    private static func normalizedCardVisibility(
+        _ visibility: [DashboardCardID: Bool]
+    ) -> [DashboardCardID: Bool] {
+        var normalized = DashboardCardID.defaultVisibility
+        for card in DashboardCardID.allCases {
+            if let isVisible = visibility[card] {
+                normalized[card] = isVisible
+            }
+        }
+        if !normalized.values.contains(true) {
+            normalized[.cpu] = true
+        }
+        return normalized
     }
 
     private static func normalizedMetricStyles(

@@ -24,6 +24,7 @@ struct CPUPaneContentView: View {
     @State private var gpuChartModel: PreparedCPUMetricChartModel?
     @State private var fpsChartModel: PreparedCPUMetricChartModel?
     @State private var deferredRefreshTriggerID: String?
+    @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -59,7 +60,9 @@ struct CPUPaneContentView: View {
                 DashboardSectionLabel(title: activeChart.historyTitle, tint: DashboardPalette.secondaryText)
                 chartBody
                     .frame(maxWidth: .infinity, minHeight: 300)
-                ChartLegendStrip(items: legendItems)
+                ChartLegendStrip(items: legendItems, hiddenItemIDs: hiddenLegendIDs) { item in
+                    toggleLegend(item.id)
+                }
                 summaryRow
             }
             .padding(12)
@@ -72,6 +75,7 @@ struct CPUPaneContentView: View {
                 hoveredDate = nil
                 viewport.reset()
                 zoomSelectionRect = nil
+                hiddenLegendIDs = []
                 lastRefreshContextID = contextRefreshID
             }
             if isInteractionActive {
@@ -118,6 +122,7 @@ struct CPUPaneContentView: View {
                     model: usageChartModel ?? PreparedCPUUsageChartModel.empty,
                     areaOpacity: coordinator.chartAreaOpacity,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -132,6 +137,7 @@ struct CPUPaneContentView: View {
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -146,6 +152,7 @@ struct CPUPaneContentView: View {
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -160,6 +167,7 @@ struct CPUPaneContentView: View {
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
                     viewport: $viewport,
                     zoomSelectionRect: $zoomSelectionRect
@@ -364,7 +372,11 @@ struct CPUPaneContentView: View {
             gpuMemoryHistory = []
             fpsHistory = []
 
-            usageChartModel = PreparedCPUUsageChartModel(userHistory: userHistory, systemHistory: systemHistory)
+            usageChartModel = PreparedCPUUsageChartModel(
+                userHistory: userHistory,
+                systemHistory: systemHistory,
+                smoothingAlpha: coordinator.chartSmoothingAlpha
+            )
             loadAverageChartModel = nil
             gpuChartModel = nil
             fpsChartModel = nil
@@ -390,7 +402,8 @@ struct CPUPaneContentView: View {
                     ChartMetricSeriesDescriptor(key: "load.5", label: "5 Minute", color: .red, samples: load5History),
                     ChartMetricSeriesDescriptor(key: "load.15", label: "15 Minute", color: .gray, samples: load15History)
                 ],
-                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                smoothingAlpha: coordinator.chartSmoothingAlpha
             )
             usageChartModel = nil
             gpuChartModel = nil
@@ -415,7 +428,8 @@ struct CPUPaneContentView: View {
                     ChartMetricSeriesDescriptor(key: "gpu.processor", label: "Processor", color: .cyan, samples: gpuProcessorHistory),
                     ChartMetricSeriesDescriptor(key: "gpu.memory", label: "Memory", color: .blue, samples: gpuMemoryHistory)
                 ],
-                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                smoothingAlpha: coordinator.chartSmoothingAlpha
             )
             usageChartModel = nil
             loadAverageChartModel = nil
@@ -434,7 +448,8 @@ struct CPUPaneContentView: View {
 
             fpsChartModel = PreparedCPUMetricChartModel(
                 series: [ChartMetricSeriesDescriptor(key: "fps", label: "FPS", color: .cyan, samples: fpsHistory)],
-                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12)
+                baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                smoothingAlpha: coordinator.chartSmoothingAlpha
             )
             usageChartModel = nil
             loadAverageChartModel = nil
@@ -458,6 +473,14 @@ struct CPUPaneContentView: View {
 
     private var isInteractionActive: Bool {
         hoveredDate != nil || zoomSelectionRect != nil
+    }
+
+    private func toggleLegend(_ id: String) {
+        if hiddenLegendIDs.contains(id) {
+            hiddenLegendIDs.remove(id)
+        } else {
+            hiddenLegendIDs.insert(id)
+        }
     }
 }
 
@@ -506,12 +529,14 @@ private struct CPUUsagePaneChart: View {
     let model: PreparedCPUUsageChartModel
     let areaOpacity: Double
     let paneController: DetachedMetricsPaneController
+    let hiddenLegendIDs: Set<String>
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
     @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart(model.points) { point in
+        Chart(visiblePoints) { point in
             AreaMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Percent", point.value),
@@ -540,7 +565,7 @@ private struct CPUUsagePaneChart: View {
         }
         .chartPlotStyle { plot in
             plot
-                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .chartOverlay { proxy in
@@ -567,6 +592,10 @@ private struct CPUUsagePaneChart: View {
         }
         .frame(height: 300)
     }
+
+    private var visiblePoints: [CPUUsageSeriesPoint] {
+        model.points.filter { !hiddenLegendIDs.contains("cpu.\($0.series.rawValue)") }
+    }
 }
 
 private struct MultiSeriesLinePaneChart: View {
@@ -574,12 +603,14 @@ private struct MultiSeriesLinePaneChart: View {
     let areaOpacity: Double
     let throughputUnit: ThroughputDisplayUnit
     let paneController: DetachedMetricsPaneController
+    let hiddenLegendIDs: Set<String>
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
     @Binding var hoveredDate: Date?
     @Binding var viewport: ChartViewport
     @Binding var zoomSelectionRect: CGRect?
 
     var body: some View {
-        Chart(model.points) { point in
+        Chart(visiblePoints) { point in
             AreaMark(
                 x: .value("Time", point.timestamp),
                 yStart: .value("Baseline", model.scale.renderedAreaBaseline(viewport: viewport)),
@@ -617,7 +648,7 @@ private struct MultiSeriesLinePaneChart: View {
         }
         .chartPlotStyle { plot in
             plot
-                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .chartOverlay { proxy in
@@ -643,6 +674,10 @@ private struct MultiSeriesLinePaneChart: View {
             }
         }
         .frame(height: 300)
+    }
+
+    private var visiblePoints: [TimeSeriesChartPoint] {
+        model.points.filter { !hiddenLegendIDs.contains($0.seriesKey) }
     }
 }
 
@@ -673,9 +708,15 @@ private struct PreparedCPUUsageChartModel {
     let points: [CPUUsageSeriesPoint]
     let xDomain: ClosedRange<Date>
 
-    init(userHistory: [MetricHistoryPoint], systemHistory: [MetricHistoryPoint]) {
-        let sanitizedUserHistory = ChartSeriesPipeline.sanitize(userHistory, timestamp: \.timestamp)
-        let sanitizedSystemHistory = ChartSeriesPipeline.sanitize(systemHistory, timestamp: \.timestamp)
+    init(userHistory: [MetricHistoryPoint], systemHistory: [MetricHistoryPoint], smoothingAlpha: Double = 1.0) {
+        let sanitizedUserHistory = ChartSeriesPipeline.lowPass(
+            ChartSeriesPipeline.sanitize(userHistory, timestamp: \.timestamp),
+            alpha: smoothingAlpha
+        )
+        let sanitizedSystemHistory = ChartSeriesPipeline.lowPass(
+            ChartSeriesPipeline.sanitize(systemHistory, timestamp: \.timestamp),
+            alpha: smoothingAlpha
+        )
         let userKeys = ChartSeriesPipeline.continuityKeys(for: sanitizedUserHistory, seriesKey: "cpu.user", timestamp: \.timestamp)
         let systemKeys = ChartSeriesPipeline.continuityKeys(for: sanitizedSystemHistory, seriesKey: "cpu.system", timestamp: \.timestamp)
         var output: [CPUUsageSeriesPoint] = []
@@ -708,11 +749,19 @@ private struct PreparedCPUMetricChartModel {
     let fallbackXDomain: ClosedRange<Date>
     let primaryUnit: MetricUnit?
 
-    init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy) {
-        points = ChartSeriesPipeline.metricHistory(series: series)
+    init(series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>], baseline: ChartBaselinePolicy, smoothingAlpha: Double = 1.0) {
+        let smoothedSeries = series.map {
+            ChartMetricSeriesDescriptor(
+                key: $0.key,
+                label: $0.label,
+                color: $0.color,
+                samples: ChartSeriesPipeline.lowPass($0.samples, alpha: smoothingAlpha)
+            )
+        }
+        points = ChartSeriesPipeline.metricHistory(series: smoothedSeries)
         scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
         fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
-        primaryUnit = series
+        primaryUnit = smoothedSeries
             .lazy
             .flatMap(\.samples)
             .first?

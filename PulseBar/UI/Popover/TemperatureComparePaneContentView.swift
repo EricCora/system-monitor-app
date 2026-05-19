@@ -13,6 +13,7 @@ struct TemperatureComparePaneContentView: View {
     @State private var lastRefreshContextID = ""
     @State private var chartModel: PreparedTemperatureCompareChartModel?
     @State private var deferredRefreshTriggerID: String?
+    @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -52,6 +53,7 @@ struct TemperatureComparePaneContentView: View {
                 zoomSelectionRect = nil
                 historiesByRowID = [:]
                 chartModel = nil
+                hiddenLegendIDs = []
                 lastRefreshContextID = contextRefreshID
             }
             if isInteractionActive {
@@ -134,7 +136,7 @@ struct TemperatureComparePaneContentView: View {
             }
 
             ZStack(alignment: .topLeading) {
-                Chart(chartModel.points) { point in
+                Chart(visibleChartPoints(from: chartModel)) { point in
                     LineMark(
                         x: .value("Time", point.timestamp),
                         y: .value("Temperature", point.value),
@@ -162,7 +164,7 @@ struct TemperatureComparePaneContentView: View {
                 }
                 .chartPlotStyle { plot in
                     plot
-                        .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                        .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: coordinator.chartMinorGridEnabled))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .frame(height: 270)
@@ -199,23 +201,30 @@ struct TemperatureComparePaneContentView: View {
     private var legend: some View {
         VStack(alignment: .leading, spacing: 7) {
             ForEach(Array(selectedSensors.enumerated()), id: \.element.id) { index, row in
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(compareColor(for: index))
-                        .frame(width: 8, height: 8)
+                Button {
+                    toggleLegend(row.id)
+                } label: {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(hiddenLegendIDs.contains(row.id) ? DashboardPalette.tertiaryText : compareColor(for: index))
+                            .frame(width: 8, height: 8)
 
-                    Text(row.displayName)
-                        .font(.caption)
-                        .foregroundStyle(DashboardPalette.primaryText)
-                        .lineLimit(1)
+                        Text(row.displayName)
+                            .font(.caption)
+                            .foregroundStyle(hiddenLegendIDs.contains(row.id) ? DashboardPalette.secondaryText : DashboardPalette.primaryText)
+                            .lineLimit(1)
 
-                    Spacer(minLength: 8)
+                        Spacer(minLength: 8)
 
-                    Text(legendValue(for: row))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                        .frame(minWidth: 58, alignment: .trailing)
+                        Text(legendValue(for: row))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(DashboardPalette.secondaryText)
+                            .frame(minWidth: 58, alignment: .trailing)
+                    }
                 }
+                .buttonStyle(.plain)
+                .opacity(hiddenLegendIDs.contains(row.id) ? 0.48 : 1)
+                .accessibilityLabel("\(hiddenLegendIDs.contains(row.id) ? "Show" : "Hide") \(row.displayName)")
             }
         }
         .padding(.top, 2)
@@ -269,13 +278,14 @@ struct TemperatureComparePaneContentView: View {
                 maxPoints: 480
             )
             let sanitized = ChartSeriesPipeline.sanitize(history, timestamp: \.timestamp)
-            nextHistories[row.id] = sanitized
+            let smoothed = ChartSeriesPipeline.lowPass(sanitized, alpha: coordinator.chartSmoothingAlpha)
+            nextHistories[row.id] = smoothed
             descriptors.append(
                 ChartMetricSeriesDescriptor(
                     key: row.id,
                     label: row.displayName,
                     color: compareColor(for: index),
-                    samples: sanitized
+                    samples: smoothed
                 )
             )
         }
@@ -292,7 +302,7 @@ struct TemperatureComparePaneContentView: View {
     }
 
     private var refreshTriggerID: String {
-        "\(contextRefreshID)-\(coordinator.temperatureHistoryRevision)"
+        "\(contextRefreshID)-\(coordinator.temperatureHistoryRevision)-\(coordinator.chartSmoothingAlpha)"
     }
 
     private var isInteractionActive: Bool {
@@ -301,6 +311,18 @@ struct TemperatureComparePaneContentView: View {
 
     private func compareColor(for index: Int) -> Color {
         Self.compareColors[index % Self.compareColors.count]
+    }
+
+    private func visibleChartPoints(from model: PreparedTemperatureCompareChartModel) -> [TimeSeriesChartPoint] {
+        model.points.filter { !hiddenLegendIDs.contains($0.seriesKey) }
+    }
+
+    private func toggleLegend(_ id: String) {
+        if hiddenLegendIDs.contains(id) {
+            hiddenLegendIDs.remove(id)
+        } else {
+            hiddenLegendIDs.insert(id)
+        }
     }
 
     private static let compareColors: [Color] = [

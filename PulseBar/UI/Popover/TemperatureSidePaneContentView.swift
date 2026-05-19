@@ -14,6 +14,7 @@ struct TemperaturePaneContentView: View {
     @State private var lastRefreshContextID = ""
     @State private var chartModel: PreparedTemperatureChartModel?
     @State private var deferredRefreshTriggerID: String?
+    @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -80,7 +81,7 @@ struct TemperaturePaneContentView: View {
                         DashboardSectionLabel(title: "Sensor History", tint: DashboardPalette.secondaryText)
 
                         ZStack(alignment: .topLeading) {
-                            Chart(chartModel.points) { point in
+                            Chart(visibleChartPoints(from: chartModel)) { point in
                                 AreaMark(
                                     x: .value("Time", point.timestamp),
                                     yStart: .value("Baseline", chartModel.scale.renderedAreaBaseline(viewport: viewport)),
@@ -118,7 +119,7 @@ struct TemperaturePaneContentView: View {
                             }
                             .chartPlotStyle { plot in
                                 plot
-                                    .background(DashboardPalette.chartPlotBackground(cornerRadius: 14))
+                                    .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: coordinator.chartMinorGridEnabled))
                                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                             .frame(height: 260)
@@ -159,7 +160,9 @@ struct TemperaturePaneContentView: View {
                             }
                         }
 
-                        ChartLegendStrip(items: legendItems(for: activeSensor))
+                        ChartLegendStrip(items: legendItems(for: activeSensor), hiddenItemIDs: hiddenLegendIDs) { item in
+                            toggleLegend(item.id)
+                        }
 
                         HStack {
                             if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
@@ -201,6 +204,7 @@ struct TemperaturePaneContentView: View {
                 hoveringHistoryChart = false
                 viewport.reset()
                 zoomSelectionRect = nil
+                hiddenLegendIDs = []
                 lastRefreshContextID = contextRefreshID
             }
             if isInteractionActive {
@@ -263,9 +267,13 @@ struct TemperaturePaneContentView: View {
             maxPoints: 480
         )
         sensorHistory = ChartSeriesPipeline.sanitize(sensorHistory, timestamp: \.timestamp)
+        let smoothedHistory = ChartSeriesPipeline.lowPass(
+            sensorHistory,
+            alpha: coordinator.chartSmoothingAlpha
+        )
         chartModel = PreparedTemperatureChartModel(
             points: ChartSeriesPipeline.temperatureHistory(
-                sensorHistory,
+                smoothedHistory,
                 key: activeSensor.id,
                 label: activeSensor.displayName,
                 color: activeSensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent
@@ -286,7 +294,7 @@ struct TemperaturePaneContentView: View {
     }
 
     private var refreshTriggerID: String {
-        historyRefreshID
+        "\(historyRefreshID)-\(coordinator.chartSmoothingAlpha)"
     }
 
     private var isInteractionActive: Bool {
@@ -317,6 +325,18 @@ struct TemperaturePaneContentView: View {
                 }
             )
         ]
+    }
+
+    private func visibleChartPoints(from model: PreparedTemperatureChartModel) -> [TimeSeriesChartPoint] {
+        model.points.filter { !hiddenLegendIDs.contains($0.seriesKey) }
+    }
+
+    private func toggleLegend(_ id: String) {
+        if hiddenLegendIDs.contains(id) {
+            hiddenLegendIDs.remove(id)
+        } else {
+            hiddenLegendIDs.insert(id)
+        }
     }
 }
 

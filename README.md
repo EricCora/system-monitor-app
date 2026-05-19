@@ -7,8 +7,8 @@ It is an original implementation inspired by iStat-style capabilities, with no c
 
 Implemented in this repo:
 - Menu bar summary v2 with compact / balanced / dense layouts plus per-metric text, icon, or sparkline rendering
-- Overview-first popover with a card dashboard plus restored detailed CPU, Memory, Battery, Network, Temperature, Disk, and Settings sections
-- Unified chart windows across compact tabs and detached panes: 15m / 1h / 6h / 1d / 1w / 1mo
+- Overview-first popover with a scan-focused summary strip, customizable card dashboard, and restored detailed CPU, Memory, Battery, Network, Temperature, Disk, and Settings sections
+- Unified chart windows across compact tabs and detached panes: 15m / 1h / 6h / 1d / 1w / 1mo, with optional minor gridlines and view-level LPF smoothing
 - Persistent chart history across launches with shared chart-window rollups for metric, memory, and temperature history
 - Generic metric history persistence: CPU, battery, network, disk, FPS, and other plot-backed samples persist for 30 days while preserving offline gaps between sessions
 - Providers: CPU (Mach user/system/idle + per-core + load average + uptime), Battery (IOKit power sources), Memory (Mach VM stats + reclaimability-based pressure + native warning/critical floor + swap usage + paging rates), Process CPU (`ps` top list with cache), Process memory (`ps` top list with cache), Network (`getifaddrs` aggregate + per-interface), Disk (free space + IOBlockStorageDriver read/write + SMART with combined fallback), FPS (ScreenCaptureKit compositor frame stream with display-refresh fallback when screen capture access is unavailable), GPU summary (private IOAccelerator/AGX performance statistics for processor + memory usage)
@@ -19,12 +19,12 @@ Implemented in this repo:
   - Sensors overview card with favorites-first curation and a direct drill-down into the restored temperature detail surface with compact per-group max/avg/min rows, detached aggregate compare panes, shared chart windows, drag-to-zoom, and double-click reset
   - Temperature detail tab now keeps thermal-state history visible in standard mode and shows aggregate primary/maximum traces whenever those metric histories exist, even if privileged per-sensor channels are unavailable
 - last-known privileged temperature snapshot persists across relaunches so quiet startup still shows sensors without triggering admin prompts
-- Shared light-theme palette now applies across overview, detailed tabs, detached panes, chart controls, and settings so the popover no longer switches between polished and washed-out surfaces
+- Shared adaptive light/dark palette now applies across overview, detailed tabs, detached panes, chart controls, and settings so the popover no longer switches between polished and washed-out surfaces
 - Dashboard cards reuse prepared rolling render models rather than rebuilding live Swift Charts for every refresh
 - Startup latest-sample hydration uses a maintained latest-metric cache table instead of grouping the full metric history database on launch
 - Profiles: Quiet / Balanced / Performance / Custom
 - Power-source auto-switch rules (AC and Battery profile mapping)
-- Settings persistence via `UserDefaults` + `settings.v4` migration model, including dashboard layout/order, menu bar display preferences, sensor favorites/presets, and per-surface chart-window memory
+- Settings persistence via `UserDefaults` + `settings.v4` migration model, including dashboard layout/order/visibility/density, chart readability preferences, menu bar display preferences, sensor favorites/presets, and per-surface chart-window memory
 - Internal settings ownership now lives in `SettingsController`, while runtime presentation state and provider failures are published via `TelemetryStore`
 - Global refresh frequency (`1s...10s`) that applies uniformly to the sampling engine, privileged temperature sampling, and subprocess-backed providers
 - Launch-at-login toggle using `SMAppService`

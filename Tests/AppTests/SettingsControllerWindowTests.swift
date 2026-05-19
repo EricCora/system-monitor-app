@@ -70,6 +70,12 @@ final class SettingsControllerWindowTests: XCTestCase {
         do {
             let controller = SettingsController(defaults: defaults)
             controller.dashboardCardOrder = [.network, .cpu, .memory, .battery, .disk, .sensors]
+            controller.chartMinorGridEnabled = true
+            controller.chartSmoothingAlpha = 0.35
+            controller.dashboardLayout = .compactMatrix
+            controller.dashboardDensity = .comfortable
+            controller.dashboardCardSize = .expanded
+            controller.setDashboardCard(.battery, isVisible: false)
             controller.menuBarDisplayMode = .dense
             controller.setMenuBarMetricStyle(.iconText, for: .cpu)
             controller.favoriteSensorIDs = ["cpu", "gpu"]
@@ -79,6 +85,13 @@ final class SettingsControllerWindowTests: XCTestCase {
         let restored = SettingsController(defaults: defaults)
 
         XCTAssertEqual(restored.dashboardCardOrder, [.network, .cpu, .memory, .battery, .disk, .sensors])
+        XCTAssertTrue(restored.chartMinorGridEnabled)
+        XCTAssertEqual(restored.chartSmoothingAlpha, 0.35, accuracy: 0.001)
+        XCTAssertEqual(restored.dashboardLayout, .compactMatrix)
+        XCTAssertEqual(restored.dashboardDensity, .comfortable)
+        XCTAssertEqual(restored.dashboardCardSize, .expanded)
+        XCTAssertEqual(restored.dashboardCardVisibility[.battery], false)
+        XCTAssertEqual(restored.dashboardCardVisibility[.cpu], true)
         XCTAssertEqual(restored.menuBarDisplayMode, .dense)
         XCTAssertEqual(restored.menuBarMetricStyle(for: .cpu), .iconText)
         XCTAssertEqual(restored.favoriteSensorIDs, ["cpu", "gpu"])
@@ -100,10 +113,44 @@ final class SettingsControllerWindowTests: XCTestCase {
         let restored = SettingsController(defaults: defaults)
 
         XCTAssertEqual(restored.dashboardLayout, .cardDashboard)
+        XCTAssertFalse(restored.chartMinorGridEnabled)
+        XCTAssertEqual(restored.chartSmoothingAlpha, 1.0, accuracy: 0.001)
+        XCTAssertEqual(restored.dashboardDensity, .compact)
+        XCTAssertEqual(restored.dashboardCardSize, .standard)
         XCTAssertEqual(restored.dashboardCardOrder, DashboardCardID.defaultOrder)
+        XCTAssertEqual(restored.dashboardCardVisibility, DashboardCardID.defaultVisibility)
         XCTAssertEqual(restored.menuBarDisplayMode, .compact)
         XCTAssertEqual(restored.favoriteSensorIDs, [])
         XCTAssertEqual(restored.sensorPresets, [])
+    }
+
+    func testDashboardCardVisibilityKeepsOneCardVisible() {
+        let defaults = makeDefaults()
+
+        let controller = SettingsController(defaults: defaults)
+        for card in DashboardCardID.allCases {
+            controller.setDashboardCard(card, isVisible: false)
+        }
+
+        let restored = SettingsController(defaults: defaults)
+
+        XCTAssertEqual(restored.dashboardCardVisibility[.cpu], true)
+        XCTAssertEqual(restored.dashboardCardVisibility.values.filter { $0 }.count, 1)
+    }
+
+    func testChartSmoothingAlphaNormalizesIntoSupportedRange() {
+        let defaults = makeDefaults()
+
+        do {
+            let controller = SettingsController(defaults: defaults)
+            controller.chartSmoothingAlpha = 0
+            XCTAssertEqual(controller.chartSmoothingAlpha, 0.05, accuracy: 0.001)
+            controller.chartSmoothingAlpha = 1.5
+            XCTAssertEqual(controller.chartSmoothingAlpha, 1.0, accuracy: 0.001)
+        }
+
+        let restored = SettingsController(defaults: defaults)
+        XCTAssertEqual(restored.chartSmoothingAlpha, 1.0, accuracy: 0.001)
     }
 
     func testLatestTemperatureSnapshotPersistsAcrossRestarts() {

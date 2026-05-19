@@ -18,6 +18,22 @@ private struct DirectTemperatureRuntimeState {
     var lastErrorMessage: String?
 }
 
+private struct TestFanTelemetryDataSource: FanTelemetryDataSource {
+    func readFans(at timestamp: Date) -> AppFanTelemetrySample {
+        AppFanTelemetrySample(
+            channels: [],
+            fanCount: 0,
+            hasFanHardware: false,
+            diagnostic: SensorSourceDiagnostic(
+                source: "smc",
+                healthy: true,
+                message: "Fan probe skipped in tests",
+                collectedAt: timestamp
+            )
+        )
+    }
+}
+
 @MainActor
 final class AppCoordinator: ObservableObject {
     private let store: TimeSeriesStore
@@ -35,6 +51,7 @@ final class AppCoordinator: ObservableObject {
     private let fpsProvider: FPSProvider
     private let diskProvider: DiskProvider
     private let directTemperatureDataSource: any TemperatureDataSource
+    private let fanTelemetryDataSource: any FanTelemetryDataSource
     private let helperReachabilityProbe: @Sendable () async -> Bool
     private let alertDeliveryCenter: AlertDeliveryCenter
     private let powerSourceMonitor = PowerSourceMonitor()
@@ -72,6 +89,7 @@ final class AppCoordinator: ObservableObject {
         defaults: UserDefaults = .standard,
         privilegedTemperatureDataSource: PrivilegedHelperTemperatureDataSource = PrivilegedHelperTemperatureDataSource(),
         directTemperatureDataSource: any TemperatureDataSource = IOHIDTemperatureDataSource(),
+        fanTelemetryDataSource: any FanTelemetryDataSource = AppleSMCFanTelemetryDataSource(),
         helperReachabilityProbe: (@Sendable () async -> Bool)? = nil,
         metricHistoryDatabaseURL: URL? = nil,
         memoryHistoryDatabaseURL: URL? = nil,
@@ -120,6 +138,11 @@ final class AppCoordinator: ObservableObject {
 
         let privilegedSource = privilegedTemperatureDataSource
         self.directTemperatureDataSource = directTemperatureDataSource
+        if isRunningTests, type(of: fanTelemetryDataSource) == AppleSMCFanTelemetryDataSource.self {
+            self.fanTelemetryDataSource = TestFanTelemetryDataSource()
+        } else {
+            self.fanTelemetryDataSource = fanTelemetryDataSource
+        }
         self.helperReachabilityProbe = helperReachabilityProbe ?? {
             await privilegedSource.isHelperReachableWithoutLaunching()
         }
@@ -287,6 +310,16 @@ final class AppCoordinator: ObservableObject {
     var selectedMemoryPaneChart: MemoryPaneChart {
         get { settingsController.selectedMemoryPaneChart }
         set { settingsController.selectedMemoryPaneChart = newValue }
+    }
+
+    var chartMinorGridEnabled: Bool {
+        get { settingsController.chartMinorGridEnabled }
+        set { settingsController.chartMinorGridEnabled = newValue }
+    }
+
+    var chartSmoothingAlpha: Double {
+        get { settingsController.chartSmoothingAlpha }
+        set { settingsController.chartSmoothingAlpha = newValue }
     }
 
     var selectedCPUPaneChart: CPUPaneChart {
@@ -472,9 +505,29 @@ final class AppCoordinator: ObservableObject {
         set { settingsController.dashboardLayout = newValue }
     }
 
+    var dashboardDensity: DashboardDensityMode {
+        get { settingsController.dashboardDensity }
+        set { settingsController.dashboardDensity = newValue }
+    }
+
+    var dashboardCardSize: DashboardCardSizeMode {
+        get { settingsController.dashboardCardSize }
+        set { settingsController.dashboardCardSize = newValue }
+    }
+
     var dashboardCardOrder: [DashboardCardID] {
         get { settingsController.dashboardCardOrder }
         set { settingsController.dashboardCardOrder = newValue }
+    }
+
+    var dashboardCardVisibility: [DashboardCardID: Bool] {
+        get { settingsController.dashboardCardVisibility }
+        set { settingsController.dashboardCardVisibility = newValue }
+    }
+
+    var visibleDashboardCards: [DashboardCardID] {
+        let visible = dashboardCardOrder.filter { dashboardCardVisibility[$0] ?? true }
+        return visible.isEmpty ? [.cpu] : visible
     }
 
     var menuBarDisplayMode: MenuBarDisplayMode {
@@ -507,6 +560,18 @@ final class AppCoordinator: ObservableObject {
 
     func moveDashboardCard(from index: Int, direction: Int) {
         settingsController.moveDashboardCard(from: index, direction: direction)
+    }
+
+    func moveDashboardCard(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        settingsController.moveDashboardCard(fromOffsets: offsets, toOffset: destination)
+    }
+
+    func setDashboardCard(_ card: DashboardCardID, isVisible: Bool) {
+        settingsController.setDashboardCard(card, isVisible: isVisible)
+    }
+
+    func resetDashboardLayoutEditor() {
+        settingsController.resetDashboardLayoutEditor()
     }
 
     func toggleFavoriteSensor(id: String) {
@@ -1056,7 +1121,12 @@ final class AppCoordinator: ObservableObject {
 
         do {
             let reading = try await directTemperatureDataSource.readTemperatures()
-            let normalizedReading = normalizedDirectTemperatureReading(from: reading, at: sampledAt)
+            let fanSample = fanTelemetryDataSource.readFans(at: sampledAt)
+            let normalizedReading = normalizedDirectTemperatureReading(
+                from: reading,
+                fanSample: fanSample,
+                at: sampledAt
+            )
             directTemperatureRuntimeState = DirectTemperatureRuntimeState(
                 reading: normalizedReading,
                 sampledAt: sampledAt,
@@ -1566,9 +1636,10 @@ final class AppCoordinator: ObservableObject {
 
     private func normalizedDirectTemperatureReading(
         from reading: PowermetricsTemperatureReading,
+        fanSample: AppFanTelemetrySample,
         at timestamp: Date
     ) -> PowermetricsTemperatureReading {
-        let normalizedChannels = reading.channels.map { channel in
+        let temperatureChannels = reading.channels.map { channel in
             SensorReading(
                 id: channel.id,
                 rawName: channel.rawName,
@@ -1581,23 +1652,29 @@ final class AppCoordinator: ObservableObject {
             )
         }
 
+        let allChannels = deduplicatedChannels(channels: temperatureChannels + fanSample.channels)
+        let sourceChain = deduplicatedSourceChain(["direct-iohid", "smc"])
+        let sourceDiagnostics = [
+            SensorSourceDiagnostic(
+                source: "direct-iohid",
+                healthy: true,
+                message: "Read temperature channels directly from IOHID without launching the helper"
+            ),
+            fanSample.diagnostic
+        ]
+        let fanTelemetryAvailable = fanSample.hasFanHardware ? !fanSample.channels.isEmpty : true
+
         return PowermetricsTemperatureReading(
             primaryCelsius: reading.primaryCelsius,
             maxCelsius: reading.maxCelsius,
             sensorCount: reading.sensorCount,
             sensors: reading.sensors,
-            channels: normalizedChannels,
+            channels: allChannels,
             source: "direct-iohid",
-            sourceChain: ["direct-iohid"],
-            sourceDiagnostics: [
-                SensorSourceDiagnostic(
-                    source: "direct-iohid",
-                    healthy: true,
-                    message: "Read temperature channels directly from IOHID without launching the helper"
-                )
-            ],
-            fanTelemetryAvailable: reading.fanTelemetryAvailable,
-            fanCount: reading.fanCount
+            sourceChain: sourceChain,
+            sourceDiagnostics: sourceDiagnostics,
+            fanTelemetryAvailable: fanTelemetryAvailable,
+            fanCount: fanSample.fanCount
         )
     }
 
@@ -1651,6 +1728,9 @@ final class AppCoordinator: ObservableObject {
 
         let fanChannelCount = deduplicatedChannels.filter { $0.channelType == .fanRPM }.count
         let reportedFanCount = reading.fanCount ?? 0
+        let smcSourceSampled = activeSourceChain.contains("smc")
+            || sourceDiagnostics.contains(where: { $0.source == "smc" })
+        let smcDiagnostic = sourceDiagnostics.first { $0.source == "smc" }
         let fanParityGateBlocked: Bool
         let fanParityGateMessage: String?
         if reportedFanCount > 0 && fanChannelCount == 0 {
@@ -1658,7 +1738,13 @@ final class AppCoordinator: ObservableObject {
             fanParityGateMessage = "Fan hardware detected but no RPM telemetry is available from current enhanced probes."
         } else if reportedFanCount <= 0 {
             fanParityGateBlocked = false
-            fanParityGateMessage = "No fan hardware reported by current sources."
+            if smcSourceSampled, let message = smcDiagnostic?.message, !(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                fanParityGateMessage = message
+            } else {
+                fanParityGateMessage = smcSourceSampled
+                    ? "No fan hardware reported by AppleSMC."
+                    : "Fan telemetry source has not been sampled yet."
+            }
         } else {
             fanParityGateBlocked = false
             fanParityGateMessage = nil
@@ -1715,6 +1801,33 @@ final class AppCoordinator: ObservableObject {
 
     private func isPrivilegedTemperatureMetric(_ sample: MetricSample) -> Bool {
         sample.metricID == .temperaturePrimaryCelsius || sample.metricID == .temperatureMaxCelsius
+    }
+
+    private func deduplicatedChannels(channels: [SensorReading]) -> [SensorReading] {
+        var seen = Set<String>()
+        var output: [SensorReading] = []
+        output.reserveCapacity(channels.count)
+
+        for channel in channels {
+            guard seen.insert(channel.id).inserted else { continue }
+            output.append(channel)
+        }
+
+        return output
+    }
+
+    private func deduplicatedSourceChain(_ sourceChain: [String]) -> [String] {
+        var seen = Set<String>()
+        var output: [String] = []
+        output.reserveCapacity(sourceChain.count)
+
+        for source in sourceChain {
+            let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            output.append(trimmed)
+        }
+
+        return output
     }
 
     private func updateLaunchAtLogin(enabled: Bool) async {

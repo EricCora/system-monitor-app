@@ -439,7 +439,36 @@ final class SettingsController: ObservableObject {
         }
     }
 
+    @Published var chartMinorGridEnabled: Bool {
+        didSet {
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var chartSmoothingAlpha: Double {
+        didSet {
+            let normalized = Self.normalizeChartSmoothingAlpha(chartSmoothingAlpha)
+            if normalized != chartSmoothingAlpha {
+                chartSmoothingAlpha = normalized
+                return
+            }
+            persistAppSettingsV4()
+        }
+    }
+
     @Published var dashboardLayout: DashboardLayoutMode {
+        didSet {
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var dashboardDensity: DashboardDensityMode {
+        didSet {
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var dashboardCardSize: DashboardCardSizeMode {
         didSet {
             persistAppSettingsV4()
         }
@@ -450,6 +479,17 @@ final class SettingsController: ObservableObject {
             let normalized = Self.normalizeDashboardCardOrder(dashboardCardOrder)
             if normalized != dashboardCardOrder {
                 dashboardCardOrder = normalized
+                return
+            }
+            persistAppSettingsV4()
+        }
+    }
+
+    @Published var dashboardCardVisibility: [DashboardCardID: Bool] {
+        didSet {
+            let normalized = Self.normalizeDashboardCardVisibility(dashboardCardVisibility)
+            if normalized != dashboardCardVisibility {
+                dashboardCardVisibility = normalized
                 return
             }
             persistAppSettingsV4()
@@ -631,8 +671,13 @@ final class SettingsController: ObservableObject {
         memoryMenuLayout = appSettings.memoryMenuLayout.reconciledEnsuringVisibleSections(fallback: .memoryDefault)
         cpuProcessCount = appSettings.cpuProcessCount
         memoryProcessCount = appSettings.memoryProcessCount
+        chartMinorGridEnabled = appSettings.chartMinorGridEnabled
+        chartSmoothingAlpha = Self.normalizeChartSmoothingAlpha(appSettings.chartSmoothingAlpha)
         dashboardLayout = appSettings.dashboardLayout
+        dashboardDensity = appSettings.dashboardDensity
+        dashboardCardSize = appSettings.dashboardCardSize
         dashboardCardOrder = Self.normalizeDashboardCardOrder(appSettings.dashboardCardOrder)
+        dashboardCardVisibility = Self.normalizeDashboardCardVisibility(appSettings.dashboardCardVisibility)
         menuBarDisplayMode = appSettings.menuBarDisplayMode
         menuBarMetricStyles = Self.normalizeMenuBarMetricStyles(appSettings.menuBarMetricStyles)
         favoriteSensorIDs = Self.normalizeSensorIDs(appSettings.favoriteSensorIDs)
@@ -787,8 +832,13 @@ final class SettingsController: ObservableObject {
             memoryProcessCount: memoryProcessCount,
             selectedCPUPaneChart: selectedCPUPaneChart,
             selectedMemoryPaneChart: selectedMemoryPaneChart,
+            chartMinorGridEnabled: chartMinorGridEnabled,
+            chartSmoothingAlpha: chartSmoothingAlpha,
             dashboardLayout: dashboardLayout,
+            dashboardDensity: dashboardDensity,
+            dashboardCardSize: dashboardCardSize,
             dashboardCardOrder: dashboardCardOrder,
+            dashboardCardVisibility: dashboardCardVisibility,
             menuBarDisplayMode: menuBarDisplayMode,
             menuBarMetricStyles: menuBarMetricStyles,
             favoriteSensorIDs: favoriteSensorIDs,
@@ -901,6 +951,32 @@ final class SettingsController: ObservableObject {
         dashboardCardOrder = cards
     }
 
+    func moveDashboardCard(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        var cards = dashboardCardOrder
+        let moving = offsets.sorted().map { cards[$0] }
+        for offset in offsets.sorted(by: >) {
+            cards.remove(at: offset)
+        }
+        let removedBeforeDestination = offsets.filter { $0 < destination }.count
+        let insertionIndex = max(0, min(destination - removedBeforeDestination, cards.count))
+        cards.insert(contentsOf: moving, at: insertionIndex)
+        dashboardCardOrder = cards
+    }
+
+    func setDashboardCard(_ card: DashboardCardID, isVisible: Bool) {
+        var visibility = dashboardCardVisibility
+        visibility[card] = isVisible
+        dashboardCardVisibility = visibility
+    }
+
+    func resetDashboardLayoutEditor() {
+        dashboardLayout = .cardDashboard
+        dashboardDensity = .compact
+        dashboardCardSize = .standard
+        dashboardCardOrder = DashboardCardID.defaultOrder
+        dashboardCardVisibility = DashboardCardID.defaultVisibility
+    }
+
     func toggleFavoriteSensor(id: String) {
         var ids = favoriteSensorIDs
         if let index = ids.firstIndex(of: id) {
@@ -963,6 +1039,26 @@ final class SettingsController: ObservableObject {
             normalized.append(card)
         }
         return normalized.isEmpty ? DashboardCardID.defaultOrder : normalized
+    }
+
+    private static func normalizeDashboardCardVisibility(
+        _ visibility: [DashboardCardID: Bool]
+    ) -> [DashboardCardID: Bool] {
+        var normalized = DashboardCardID.defaultVisibility
+        for card in DashboardCardID.allCases {
+            if let isVisible = visibility[card] {
+                normalized[card] = isVisible
+            }
+        }
+        if !normalized.values.contains(true) {
+            normalized[.cpu] = true
+        }
+        return normalized
+    }
+
+    private static func normalizeChartSmoothingAlpha(_ value: Double) -> Double {
+        guard value.isFinite else { return 1.0 }
+        return min(max(value, 0.05), 1.0)
     }
 
     private static func normalizeMenuBarMetricStyles(

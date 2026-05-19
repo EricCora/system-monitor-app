@@ -44,7 +44,8 @@ struct NetworkTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.networkAccent
+                seriesColor: DashboardPalette.networkAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
             MetricChartView(
@@ -53,18 +54,36 @@ struct NetworkTabView: View {
                 throughputUnit: coordinator.throughputUnit,
                 areaOpacity: coordinator.chartAreaOpacity,
                 diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.cpuAccent
+                seriesColor: DashboardPalette.cpuAccent,
+                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
             )
 
-            if !interfaceRates.isEmpty {
+            if !readableInterfaceRates.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    DashboardSectionLabel(title: "Interfaces", tint: DashboardPalette.secondaryText)
+                    HStack {
+                        DashboardSectionLabel(title: "Interfaces", tint: DashboardPalette.secondaryText)
+                        Spacer()
+                        Text("Only active and recognizable interfaces are shown first.")
+                            .font(.caption2)
+                            .foregroundStyle(DashboardPalette.tertiaryText)
+                    }
 
-                    ForEach(Array(interfaceRates.enumerated()), id: \.element.id) { index, rate in
-                        HStack {
-                            Text(rate.interface)
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.primaryText)
+                    ForEach(Array(readableInterfaceRates.enumerated()), id: \.element.id) { index, rate in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(interfaceTitle(for: rate.interface))
+                                        .font(.callout.weight(.semibold))
+                                        .foregroundStyle(DashboardPalette.primaryText)
+                                    Text(rate.interface)
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(DashboardPalette.tertiaryText)
+                                }
+                                Text(interfaceSubtitle(for: rate.interface, index: index))
+                                    .font(.caption2)
+                                    .foregroundStyle(DashboardPalette.secondaryText)
+                            }
+
                             if index == 0 {
                                 Text("Primary")
                                     .font(.caption2.weight(.semibold))
@@ -74,12 +93,13 @@ struct NetworkTabView: View {
                                     .foregroundStyle(DashboardPalette.primaryText)
                             }
                             Spacer()
-                            Text("↓\(UnitsFormatter.format(rate.inboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.networkAccent)
-                            Text("↑\(UnitsFormatter.format(rate.outboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(DashboardPalette.cpuAccent)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("Download \(UnitsFormatter.format(rate.inboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
+                                    .foregroundStyle(DashboardPalette.networkAccent)
+                                Text("Upload \(UnitsFormatter.format(rate.outboundBytesPerSecond, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit))")
+                                    .foregroundStyle(DashboardPalette.cpuAccent)
+                            }
+                            .font(.caption.monospacedDigit())
                         }
                     }
                 }
@@ -97,5 +117,31 @@ struct NetworkTabView: View {
 
     private var interfaceRates: [NetworkInterfaceRate] {
         featureStore.interfaceRates
+    }
+
+    private var readableInterfaceRates: [NetworkInterfaceRate] {
+        let active = interfaceRates.filter { $0.totalBytesPerSecond > 0 }
+        let primary = interfaceRates.prefix(1)
+        let candidates = active.isEmpty ? Array(primary) : Array(primary) + active
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.interface).inserted }.prefix(8).map { $0 }
+    }
+
+    private func interfaceTitle(for interface: String) -> String {
+        if interface.hasPrefix("en") { return "Wi-Fi / Ethernet" }
+        if interface.hasPrefix("utun") { return "VPN Tunnel" }
+        if interface.hasPrefix("bridge") { return "Bridge" }
+        if interface.hasPrefix("awdl") { return "Apple Direct Link" }
+        if interface.hasPrefix("llw") { return "Low-Latency Wi-Fi" }
+        if interface.hasPrefix("anpi") { return "Thunderbolt / USB" }
+        return "Network Interface"
+    }
+
+    private func interfaceSubtitle(for interface: String, index: Int) -> String {
+        if index == 0 { return "Current primary route" }
+        if interface.hasPrefix("utun") { return "Often VPN, iCloud Private Relay, or system tunnel traffic" }
+        if interface.hasPrefix("awdl") || interface.hasPrefix("llw") { return "Apple peer-to-peer system traffic" }
+        if interface.hasPrefix("anpi") { return "External adapter or Thunderbolt networking" }
+        return "Active traffic source"
     }
 }
