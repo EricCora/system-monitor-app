@@ -39,6 +39,7 @@ final class ProfileSettingsTests: XCTestCase {
         XCTAssertEqual(settings.customProfile.memoryPressureAlertThreshold, 93)
         XCTAssertEqual(settings.customProfile.diskFreeAlertDuration, 45)
         XCTAssertFalse(settings.autoSwitchRules.isEnabled)
+        XCTAssertTrue(settings.privilegedTemperatureEnabled)
     }
 
     func testV2MigrationUsesLegacySamplingIntervalOverride() {

@@ -393,7 +393,7 @@ public struct AppSettingsV2: Codable, Sendable, Equatable {
             activeProfile: .custom,
             customProfile: legacy.asProfileSettings(),
             autoSwitchRules: .defaults,
-            privilegedTemperatureEnabled: false
+            privilegedTemperatureEnabled: true
         )
     }
 }
@@ -478,7 +478,7 @@ public struct AppSettingsV3: Codable, Sendable, Equatable {
             activeProfile: .custom,
             customProfile: legacy.asProfileSettings(),
             autoSwitchRules: .defaults,
-            privilegedTemperatureEnabled: false
+            privilegedTemperatureEnabled: true
         )
     }
 

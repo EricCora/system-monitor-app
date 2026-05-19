@@ -84,6 +84,14 @@ struct QuickSettingsView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+
+            Button(role: .destructive) {
+                NSApp.terminate(nil)
+            } label: {
+                Label("Quit PulseBar", systemImage: "power")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
         .foregroundStyle(DashboardPalette.primaryText)
         .frame(maxWidth: .infinity, alignment: .leading)

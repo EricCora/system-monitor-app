@@ -16,7 +16,7 @@ Implemented in this repo:
 - Temperature monitoring:
   - standard mode via `ProcessInfo.thermalState` (no privileges)
   - privileged mode via helper source chain: IOHID temperature sensors + AppleSMC fan probe + `powermetrics` fallback
-  - Sensors overview card with favorites-first curation and a direct drill-down into the restored temperature detail surface with detached adjacent history pane (hover preview, click pinning, hide/reset sensor controls, shared chart windows, drag-to-zoom, double-click reset)
+  - Sensors overview card with favorites-first curation and a direct drill-down into the restored temperature detail surface with compact per-group max/avg/min rows, detached aggregate compare panes, shared chart windows, drag-to-zoom, and double-click reset
   - Temperature detail tab now keeps thermal-state history visible in standard mode and shows aggregate primary/maximum traces whenever those metric histories exist, even if privileged per-sensor channels are unavailable
 - last-known privileged temperature snapshot persists across relaunches so quiet startup still shows sensors without triggering admin prompts
 - Shared light-theme palette now applies across overview, detailed tabs, detached panes, chart controls, and settings so the popover no longer switches between polished and washed-out surfaces
@@ -113,8 +113,17 @@ Current roadmap status is a safety-gated feasibility track only; no fan control 
 
 Unsigned local builds may trigger Gatekeeper warnings.
 If needed for personal usage:
-- Move app to `/Applications`
-- Use Finder > Open (first run) to bypass quarantine prompts
+- Build a local app bundle:
+  ```bash
+  ./scripts/package_app.sh
+  ```
+- The finished bundle lands at `/Users/Eric/Documents/system_monitor_app/dist/PulseBar.app`
+- To install it into `/Applications` in one step:
+  ```bash
+  ./scripts/package_app.sh --install
+  ```
+- Move app to `/Applications` before enabling launch at login for the best `SMAppService` success rate
+- Use Finder > Open on first launch if macOS warns about the unsigned local build
 
 ## Documentation Index
 

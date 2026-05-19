@@ -34,6 +34,10 @@ final class DetachedMetricsPaneControllerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.minX, visibleFrame.minX)
     }
 
+    func testTemperatureCompareTargetRoutesToTemperatureFamily() {
+        XCTAssertEqual(DetachedMetricsPaneTarget.temperatureCompare.family, .temperature)
+    }
+
     func testClearPreviewKeepsLastTargetUntilHideDelayFinishes() async {
         let controller = DetachedMetricsPaneController()
 

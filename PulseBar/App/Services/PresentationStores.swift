@@ -3,9 +3,54 @@ import PulseBarCore
 
 private let compactRenderPointLimit = 180
 
+enum TemperatureAggregateStatistic: String, CaseIterable, Equatable {
+    case max
+    case avg
+    case min
+
+    var label: String {
+        switch self {
+        case .max:
+            return "Max"
+        case .avg:
+            return "Avg"
+        case .min:
+            return "Min"
+        }
+    }
+
+    func value(from values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        switch self {
+        case .max:
+            return values.max()
+        case .avg:
+            return values.reduce(0, +) / Double(values.count)
+        case .min:
+            return values.min()
+        }
+    }
+}
+
+struct TemperatureAggregateRow: Identifiable, Equatable {
+    let id: String
+    let category: SensorCategory
+    let statistic: TemperatureAggregateStatistic
+    let displayName: String
+    let value: Double
+    let sensorIDs: [String]
+    let timestamp: Date
+    let sourceSensorCount: Int
+
+    static func id(category: SensorCategory, statistic: TemperatureAggregateStatistic) -> String {
+        "temperature-group.\(category.rawValue).\(statistic.rawValue)"
+    }
+}
+
 struct TemperatureSensorGroup: Identifiable, Equatable {
     let category: SensorCategory
     let channels: [SensorReading]
+    let aggregateRows: [TemperatureAggregateRow]
     let maxValueByChannelType: [SensorChannelType: Double]
 
     var id: String { category.rawValue }
@@ -14,6 +59,12 @@ struct TemperatureSensorGroup: Identifiable, Equatable {
         let maxValue = maxValueByChannelType[channel.channelType] ?? 1
         guard maxValue > 0 else { return 0 }
         return min(max(channel.value / maxValue, 0), 1)
+    }
+
+    func barWidthRatio(for row: TemperatureAggregateRow) -> Double {
+        let maxValue = maxValueByChannelType[.temperatureCelsius] ?? 1
+        guard maxValue > 0 else { return 0 }
+        return min(max(row.value / maxValue, 0), 1)
     }
 }
 
@@ -629,6 +680,8 @@ final class BatteryFeatureStore: ObservableObject {
 
 @MainActor
 final class NetworkFeatureStore: ObservableObject {
+    static let maximumPlausibleThroughputBytesPerSecond = 100_000_000_000.0
+
     @Published private(set) var inboundBytesPerSecond = 0.0
     @Published private(set) var outboundBytesPerSecond = 0.0
     @Published private(set) var interfaceRates: [NetworkInterfaceRate] = []
@@ -638,9 +691,15 @@ final class NetworkFeatureStore: ObservableObject {
     @Published private(set) var context = NetworkContextSnapshot()
 
     func updateMetrics(from latestSamples: [MetricID: MetricSample], interfaceRates: [NetworkInterfaceRate]) {
-        inboundBytesPerSecond = latestSamples[.networkInBytesPerSec]?.value ?? 0
-        outboundBytesPerSecond = latestSamples[.networkOutBytesPerSec]?.value ?? 0
-        self.interfaceRates = interfaceRates
+        inboundBytesPerSecond = Self.sanitizedThroughputValue(latestSamples[.networkInBytesPerSec]?.value ?? 0)
+        outboundBytesPerSecond = Self.sanitizedThroughputValue(latestSamples[.networkOutBytesPerSec]?.value ?? 0)
+        self.interfaceRates = interfaceRates.map {
+            NetworkInterfaceRate(
+                interface: $0.interface,
+                inboundBytesPerSecond: Self.sanitizedThroughputValue($0.inboundBytesPerSecond),
+                outboundBytesPerSecond: Self.sanitizedThroughputValue($0.outboundBytesPerSecond)
+            )
+        }
     }
 
     func setChartWindow(_ window: ChartWindow) {
@@ -648,18 +707,51 @@ final class NetworkFeatureStore: ObservableObject {
     }
 
     func setChartSamples(inbound: [MetricSample], outbound: [MetricSample], window: ChartWindow) {
-        inboundSamples = inbound
-        outboundSamples = outbound
+        inboundSamples = Self.sanitizedThroughputSamples(inbound)
+        outboundSamples = Self.sanitizedThroughputSamples(outbound)
         chartWindow = window
     }
 
     func appendCompactSamples(_ samples: [MetricSample], at date: Date) {
-        appendLatest(metricID: .networkInBytesPerSec, from: samples, to: &inboundSamples, window: chartWindow, now: date)
-        appendLatest(metricID: .networkOutBytesPerSec, from: samples, to: &outboundSamples, window: chartWindow, now: date)
+        appendLatest(
+            metricID: .networkInBytesPerSec,
+            from: Self.sanitizedThroughputSamples(samples),
+            to: &inboundSamples,
+            window: chartWindow,
+            now: date
+        )
+        appendLatest(
+            metricID: .networkOutBytesPerSec,
+            from: Self.sanitizedThroughputSamples(samples),
+            to: &outboundSamples,
+            window: chartWindow,
+            now: date
+        )
     }
 
     func updateContext(_ context: NetworkContextSnapshot) {
         self.context = context
+    }
+
+    static func sanitizedThroughputSamples(_ samples: [MetricSample]) -> [MetricSample] {
+        samples.filter { sample in
+            switch sample.metricID {
+            case .networkInBytesPerSec, .networkOutBytesPerSec, .networkInterfaceInBytesPerSec, .networkInterfaceOutBytesPerSec:
+                return isPlausibleThroughput(sample.value)
+            default:
+                return true
+            }
+        }
+    }
+
+    static func sanitizedThroughputValue(_ value: Double) -> Double {
+        isPlausibleThroughput(value) ? value : 0
+    }
+
+    private static func isPlausibleThroughput(_ value: Double) -> Bool {
+        value.isFinite
+            && value >= 0
+            && value <= maximumPlausibleThroughputBytesPerSecond
     }
 }
 
@@ -743,37 +835,68 @@ final class TemperatureFeatureStore: ObservableObject {
 
     private static func makeGroups(from visibleSensors: [SensorReading]) -> [TemperatureSensorGroup] {
         Dictionary(grouping: visibleSensors, by: \.category)
-            .map { category, channels in
-                let sortedChannels = channels.sorted { lhs, rhs in
-                    if lhs.channelType != rhs.channelType {
-                        return lhs.channelType.rawValue < rhs.channelType.rawValue
-                    }
+            .compactMap { category, channels in
+                let sortedChannels = channels
+                    .filter { $0.channelType == .temperatureCelsius }
+                    .filter(isUsefulAggregateSensor)
+                    .sorted { lhs, rhs in
                     if lhs.value != rhs.value {
                         return lhs.value > rhs.value
                     }
                     return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
                 }
+                guard !sortedChannels.isEmpty else { return nil }
+
+                let values = sortedChannels.map(\.value)
+                let sensorIDs = sortedChannels.map(\.id)
+                let timestamp = sortedChannels.map(\.timestamp).max() ?? Date()
+                let statistics = aggregateStatistics(for: values)
+                let aggregateRows = statistics.compactMap { statistic -> TemperatureAggregateRow? in
+                    guard let value = statistic.value(from: values) else { return nil }
+                    return TemperatureAggregateRow(
+                        id: TemperatureAggregateRow.id(category: category, statistic: statistic),
+                        category: category,
+                        statistic: statistic,
+                        displayName: displayName(category: category, statistic: statistic, statisticsCount: statistics.count),
+                        value: value,
+                        sensorIDs: sensorIDs,
+                        timestamp: timestamp,
+                        sourceSensorCount: sensorIDs.count
+                    )
+                }
 
                 var maxima: [SensorChannelType: Double] = [:]
-                for channelType in SensorChannelType.allCases {
-                    let values = sortedChannels
-                        .filter { $0.channelType == channelType }
-                        .map(\.value)
-                    switch channelType {
-                    case .temperatureCelsius:
-                        maxima[channelType] = max(50, values.max() ?? 50)
-                    case .fanRPM:
-                        maxima[channelType] = max(1000, values.max() ?? 1000)
-                    }
-                }
+                maxima[.temperatureCelsius] = max(50, values.max() ?? 50)
 
                 return TemperatureSensorGroup(
                     category: category,
                     channels: sortedChannels,
+                    aggregateRows: aggregateRows,
                     maxValueByChannelType: maxima
                 )
             }
             .sorted { $0.category.label < $1.category.label }
+    }
+
+    private static func aggregateStatistics(for values: [Double]) -> [TemperatureAggregateStatistic] {
+        guard values.count > 1 else { return [.avg] }
+        guard let minimum = values.min(), let maximum = values.max() else { return [] }
+        if abs(maximum - minimum) < 0.05 {
+            return [.avg]
+        }
+        return TemperatureAggregateStatistic.allCases
+    }
+
+    private static func displayName(
+        category: SensorCategory,
+        statistic: TemperatureAggregateStatistic,
+        statisticsCount: Int
+    ) -> String {
+        statisticsCount == 1 ? category.label : "\(category.label) \(statistic.label)"
+    }
+
+    private static func isUsefulAggregateSensor(_ sensor: SensorReading) -> Bool {
+        TemperatureSensorPresentationPolicy.isUsefulSensor(sensor)
     }
 
     func appendCompactSamples(_ samples: [MetricSample], at date: Date) {

@@ -15,6 +15,21 @@ enum SensorIdentityResolver {
     }
 }
 
+enum TemperatureSensorPresentationPolicy {
+    static func isUsefulSensor(_ sensor: SensorReading) -> Bool {
+        guard sensor.channelType == .temperatureCelsius else { return true }
+
+        let rawName = sensor.rawName.lowercased()
+        if rawName.contains("tcal") {
+            return false
+        }
+        if rawName.contains("mtr temp sensor"), abs(sensor.value - 30) < 0.0001 {
+            return false
+        }
+        return true
+    }
+}
+
 enum SensorDisplayNameMapper {
     static func present(_ reading: SensorReading) -> SensorReading {
         let normalizedDisplay = displayName(from: reading.rawName)
@@ -44,6 +59,9 @@ enum SensorDisplayNameMapper {
         }
         if lower.contains("ane") {
             return .ane
+        }
+        if lower.contains("isp") {
+            return .soc
         }
         if lower.contains("soc") || lower.contains("pmgr") {
             return .soc
@@ -75,13 +93,13 @@ enum SensorDisplayNameMapper {
             return "SoC Sensor \(suffix)"
         }
         if lower.contains("gpu mtr temp sensor") {
-            return "GPU"
+            return "GPU Sensor \(numericSuffix(from: rawName))"
         }
         if lower.contains("ane mtr temp sensor") {
-            return "Neural Engine"
+            return "Neural Engine Sensor \(numericSuffix(from: rawName))"
         }
         if lower.contains("isp mtr temp sensor") {
-            return "Image Signal Processor"
+            return "Image Signal Processor Sensor \(numericSuffix(from: rawName))"
         }
         if lower.contains("nand") {
             return "SSD"
@@ -98,5 +116,10 @@ enum SensorDisplayNameMapper {
         }
 
         return rawName
+    }
+
+    private static func numericSuffix(from rawName: String) -> String {
+        let suffix = rawName.reversed().prefix { $0.isNumber }.reversed()
+        return suffix.isEmpty ? "1" : String(suffix)
     }
 }

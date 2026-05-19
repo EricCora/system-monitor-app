@@ -38,8 +38,8 @@ public actor NetworkProvider: MetricProvider {
 
         let elapsed = max(0.001, date.timeIntervalSince(previous.timestamp))
 
-        let inboundRate = Double(counters.totalInBytes &- previous.totalInBytes) / elapsed
-        let outboundRate = Double(counters.totalOutBytes &- previous.totalOutBytes) / elapsed
+        let inboundRate = Self.bytesPerSecond(current: counters.totalInBytes, previous: previous.totalInBytes, elapsed: elapsed)
+        let outboundRate = Self.bytesPerSecond(current: counters.totalOutBytes, previous: previous.totalOutBytes, elapsed: elapsed)
 
         var samples: [MetricSample] = [
             MetricSample(metricID: .networkInBytesPerSec, timestamp: date, value: inboundRate, unit: .bytesPerSecond),
@@ -50,14 +50,22 @@ public actor NetworkProvider: MetricProvider {
             let current = counters.byInterface[interface]
             let previousInterface = previous.byInterface[interface]
 
-            let inboundDelta = (current?.inBytes ?? 0) &- (previousInterface?.inBytes ?? (current?.inBytes ?? 0))
-            let outboundDelta = (current?.outBytes ?? 0) &- (previousInterface?.outBytes ?? (current?.outBytes ?? 0))
+            let inboundRate = Self.bytesPerSecond(
+                current: current?.inBytes ?? 0,
+                previous: previousInterface?.inBytes ?? (current?.inBytes ?? 0),
+                elapsed: elapsed
+            )
+            let outboundRate = Self.bytesPerSecond(
+                current: current?.outBytes ?? 0,
+                previous: previousInterface?.outBytes ?? (current?.outBytes ?? 0),
+                elapsed: elapsed
+            )
 
             samples.append(
                 MetricSample(
                     metricID: .networkInterfaceInBytesPerSec(interface),
                     timestamp: date,
-                    value: Double(inboundDelta) / elapsed,
+                    value: inboundRate,
                     unit: .bytesPerSecond
                 )
             )
@@ -65,13 +73,18 @@ public actor NetworkProvider: MetricProvider {
                 MetricSample(
                     metricID: .networkInterfaceOutBytesPerSec(interface),
                     timestamp: date,
-                    value: Double(outboundDelta) / elapsed,
+                    value: outboundRate,
                     unit: .bytesPerSecond
                 )
             )
         }
 
         return samples
+    }
+
+    static func bytesPerSecond(current: UInt64, previous: UInt64, elapsed: TimeInterval) -> Double {
+        guard elapsed > 0, current >= previous else { return 0 }
+        return Double(current - previous) / elapsed
     }
 
     private func bootstrapSamples(

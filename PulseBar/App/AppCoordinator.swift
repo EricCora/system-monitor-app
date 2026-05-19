@@ -299,6 +299,19 @@ final class AppCoordinator: ObservableObject {
         set { temperaturePaneModel.hiddenTemperatureSensorIDs = newValue }
     }
 
+    var comparedTemperatureSensorIDs: [String] {
+        get { temperaturePaneModel.comparedTemperatureSensorIDs }
+        set {
+            objectWillChange.send()
+            temperaturePaneModel.comparedTemperatureSensorIDs = newValue
+            temperaturePaneModel.reconcileComparedSensors(validIDs: Set(temperatureAggregateRows().map(\.id)))
+        }
+    }
+
+    var maxComparedTemperatureSensors: Int {
+        TemperaturePaneModel.maxComparedTemperatureSensors
+    }
+
     var globalSamplingInterval: Double {
         get { settingsController.globalSamplingInterval }
         set { settingsController.globalSamplingInterval = newValue }
@@ -602,6 +615,87 @@ final class AppCoordinator: ObservableObject {
         temperaturePaneModel.visibleSensorChannels(from: telemetryStore.latestSensorChannels)
     }
 
+    func temperatureAggregateRows() -> [TemperatureAggregateRow] {
+        temperatureFeatureStore.groupedSensors.flatMap(\.aggregateRows)
+    }
+
+    func comparedTemperatureRows() -> [TemperatureAggregateRow] {
+        temperaturePaneModel.comparedTemperatureRows(from: temperatureAggregateRows())
+    }
+
+    func temperatureAggregateRow(id: String) -> TemperatureAggregateRow? {
+        temperatureAggregateRows().first { $0.id == id }
+    }
+
+    func temperatureAggregateHistorySeries(
+        rowID: String,
+        window: ChartWindow,
+        maxPoints: Int = 900
+    ) async -> [TemperatureHistoryPoint] {
+        guard let row = temperatureAggregateRow(id: rowID) else { return [] }
+        var valuesByTimestamp: [Date: [Double]] = [:]
+
+        for sensorID in row.sensorIDs {
+            let history = await temperatureHistorySeries(
+                sensorID: sensorID,
+                channelType: .temperatureCelsius,
+                window: window,
+                maxPoints: maxPoints
+            )
+            for point in history {
+                valuesByTimestamp[point.timestamp, default: []].append(point.value)
+            }
+        }
+
+        let points = valuesByTimestamp.compactMap { timestamp, values -> TemperatureHistoryPoint? in
+            guard let value = row.statistic.value(from: values) else { return nil }
+            return TemperatureHistoryPoint(
+                sensorID: row.id,
+                timestamp: timestamp,
+                value: value,
+                channelType: .temperatureCelsius
+            )
+        }
+        .sorted { $0.timestamp < $1.timestamp }
+
+        return downsampleTemperatureHistory(points, maxPoints: maxPoints)
+    }
+
+    private func downsampleTemperatureHistory(
+        _ points: [TemperatureHistoryPoint],
+        maxPoints: Int
+    ) -> [TemperatureHistoryPoint] {
+        guard maxPoints > 0, points.count > maxPoints else {
+            return points
+        }
+
+        let bucketSize = Int(ceil(Double(points.count) / Double(maxPoints)))
+        var output: [TemperatureHistoryPoint] = []
+        output.reserveCapacity(maxPoints)
+
+        var index = 0
+        while index < points.count {
+            let end = min(index + bucketSize, points.count)
+            let bucket = points[index..<end]
+            guard let last = bucket.last else {
+                index = end
+                continue
+            }
+            let average = bucket.map(\.value).reduce(0, +) / Double(bucket.count)
+            output.append(
+                TemperatureHistoryPoint(
+                    sensorID: last.sensorID,
+                    timestamp: last.timestamp,
+                    value: average,
+                    channelType: last.channelType
+                )
+            )
+            index = end
+        }
+
+        return output
+    }
+
     func fallbackTemperatureRows() -> [TemperatureSensorReading] {
         var rows: [TemperatureSensorReading] = []
 
@@ -624,17 +718,33 @@ final class AppCoordinator: ObservableObject {
     }
 
     func hideTemperatureSensor(sensorID: String) {
+        objectWillChange.send()
         temperaturePaneModel.hideSensor(sensorID, allSensors: telemetryStore.latestSensorChannels)
         syncTemperatureFeatureStore()
     }
 
     func resetHiddenTemperatureSensors() {
+        objectWillChange.send()
         temperaturePaneModel.resetHiddenSensors(allSensors: telemetryStore.latestSensorChannels)
         syncTemperatureFeatureStore()
     }
 
     func isTemperatureSensorHidden(sensorID: String) -> Bool {
         temperaturePaneModel.isHidden(sensorID: sensorID)
+    }
+
+    func isTemperatureSensorCompared(sensorID: String) -> Bool {
+        temperaturePaneModel.isCompared(sensorID: sensorID)
+    }
+
+    func toggleComparedTemperatureSensor(sensorID: String) {
+        objectWillChange.send()
+        temperaturePaneModel.toggleComparedSensor(sensorID, validIDs: Set(temperatureAggregateRows().map(\.id)))
+    }
+
+    func clearComparedTemperatureSensors() {
+        objectWillChange.send()
+        temperaturePaneModel.clearComparedSensors()
     }
 
     func latestValue(for metricID: MetricID) -> MetricSample? {
@@ -1218,6 +1328,7 @@ final class AppCoordinator: ObservableObject {
             latestCapturedAt: telemetryStore.latestTemperatureCapturedAt,
             usingPersistedSnapshot: telemetryStore.usingPersistedTemperatureSnapshot
         )
+        temperaturePaneModel.reconcileComparedSensors(validIDs: Set(temperatureAggregateRows().map(\.id)))
     }
 
     private func applyVisibleSurfaceUpdates(from batch: SamplingBatch) {

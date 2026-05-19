@@ -64,7 +64,7 @@
   - Sensors overview card supports favorites-first curation, preset switching, and a direct drill-down into the restored temperature detail surface
   - Dashboard cards reuse prepared compact CPU/memory/network/battery/temperature surface models rather than rebuilding large live charts every tick
   - Shared chart rendering through `ChartSeriesPipeline` and detached chart viewport overlays (single sanitization boundary, stable series identity, shared y-domain policy, shared hover/zoom interactions)
-  - Temperature detail view combines always-available thermal-state history with aggregate primary/maximum temperature traces when metric history exists, while per-sensor detached panes remain reserved for real privileged/hydrated sensor channels
+  - Temperature detail view combines always-available thermal-state history with aggregate primary/maximum temperature traces when metric history exists, while the sensor list presents per-group max/avg/min rows backed by raw privileged/hydrated channels and a detached aggregate comparison pane
   - Full sidebar-based settings window for detailed configuration of profiles, dashboard layout/order, menu bar display styles, alerts, and sensor presets
 
 ## Data Flow

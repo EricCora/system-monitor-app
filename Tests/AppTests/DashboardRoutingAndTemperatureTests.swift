@@ -272,6 +272,133 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         }
     }
 
+    func testSelectedSensorReadingExcludesHiddenSensorsFromVisibleFocus() async throws {
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: makeDefaults(),
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+            let telemetryStore = try XCTUnwrap(mirrorChild(named: "telemetryStore", in: coordinator) as? TelemetryStore)
+            let timestamp = Date(timeIntervalSince1970: 1_700_001_890)
+
+            telemetryStore.latestSensorChannels = [
+                SensorReading(
+                    id: "cpu-die",
+                    rawName: "CPU Die",
+                    displayName: "CPU Die",
+                    category: .cpu,
+                    channelType: .temperatureCelsius,
+                    value: 66,
+                    source: "test",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "gpu-die",
+                    rawName: "GPU Die",
+                    displayName: "GPU Die",
+                    category: .gpu,
+                    channelType: .temperatureCelsius,
+                    value: 71,
+                    source: "test",
+                    timestamp: timestamp
+                )
+            ]
+
+            coordinator.selectedTemperatureSensorID = "cpu-die"
+            coordinator.hiddenTemperatureSensorIDs = ["cpu-die"]
+
+            XCTAssertNil(coordinator.selectedSensorReading())
+            XCTAssertEqual(coordinator.selectedSensorReading(includeHidden: true)?.id, "cpu-die")
+            XCTAssertEqual(coordinator.visibleSensorChannels().map(\.id), ["gpu-die"])
+
+            await coordinator.shutdown()
+        }
+    }
+
+    func testTemperatureCompareSelectionPersistsAndReconcilesAggregateRows() {
+        let defaults = makeDefaults()
+        let aggregateIDs = [
+            TemperatureAggregateRow.id(category: .cpu, statistic: .max),
+            TemperatureAggregateRow.id(category: .cpu, statistic: .avg),
+            TemperatureAggregateRow.id(category: .cpu, statistic: .min),
+            TemperatureAggregateRow.id(category: .gpu, statistic: .max),
+            TemperatureAggregateRow.id(category: .soc, statistic: .max),
+            TemperatureAggregateRow.id(category: .storage, statistic: .max),
+            TemperatureAggregateRow.id(category: .battery, statistic: .max)
+        ]
+        let validIDs = Set(aggregateIDs)
+
+        let model = TemperaturePaneModel(defaults: defaults)
+        for id in aggregateIDs {
+            model.toggleComparedSensor(id, validIDs: validIDs)
+        }
+
+        XCTAssertEqual(model.comparedTemperatureSensorIDs, Array(aggregateIDs.prefix(6)))
+        XCTAssertFalse(model.comparedTemperatureSensorIDs.contains(aggregateIDs[6]))
+
+        model.toggleComparedSensor(aggregateIDs[1], validIDs: validIDs)
+        XCTAssertEqual(model.comparedTemperatureSensorIDs, [aggregateIDs[0], aggregateIDs[2], aggregateIDs[3], aggregateIDs[4], aggregateIDs[5]])
+
+        model.reconcileComparedSensors(validIDs: Set([aggregateIDs[0], aggregateIDs[2]]))
+        XCTAssertEqual(model.comparedTemperatureSensorIDs, [aggregateIDs[0], aggregateIDs[2]])
+
+        model.comparedTemperatureSensorIDs = [" \(aggregateIDs[2]) ", aggregateIDs[0], aggregateIDs[2], "", aggregateIDs[3]]
+        let restored = TemperaturePaneModel(defaults: defaults)
+        XCTAssertEqual(restored.comparedTemperatureSensorIDs, [aggregateIDs[2], aggregateIDs[0], aggregateIDs[3]])
+
+        restored.reconcileComparedSensors(validIDs: Set([aggregateIDs[0]]))
+        XCTAssertEqual(restored.comparedTemperatureSensorIDs, [aggregateIDs[0]])
+    }
+
+    func testVisibleTemperatureSensorsExcludeCalibrationAndThirtyDegreeSentinels() {
+        let model = TemperaturePaneModel(defaults: makeDefaults())
+        let now = Date(timeIntervalSince1970: 1_700_020_000)
+        let sensors = [
+            makeSensor(id: "pmu-tcal", displayName: "PMU tcal", category: .cpu, value: 51.85, timestamp: now),
+            makeSensor(id: "gpu-sentinel", displayName: "GPU MTR Temp Sensor1", category: .gpu, value: 30, timestamp: now),
+            makeSensor(id: "gpu-real", displayName: "GPU MTR Temp Sensor4", category: .gpu, value: 47, timestamp: now),
+            makeSensor(id: "fan", displayName: "System Fan", category: .fan, channelType: .fanRPM, value: 1900, timestamp: now)
+        ]
+
+        XCTAssertEqual(model.visibleSensorChannels(from: sensors).map(\.id), ["gpu-real", "fan"])
+    }
+
+    func testTemperatureAggregateHistoryComputesAverageFromRawSensorSeries() async throws {
+        let defaults = makeDefaults()
+        let reading = makeGroupedTemperatureReading()
+        let controller = SettingsController(defaults: defaults)
+        controller.privilegedTemperatureEnabled = true
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                directTemperatureDataSource: FixedTemperatureDataSource(reading: reading),
+                helperReachabilityProbe: { false },
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+
+            try await waitUntil {
+                coordinator.temperatureAggregateRows().contains {
+                    $0.id == TemperatureAggregateRow.id(category: .cpu, statistic: .avg)
+                } && coordinator.temperatureHistoryRevision >= 3
+            }
+
+            let points = await coordinator.temperatureAggregateHistorySeries(
+                rowID: TemperatureAggregateRow.id(category: .cpu, statistic: .avg),
+                window: .oneHour,
+                maxPoints: 20
+            )
+
+            XCTAssertEqual(points.count, 1)
+            XCTAssertEqual(points.first?.value ?? -1, 20, accuracy: 0.01)
+            await coordinator.shutdown()
+        }
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "DashboardRoutingAndTemperatureTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -310,6 +437,26 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         )
     }
 
+    private func makeSensor(
+        id: String,
+        displayName: String,
+        category: SensorCategory,
+        channelType: SensorChannelType = .temperatureCelsius,
+        value: Double,
+        timestamp: Date
+    ) -> SensorReading {
+        SensorReading(
+            id: id,
+            rawName: displayName,
+            displayName: displayName,
+            category: category,
+            channelType: channelType,
+            value: value,
+            source: "test",
+            timestamp: timestamp
+        )
+    }
+
     private func makeDirectReading() -> PowermetricsTemperatureReading {
         let timestamp = Date(timeIntervalSince1970: 1_700_010_123)
         return PowermetricsTemperatureReading(
@@ -338,6 +485,53 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
                     category: .gpu,
                     channelType: .temperatureCelsius,
                     value: 67,
+                    source: "iohid",
+                    timestamp: timestamp
+                )
+            ],
+            source: "iohid"
+        )
+    }
+
+    private func makeGroupedTemperatureReading() -> PowermetricsTemperatureReading {
+        let timestamp = Date(timeIntervalSince1970: 1_700_020_123)
+        return PowermetricsTemperatureReading(
+            primaryCelsius: 20,
+            maxCelsius: 30,
+            sensorCount: 3,
+            sensors: [
+                TemperatureSensorReading(name: "CPU 1", celsius: 10),
+                TemperatureSensorReading(name: "CPU 2", celsius: 20),
+                TemperatureSensorReading(name: "CPU 3", celsius: 30)
+            ],
+            channels: [
+                SensorReading(
+                    id: "cpu-1",
+                    rawName: "CPU 1",
+                    displayName: "CPU 1",
+                    category: .cpu,
+                    channelType: .temperatureCelsius,
+                    value: 10,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "cpu-2",
+                    rawName: "CPU 2",
+                    displayName: "CPU 2",
+                    category: .cpu,
+                    channelType: .temperatureCelsius,
+                    value: 20,
+                    source: "iohid",
+                    timestamp: timestamp
+                ),
+                SensorReading(
+                    id: "cpu-3",
+                    rawName: "CPU 3",
+                    displayName: "CPU 3",
+                    category: .cpu,
+                    channelType: .temperatureCelsius,
+                    value: 30,
                     source: "iohid",
                     timestamp: timestamp
                 )

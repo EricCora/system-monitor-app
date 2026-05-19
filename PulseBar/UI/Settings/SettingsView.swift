@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import PulseBarCore
 
@@ -155,6 +156,20 @@ struct SettingsView: View {
                         .disabled(index == coordinator.dashboardCardOrder.count - 1)
                     }
                 }
+            }
+
+            settingsCard("App Control") {
+                Text("Quit PulseBar without using Activity Monitor.")
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+
+                Button(role: .destructive) {
+                    NSApp.terminate(nil)
+                } label: {
+                    Label("Quit PulseBar", systemImage: "power")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             }
         }
     }

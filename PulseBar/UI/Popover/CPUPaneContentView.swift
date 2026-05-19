@@ -26,7 +26,7 @@ struct CPUPaneContentView: View {
     @State private var deferredRefreshTriggerID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             ChartWindowPicker(
                 options: coordinator.visibleChartWindows,
                 selection: $coordinator.selectedCPUHistoryWindow,
@@ -34,25 +34,9 @@ struct CPUPaneContentView: View {
                 style: .detached
             )
 
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    DashboardSectionLabel(title: "CPU Detail", tint: DashboardPalette.cpuAccent)
-                    Text(activeChart.title)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text(activeChart.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                }
+            paneHeader
 
-                Spacer()
-
-                if paneController.pinnedTarget != nil {
-                    Button("Unpin") {
-                        paneController.unpin()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
+            HStack(spacing: 8) {
                 if viewport.isZoomed {
                     Button("Reset Zoom") {
                         viewport.reset()
@@ -61,17 +45,27 @@ struct CPUPaneContentView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if paneController.pinnedTarget != nil {
+                    Button("Unpin") {
+                        paneController.unpin()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.bottom, 2)
+
+            VStack(alignment: .leading, spacing: 10) {
+                DashboardSectionLabel(title: activeChart.historyTitle, tint: DashboardPalette.secondaryText)
+                chartBody
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                ChartLegendStrip(items: legendItems)
+                summaryRow
             }
             .padding(12)
             .dashboardInset(cornerRadius: 16)
-
-            chartBody
-                .frame(maxWidth: .infinity, minHeight: 300)
-                .padding(12)
-                .dashboardInset(cornerRadius: 16)
-
-            summaryRow
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .dashboardSurface(padding: 14, cornerRadius: 18)
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
@@ -100,6 +94,17 @@ struct CPUPaneContentView: View {
             return chart
         }
         return coordinator.selectedCPUPaneChart
+    }
+
+    private var paneHeader: some View {
+        DetachedPaneHeaderCard(
+            sectionTitle: "CPU Detail",
+            title: activeChart.title,
+            subtitle: activeChart.subtitle,
+            valueText: currentValueText,
+            badgeText: paneController.pinnedTarget != nil ? "Pinned" : "Hover Preview",
+            accent: DashboardPalette.cpuAccent
+        )
     }
 
     @ViewBuilder
@@ -224,6 +229,89 @@ struct CPUPaneContentView: View {
         }
         .font(.caption)
         .frame(height: 18)
+    }
+
+    private var legendItems: [ChartLegendItem] {
+        switch activeChart {
+        case .usage:
+            return [
+                ChartLegendItem(
+                    id: "cpu.user",
+                    label: "User",
+                    color: DashboardPalette.cpuAccent,
+                    valueText: nearestPoint(in: userHistory).map { UnitsFormatter.format($0.value, unit: .percent) }
+                ),
+                ChartLegendItem(
+                    id: "cpu.system",
+                    label: "System",
+                    color: DashboardPalette.memoryAccent,
+                    valueText: nearestPoint(in: systemHistory).map { UnitsFormatter.format($0.value, unit: .percent) }
+                )
+            ]
+        case .loadAverage:
+            return [
+                ChartLegendItem(
+                    id: "load.1",
+                    label: "1 Minute",
+                    color: .cyan,
+                    valueText: nearestPoint(in: load1History).map { String(format: "%.2f", $0.value) }
+                ),
+                ChartLegendItem(
+                    id: "load.5",
+                    label: "5 Minute",
+                    color: .red,
+                    valueText: nearestPoint(in: load5History).map { String(format: "%.2f", $0.value) }
+                ),
+                ChartLegendItem(
+                    id: "load.15",
+                    label: "15 Minute",
+                    color: .gray,
+                    valueText: nearestPoint(in: load15History).map { String(format: "%.2f", $0.value) }
+                )
+            ]
+        case .gpu:
+            return [
+                ChartLegendItem(
+                    id: "gpu.processor",
+                    label: "Processor",
+                    color: .cyan,
+                    valueText: nearestPoint(in: gpuProcessorHistory).map { UnitsFormatter.format($0.value, unit: .percent) }
+                ),
+                ChartLegendItem(
+                    id: "gpu.memory",
+                    label: "Memory",
+                    color: .blue,
+                    valueText: nearestPoint(in: gpuMemoryHistory).map { UnitsFormatter.format($0.value, unit: .percent) }
+                )
+            ]
+        case .framesPerSecond:
+            return [
+                ChartLegendItem(
+                    id: "fps",
+                    label: "FPS",
+                    color: .cyan,
+                    valueText: nearestPoint(in: fpsHistory).map { String(format: "%.1f fps", $0.value) }
+                )
+            ]
+        }
+    }
+
+    private var currentValueText: String {
+        switch activeChart {
+        case .usage:
+            guard userHistory.last != nil || systemHistory.last != nil else { return "--" }
+            let total = (userHistory.last?.value ?? 0) + (systemHistory.last?.value ?? 0)
+            return UnitsFormatter.format(total, unit: .percent)
+        case .loadAverage:
+            guard let load = load1History.last?.value else { return "--" }
+            return String(format: "%.2f", load)
+        case .gpu:
+            guard let processor = gpuProcessorHistory.last?.value else { return "--" }
+            return UnitsFormatter.format(processor, unit: .percent)
+        case .framesPerSecond:
+            guard let fps = fpsHistory.last?.value else { return "--" }
+            return String(format: "%.1f fps", fps)
+        }
     }
 
     @ViewBuilder
@@ -397,6 +485,19 @@ private extension CPUPaneChart {
             return "GPU processor and memory history"
         case .framesPerSecond:
             return "Display refresh sampling"
+        }
+    }
+
+    var historyTitle: String {
+        switch self {
+        case .usage:
+            return "Usage History"
+        case .loadAverage:
+            return "Load History"
+        case .gpu:
+            return "GPU History"
+        case .framesPerSecond:
+            return "Display History"
         }
     }
 }

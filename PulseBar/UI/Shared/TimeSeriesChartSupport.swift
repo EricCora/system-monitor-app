@@ -124,9 +124,15 @@ enum ChartSeriesPipeline {
         label: String,
         color: Color
     ) -> [TimeSeriesChartPoint] {
-        flatten(
-            series: [ChartMetricSeriesDescriptor(key: key, label: label, color: color, samples: points)]
-        ) { entry in
+        temperatureHistory(series: [
+            ChartMetricSeriesDescriptor(key: key, label: label, color: color, samples: points)
+        ])
+    }
+
+    static func temperatureHistory(
+        series: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>]
+    ) -> [TimeSeriesChartPoint] {
+        flatten(series: series) { entry in
             segmented(
                 sanitize(entry.samples, timestamp: \.timestamp),
                 seriesKey: entry.key,

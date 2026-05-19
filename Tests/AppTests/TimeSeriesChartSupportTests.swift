@@ -75,6 +75,39 @@ final class TimeSeriesChartSupportTests: XCTestCase {
         XCTAssertEqual(points.filter { $0.seriesLabel == "Outbound" }.count, 1)
     }
 
+    func testTemperatureHistoryMultiSeriesPreservesStableSeriesIdentity() {
+        let early = Date(timeIntervalSince1970: 100)
+        let late = Date(timeIntervalSince1970: 200)
+
+        let points = ChartSeriesPipeline.temperatureHistory(
+            series: [
+                ChartMetricSeriesDescriptor(
+                    key: "cpu-die",
+                    label: "CPU Die",
+                    color: .red,
+                    samples: [
+                        TemperatureHistoryPoint(sensorID: "cpu-die", timestamp: late, value: 72, channelType: .temperatureCelsius),
+                        TemperatureHistoryPoint(sensorID: "cpu-die", timestamp: early, value: 68, channelType: .temperatureCelsius)
+                    ]
+                ),
+                ChartMetricSeriesDescriptor(
+                    key: "gpu-die",
+                    label: "GPU Die",
+                    color: .blue,
+                    samples: [
+                        TemperatureHistoryPoint(sensorID: "gpu-die", timestamp: early, value: 58, channelType: .temperatureCelsius),
+                        TemperatureHistoryPoint(sensorID: "gpu-die", timestamp: late, value: 61, channelType: .temperatureCelsius)
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertEqual(Set(points.map(\.seriesKey)), Set(["cpu-die", "gpu-die"]))
+        XCTAssertEqual(Set(points.map(\.seriesLabel)), Set(["CPU Die", "GPU Die"]))
+        XCTAssertEqual(points.filter { $0.seriesKey == "cpu-die" }.map(\.continuityKey), ["cpu-die#0", "cpu-die#0"])
+        XCTAssertEqual(points.filter { $0.seriesKey == "gpu-die" }.map(\.continuityKey), ["gpu-die#0", "gpu-die#0"])
+    }
+
     func testYDomainAddsPaddingForFlatSeries() {
         let points = [
             makePoint(timestamp: Date(timeIntervalSince1970: 100), value: 42, seriesKey: "A", seriesLabel: "A", continuityKey: "A#0"),

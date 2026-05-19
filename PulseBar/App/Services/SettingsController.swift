@@ -522,6 +522,7 @@ final class SettingsController: ObservableObject {
         let loadedV3 = Self.loadSettingsV3(defaults: defaults)
         let loadedV2 = Self.loadSettingsV2(defaults: defaults)
         let launchAtLogin = defaults.object(forKey: DefaultsKey.launchAtLogin) as? Bool ?? false
+        let explicitPrivilegedTemperatureEnabled = defaults.object(forKey: DefaultsKey.privilegedTemperatureEnabled) as? Bool
         let legacySelectedWindow = ChartWindow(
             legacyRawValue: defaults.string(forKey: DefaultsKey.selectedWindow) ?? ""
         )
@@ -603,7 +604,7 @@ final class SettingsController: ObservableObject {
         autoSwitchProfilesEnabled = autoSwitchRules.isEnabled
         autoSwitchACProfile = autoSwitchRules.acProfile
         autoSwitchBatteryProfile = autoSwitchRules.batteryProfile
-        privilegedTemperatureEnabled = appSettings.privilegedTemperatureEnabled
+        privilegedTemperatureEnabled = explicitPrivilegedTemperatureEnabled ?? true
         cpuAlertEnabled = profileSettings.cpuAlertEnabled
         cpuAlertThreshold = profileSettings.cpuAlertThreshold
         cpuAlertDuration = profileSettings.cpuAlertDuration

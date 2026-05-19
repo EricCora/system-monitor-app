@@ -169,6 +169,107 @@ struct DashboardSectionLabel: View {
     }
 }
 
+struct ChartLegendItem: Identifiable {
+    let id: String
+    let label: String
+    let color: Color
+    let valueText: String?
+
+    init(id: String, label: String, color: Color, valueText: String? = nil) {
+        self.id = id
+        self.label = label
+        self.color = color
+        self.valueText = valueText
+    }
+}
+
+struct ChartLegendStrip: View {
+    let items: [ChartLegendItem]
+    var minimumItemWidth: CGFloat = 118
+
+    private var columns: [GridItem] {
+        [
+            GridItem(
+                .adaptive(minimum: minimumItemWidth),
+                spacing: 10,
+                alignment: .leading
+            )
+        ]
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 7) {
+            ForEach(items) { item in
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(item.color)
+                        .frame(width: 9, height: 9)
+
+                    Text(item.label)
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                        .lineLimit(1)
+
+                    if let valueText = item.valueText {
+                        Text(valueText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(DashboardPalette.primaryText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+struct DetachedPaneHeaderCard: View {
+    let sectionTitle: String
+    let title: String
+    let subtitle: String?
+    let valueText: String
+    let badgeText: String
+    var accent: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                DashboardSectionLabel(title: sectionTitle, tint: accent)
+                Text(title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(valueText)
+                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(DashboardPalette.primaryText)
+
+                Text(badgeText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(DashboardPalette.insetFill)
+                    )
+            }
+        }
+        .padding(12)
+        .dashboardInset(cornerRadius: 16)
+    }
+}
+
 struct DashboardInfoBanner: View {
     let text: String
     var tint: Color = DashboardPalette.secondaryText

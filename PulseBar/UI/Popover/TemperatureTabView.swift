@@ -10,6 +10,8 @@ struct TemperatureTabView: View {
     @State private var primaryTemperatureSamples: [MetricSample] = []
     @State private var maximumTemperatureSamples: [MetricSample] = []
     @State private var thermalStateSamples: [MetricSample] = []
+    @State private var compareModeEnabled = false
+    @State private var compareSelectionRevision = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -117,6 +119,22 @@ struct TemperatureTabView: View {
                 Text("\(displayedSensorCount)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(DashboardPalette.secondaryText)
+                Button {
+                    compareModeEnabled.toggle()
+                    if compareModeEnabled {
+                        presentComparePane()
+                    }
+                } label: {
+                    Label("Compare", systemImage: "chart.line.uptrend.xyaxis")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(compareModeEnabled ? DashboardPalette.temperatureAccent : DashboardPalette.secondaryText)
+            }
+
+            if compareModeEnabled {
+                compareSelectionStrip
             }
 
             if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
@@ -127,7 +145,7 @@ struct TemperatureTabView: View {
                 .buttonStyle(.bordered)
             }
 
-            if !featureStore.visibleSensors.isEmpty {
+            if hasAggregateRows {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(featureStore.groupedSensors) { group in
                         VStack(alignment: .leading, spacing: 8) {
@@ -138,8 +156,8 @@ struct TemperatureTabView: View {
                                     .frame(height: 1)
                             }
 
-                            ForEach(group.channels, id: \.id) { sensor in
-                                sensorRow(sensor)
+                            ForEach(group.aggregateRows, id: \.id) { row in
+                                aggregateRow(row, group: group)
                             }
                         }
                     }
@@ -246,10 +264,15 @@ struct TemperatureTabView: View {
     }
 
     private var displayedSensorCount: Int {
-        if !featureStore.visibleSensors.isEmpty {
-            return featureStore.visibleSensors.count
+        let aggregateRowCount = featureStore.groupedSensors.flatMap(\.aggregateRows).count
+        if aggregateRowCount > 0 {
+            return aggregateRowCount
         }
         return fallbackRows.count
+    }
+
+    private var hasAggregateRows: Bool {
+        featureStore.groupedSensors.contains { !$0.aggregateRows.isEmpty }
     }
 
     private var fallbackRows: [TemperatureSensorReading] {
@@ -257,8 +280,60 @@ struct TemperatureTabView: View {
     }
 
     private var focusSensor: SensorReading? {
-        coordinator.selectedSensorReading(includeHidden: true)
+        coordinator.selectedSensorReading()
             ?? featureStore.visibleSensors.first
+    }
+
+    private var comparedSensorIDs: [String] {
+        _ = compareSelectionRevision
+        return coordinator.comparedTemperatureSensorIDs
+    }
+
+    private var comparedRows: [TemperatureAggregateRow] {
+        _ = compareSelectionRevision
+        return coordinator.comparedTemperatureRows()
+    }
+
+    private var compareSelectionStrip: some View {
+        HStack(spacing: 8) {
+            Text("\(comparedRows.count) selected")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(comparedRows.isEmpty ? DashboardPalette.secondaryText : DashboardPalette.primaryText)
+
+            HStack(spacing: 5) {
+                ForEach(Array(comparedRows.enumerated()), id: \.element.id) { index, row in
+                    Circle()
+                        .fill(compareColor(for: index))
+                        .frame(width: 8, height: 8)
+                        .help(row.displayName)
+                }
+            }
+
+            Spacer()
+
+            Text("Max \(coordinator.maxComparedTemperatureSensors)")
+                .font(.caption)
+                .foregroundStyle(DashboardPalette.tertiaryText)
+
+            if !comparedRows.isEmpty {
+                Button("Clear") {
+                    coordinator.clearComparedTemperatureSensors()
+                    compareSelectionRevision += 1
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(DashboardPalette.insetFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+                )
+        )
     }
 
     private var latestPrimaryTemperatureText: String {
@@ -287,9 +362,9 @@ struct TemperatureTabView: View {
 
     private var selectionStatusText: String {
         if let focusSensor {
-            return "\(focusSensor.category.label) sensor pinned to the detached pane when selected."
+            return "\(focusSensor.category.label) groups collapse to one row when max, average, and minimum would be identical."
         }
-        return "Select a visible sensor to inspect its live history."
+        return "Select a group row to inspect its live history."
     }
 
     private var emptyStateText: String {
@@ -315,6 +390,8 @@ struct TemperatureTabView: View {
             coordinator.selectedTemperatureSensorID = featureStore.visibleSensors.first?.id ?? ""
         }
 
+        coordinator.comparedTemperatureSensorIDs = coordinator.comparedTemperatureSensorIDs
+        compareSelectionRevision += 1
         paneController.reconcileTemperatureSensors(Set(featureStore.visibleSensors.map(\.id)))
         if featureStore.visibleSensors.isEmpty {
             paneController.closePanel(clearSelection: false)
@@ -351,26 +428,38 @@ struct TemperatureTabView: View {
         )
     }
 
-    private func sensorRow(_ sensor: SensorReading) -> some View {
+    private func aggregateRow(_ row: TemperatureAggregateRow, group: TemperatureSensorGroup) -> some View {
         Button {
-            coordinator.selectedTemperatureSensorID = sensor.id
-            if let parentWindow = currentParentWindow {
-                paneController.pin(.temperature(sensorID: sensor.id), coordinator: coordinator, parentWindow: parentWindow)
+            if compareModeEnabled {
+                coordinator.toggleComparedTemperatureSensor(sensorID: row.id)
+                compareSelectionRevision += 1
+                presentComparePane()
+            } else {
+                coordinator.comparedTemperatureSensorIDs = [row.id]
+                compareSelectionRevision += 1
+                if let parentWindow = currentParentWindow {
+                    paneController.pin(.temperatureCompare, coordinator: coordinator, parentWindow: parentWindow)
+                }
             }
         } label: {
             HStack(spacing: 8) {
-                Circle()
-                    .fill(sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent)
-                    .frame(width: 8, height: 8)
+                aggregateRowMarker(for: row)
 
-                Text(sensor.displayName)
-                    .font(.subheadline)
-                    .foregroundStyle(DashboardPalette.primaryText)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.displayName)
+                        .font(.subheadline)
+                        .foregroundStyle(DashboardPalette.primaryText)
+                        .lineLimit(1)
+
+                    Text(channelCountText(for: row))
+                        .font(.caption2)
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                        .lineLimit(1)
+                }
 
                 Spacer(minLength: 6)
 
-                Text(TemperatureHistoryHelpers.valueText(for: sensor))
+                Text(UnitsFormatter.format(row.value, unit: .celsius))
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(DashboardPalette.primaryText)
                     .frame(minWidth: 68, alignment: .trailing)
@@ -380,8 +469,8 @@ struct TemperatureTabView: View {
                         Capsule()
                             .fill(DashboardPalette.insetFill)
                         Capsule()
-                            .fill(sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent)
-                            .frame(width: barWidth(for: sensor, totalWidth: proxy.size.width))
+                            .fill(DashboardPalette.temperatureAccent)
+                            .frame(width: barWidth(for: row, group: group, totalWidth: proxy.size.width))
                     }
                 }
                 .frame(width: 90, height: 10)
@@ -390,23 +479,14 @@ struct TemperatureTabView: View {
             .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(backgroundColor(for: sensor))
+                    .fill(backgroundColor(for: row))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(borderColor(for: sensor), lineWidth: 1)
+                            .strokeBorder(borderColor(for: row), lineWidth: 1)
                     )
             )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
-                if let parentWindow = currentParentWindow {
-                    paneController.preview(.temperature(sensorID: sensor.id), coordinator: coordinator, parentWindow: parentWindow)
-                }
-            } else {
-                paneController.clearPreview(.temperature(sensorID: sensor.id))
-            }
-        }
     }
 
     private func fallbackSensorRow(_ sensor: TemperatureSensorReading) -> some View {
@@ -454,30 +534,67 @@ struct TemperatureTabView: View {
         max(45, fallbackRows.map(\.celsius).max() ?? 45)
     }
 
-    private func backgroundColor(for sensor: SensorReading) -> Color {
-        if paneController.isActive(.temperature(sensorID: sensor.id)) {
+    private func backgroundColor(for row: TemperatureAggregateRow) -> Color {
+        if paneController.isActive(.temperatureCompare), comparedSensorIDs.contains(row.id) {
             return DashboardPalette.selectionFill
-        }
-        if sensor.id == coordinator.selectedTemperatureSensorID {
-            return DashboardPalette.hoverFill
         }
         return DashboardPalette.insetFill
     }
 
-    private func borderColor(for sensor: SensorReading) -> Color {
-        if paneController.isActive(.temperature(sensorID: sensor.id)) {
-            return (sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent).opacity(0.55)
+    private func borderColor(for row: TemperatureAggregateRow) -> Color {
+        if compareModeEnabled,
+           let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
+            return compareColor(for: comparedIndex).opacity(0.65)
         }
-        if sensor.id == coordinator.selectedTemperatureSensorID {
-            return DashboardPalette.cpuAccent.opacity(0.30)
+        if paneController.isActive(.temperatureCompare), comparedSensorIDs.contains(row.id) {
+            return DashboardPalette.temperatureAccent.opacity(0.55)
         }
         return DashboardPalette.divider
     }
 
-    private func barWidth(for channel: SensorReading, totalWidth: CGFloat) -> CGFloat {
-        guard let group = featureStore.groupedSensors.first(where: { $0.category == channel.category }) else {
-            return 0
-        }
-        return totalWidth * group.barWidthRatio(for: channel)
+    private func barWidth(for row: TemperatureAggregateRow, group: TemperatureSensorGroup, totalWidth: CGFloat) -> CGFloat {
+        totalWidth * group.barWidthRatio(for: row)
     }
+
+    private func channelCountText(for row: TemperatureAggregateRow) -> String {
+        row.sourceSensorCount == 1 ? "1 channel" : "\(row.sourceSensorCount) channels"
+    }
+
+    private func aggregateRowMarker(for row: TemperatureAggregateRow) -> some View {
+        Group {
+            if compareModeEnabled {
+                if let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(compareColor(for: comparedIndex))
+                } else {
+                    Image(systemName: "circle")
+                        .foregroundStyle(DashboardPalette.secondaryText)
+                }
+            } else {
+                Circle()
+                    .fill(DashboardPalette.temperatureAccent)
+            }
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .frame(width: 12, height: 12)
+    }
+
+    private func presentComparePane() {
+        guard !coordinator.comparedTemperatureRows().isEmpty,
+              let parentWindow = currentParentWindow else { return }
+        paneController.pin(.temperatureCompare, coordinator: coordinator, parentWindow: parentWindow)
+    }
+
+    private func compareColor(for index: Int) -> Color {
+        Self.compareColors[index % Self.compareColors.count]
+    }
+
+    private static let compareColors: [Color] = [
+        DashboardPalette.temperatureAccent,
+        DashboardPalette.cpuAccent,
+        DashboardPalette.memoryAccent,
+        DashboardPalette.diskAccent,
+        DashboardPalette.networkAccent,
+        DashboardPalette.success
+    ]
 }

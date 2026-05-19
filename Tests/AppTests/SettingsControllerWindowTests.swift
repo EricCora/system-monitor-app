@@ -29,6 +29,30 @@ final class SettingsControllerWindowTests: XCTestCase {
         XCTAssertEqual(restored.selectedTemperatureHistoryWindow, .sixHours)
     }
 
+    func testPrivilegedTemperatureDefaultsEnabledForFreshInstall() {
+        let defaults = makeDefaults()
+
+        let controller = SettingsController(defaults: defaults)
+
+        XCTAssertTrue(controller.privilegedTemperatureEnabled)
+    }
+
+    func testStoredLegacySettingsWithoutExplicitPreferenceFallbackToEnabled() throws {
+        let defaults = makeDefaults()
+        let legacy = AppSettingsV4(
+            globalSamplingInterval: 2,
+            activeProfile: .balanced,
+            customProfile: .balanced,
+            autoSwitchRules: .defaults,
+            privilegedTemperatureEnabled: false
+        )
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "settings.v4.data")
+
+        let controller = SettingsController(defaults: defaults)
+
+        XCTAssertTrue(controller.privilegedTemperatureEnabled)
+    }
+
     func testVisibleChartWindowsNormalizeOrderAndFallbackWhenEmpty() {
         let defaults = makeDefaults()
         let controller = SettingsController(defaults: defaults)

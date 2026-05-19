@@ -159,6 +159,8 @@ struct TemperaturePaneContentView: View {
                             }
                         }
 
+                        ChartLegendStrip(items: legendItems(for: activeSensor))
+
                         HStack {
                             if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
                                 Text(summaryPoint.timestamp.formatted(date: .omitted, time: .standard))
@@ -233,40 +235,16 @@ struct TemperaturePaneContentView: View {
     }
 
     private var paneHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                DashboardSectionLabel(title: "Temperature Detail", tint: DashboardPalette.temperatureAccent)
-                Text(activeSensor?.displayName ?? "Select a sensor")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-
-                if let activeSensor {
-                    Text("\(activeSensor.category.label) • \(activeSensor.channelType == .fanRPM ? "Fan RPM" : "Temperature")")
-                        .font(.caption)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                }
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 6) {
-                Text(activeSensor.map { TemperatureHistoryHelpers.valueText(for: $0) } ?? "--")
-                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(DashboardPalette.primaryText)
-
-                Text(paneController.pinnedTarget != nil ? "Pinned" : "Hover Preview")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(DashboardPalette.secondaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(DashboardPalette.insetFill)
-                    )
-            }
-        }
-        .padding(12)
-        .dashboardInset(cornerRadius: 16)
+        DetachedPaneHeaderCard(
+            sectionTitle: "Temperature Detail",
+            title: activeSensor?.displayName ?? "Select a sensor",
+            subtitle: activeSensor.map {
+                "\($0.category.label) • \($0.channelType == .fanRPM ? "Fan RPM" : "Temperature")"
+            },
+            valueText: activeSensor.map { TemperatureHistoryHelpers.valueText(for: $0) } ?? "--",
+            badgeText: paneController.pinnedTarget != nil ? "Pinned" : "Hover Preview",
+            accent: DashboardPalette.temperatureAccent
+        )
     }
 
     private func refreshHistory() async {
@@ -326,6 +304,19 @@ struct TemperaturePaneContentView: View {
         case .fanRPM:
             return "\(Int(value.rounded())) rpm"
         }
+    }
+
+    private func legendItems(for sensor: SensorReading) -> [ChartLegendItem] {
+        [
+            ChartLegendItem(
+                id: sensor.id,
+                label: sensor.displayName,
+                color: sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent,
+                valueText: (hoveredHistoryPoint ?? sensorHistory.last).map {
+                    TemperatureHistoryHelpers.valueText(for: sensor, value: $0.value)
+                }
+            )
+        ]
     }
 }
 

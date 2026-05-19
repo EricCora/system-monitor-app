@@ -108,6 +108,7 @@ struct MetricChartView: View {
                     }
                 }
 
+                ChartLegendStrip(items: legendItems)
                 hoverSummaryRow
             }
         }
@@ -140,6 +141,23 @@ struct MetricChartView: View {
             return hoveredSample ?? chartModel.sanitizedSamples.last
         }
         return chartModel.sanitizedSamples.last
+    }
+
+    private var legendItems: [ChartLegendItem] {
+        [
+            ChartLegendItem(
+                id: title,
+                label: title,
+                color: seriesColor,
+                valueText: summarySample.map {
+                    UnitsFormatter.format(
+                        $0.value,
+                        unit: $0.unit,
+                        throughputUnit: throughputUnit
+                    )
+                }
+            )
+        ]
     }
 
     @ViewBuilder

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -20,6 +21,14 @@ struct PulseBarApp: App {
             )
                 .frame(width: 620)
                 .padding()
+        }
+        .commands {
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit PulseBar") {
+                    NSApp.terminate(nil)
+                }
+                .keyboardShortcut("q")
+            }
         }
     }
 }

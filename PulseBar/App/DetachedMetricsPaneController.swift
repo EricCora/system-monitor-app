@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import PulseBarCore
 
-enum DetachedMetricsPaneFamily {
+enum DetachedMetricsPaneFamily: Equatable {
     case temperature
     case memory
     case cpu
@@ -10,12 +10,13 @@ enum DetachedMetricsPaneFamily {
 
 enum DetachedMetricsPaneTarget: Hashable {
     case temperature(sensorID: String)
+    case temperatureCompare
     case memory(chart: MemoryPaneChart)
     case cpu(chart: CPUPaneChart)
 
     var family: DetachedMetricsPaneFamily {
         switch self {
-        case .temperature:
+        case .temperature, .temperatureCompare:
             return .temperature
         case .memory:
             return .memory
@@ -392,6 +393,8 @@ private struct DetachedMetricsPaneHostView: View {
         switch paneController.activeTarget {
         case .temperature:
             TemperaturePaneContentView(coordinator: coordinator, paneController: paneController)
+        case .temperatureCompare:
+            TemperatureComparePaneContentView(coordinator: coordinator, paneController: paneController)
         case .memory:
             MemoryPaneContentView(coordinator: coordinator, paneController: paneController)
         case .cpu:

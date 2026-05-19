@@ -22,7 +22,7 @@ struct MemoryPaneContentView: View {
     @State private var deferredRefreshTriggerID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             ChartWindowPicker(
                 options: coordinator.visibleChartWindows,
                 selection: $coordinator.selectedMemoryHistoryWindow,
@@ -30,25 +30,9 @@ struct MemoryPaneContentView: View {
                 style: .detached
             )
 
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    DashboardSectionLabel(title: "Memory Detail", tint: DashboardPalette.memoryAccent)
-                    Text(activeChart.title)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text(activeChart.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                }
+            paneHeader
 
-                Spacer()
-
-                if paneController.pinnedTarget != nil {
-                    Button("Unpin") {
-                        paneController.unpin()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
+            HStack(spacing: 8) {
                 if viewport.isZoomed {
                     Button("Reset Zoom") {
                         viewport.reset()
@@ -57,17 +41,27 @@ struct MemoryPaneContentView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if paneController.pinnedTarget != nil {
+                    Button("Unpin") {
+                        paneController.unpin()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.bottom, 2)
+
+            VStack(alignment: .leading, spacing: 10) {
+                DashboardSectionLabel(title: activeChart.historyTitle, tint: DashboardPalette.secondaryText)
+                chartBody
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                ChartLegendStrip(items: legendItems)
+                summaryRow
             }
             .padding(12)
             .dashboardInset(cornerRadius: 16)
-
-            chartBody
-                .frame(maxWidth: .infinity, minHeight: 300)
-                .padding(12)
-                .dashboardInset(cornerRadius: 16)
-
-            summaryRow
         }
+        .foregroundStyle(DashboardPalette.primaryText)
         .dashboardSurface(padding: 14, cornerRadius: 18)
         .task(id: refreshTriggerID) {
             if lastRefreshContextID != contextRefreshID {
@@ -96,6 +90,17 @@ struct MemoryPaneContentView: View {
             return chart
         }
         return coordinator.selectedMemoryPaneChart
+    }
+
+    private var paneHeader: some View {
+        DetachedPaneHeaderCard(
+            sectionTitle: "Memory Detail",
+            title: activeChart.title,
+            subtitle: activeChart.subtitle,
+            valueText: currentValueText,
+            badgeText: paneController.pinnedTarget != nil ? "Pinned" : "Hover Preview",
+            accent: DashboardPalette.memoryAccent
+        )
     }
 
     @ViewBuilder
@@ -193,6 +198,91 @@ struct MemoryPaneContentView: View {
         }
         .font(.caption)
         .frame(height: 18)
+    }
+
+    private var legendItems: [ChartLegendItem] {
+        switch activeChart {
+        case .composition:
+            let point = nearestCompositionPoint
+            return [
+                ChartLegendItem(
+                    id: "memory.wired",
+                    label: "Wired",
+                    color: MemoryCompositionSeriesPoint.Component.wired.color,
+                    valueText: point.map { UnitsFormatter.format($0.wiredBytes, unit: .bytes) }
+                ),
+                ChartLegendItem(
+                    id: "memory.active",
+                    label: "Active",
+                    color: MemoryCompositionSeriesPoint.Component.active.color,
+                    valueText: point.map { UnitsFormatter.format($0.activeBytes, unit: .bytes) }
+                ),
+                ChartLegendItem(
+                    id: "memory.compressed",
+                    label: "Compressed",
+                    color: MemoryCompositionSeriesPoint.Component.compressed.color,
+                    valueText: point.map { UnitsFormatter.format($0.compressedBytes, unit: .bytes) }
+                ),
+                ChartLegendItem(
+                    id: "memory.free",
+                    label: "Free",
+                    color: MemoryCompositionSeriesPoint.Component.free.color,
+                    valueText: point.map { UnitsFormatter.format($0.freeBytes, unit: .bytes) }
+                )
+            ]
+        case .pressure:
+            return [
+                ChartLegendItem(
+                    id: "memory.pressure",
+                    label: "Pressure",
+                    color: .cyan,
+                    valueText: nearestMetricPoint(in: pressureHistory).map { UnitsFormatter.format($0.value, unit: $0.unit, throughputUnit: coordinator.throughputUnit) }
+                )
+            ]
+        case .swap:
+            return [
+                ChartLegendItem(
+                    id: "memory.swap",
+                    label: "Swap Used",
+                    color: .cyan,
+                    valueText: nearestMetricPoint(in: swapHistory).map { UnitsFormatter.format($0.value, unit: $0.unit, throughputUnit: coordinator.throughputUnit) }
+                )
+            ]
+        case .pages:
+            return [
+                ChartLegendItem(
+                    id: "memory.pageIns",
+                    label: "Page Ins",
+                    color: .cyan,
+                    valueText: nearestMetricPoint(in: pageInHistory).map { UnitsFormatter.format($0.value, unit: $0.unit, throughputUnit: coordinator.throughputUnit) }
+                ),
+                ChartLegendItem(
+                    id: "memory.pageOuts",
+                    label: "Page Outs",
+                    color: .orange,
+                    valueText: nearestMetricPoint(in: pageOutHistory).map { UnitsFormatter.format($0.value, unit: $0.unit, throughputUnit: coordinator.throughputUnit) }
+                )
+            ]
+        }
+    }
+
+    private var currentValueText: String {
+        switch activeChart {
+        case .composition:
+            guard let point = compositionHistory.last else { return "--" }
+            let usedBytes = point.wiredBytes + point.activeBytes + point.compressedBytes
+            return UnitsFormatter.format(usedBytes, unit: .bytes)
+        case .pressure:
+            guard let value = pressureHistory.last?.value else { return "--" }
+            return UnitsFormatter.format(value, unit: .percent)
+        case .swap:
+            guard let value = swapHistory.last?.value else { return "--" }
+            return UnitsFormatter.format(value, unit: .bytes)
+        case .pages:
+            guard pageInHistory.last != nil || pageOutHistory.last != nil else { return "--" }
+            let total = (pageInHistory.last?.value ?? 0) + (pageOutHistory.last?.value ?? 0)
+            return UnitsFormatter.format(total, unit: .bytesPerSecond, throughputUnit: coordinator.throughputUnit)
+        }
     }
 
     @ViewBuilder
@@ -360,6 +450,19 @@ private extension MemoryPaneChart {
             return "Swap used over time"
         case .pages:
             return "Page-ins and page-outs throughput"
+        }
+    }
+
+    var historyTitle: String {
+        switch self {
+        case .pressure:
+            return "Pressure History"
+        case .composition:
+            return "Composition History"
+        case .swap:
+            return "Swap History"
+        case .pages:
+            return "Paging History"
         }
     }
 }
