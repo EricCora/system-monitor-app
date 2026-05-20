@@ -128,6 +128,7 @@ struct TemperaturePaneContentView: View {
                                     .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: coordinator.chartMinorGridEnabled))
                                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
+                            .id("minor-grid-\(coordinator.chartMinorGridEnabled)")
                             .frame(height: 260)
                             .chartOverlay { proxy in
                                 GeometryReader { geometry in

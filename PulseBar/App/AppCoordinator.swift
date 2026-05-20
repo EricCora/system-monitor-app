@@ -334,12 +334,20 @@ final class AppCoordinator: ObservableObject {
 
     var chartMinorGridEnabled: Bool {
         get { settingsController.chartMinorGridEnabled }
-        set { settingsController.chartMinorGridEnabled = newValue }
+        set {
+            guard settingsController.chartMinorGridEnabled != newValue else { return }
+            settingsController.chartMinorGridEnabled = newValue
+            objectWillChange.send()
+        }
     }
 
     var chartSmoothingAlpha: Double {
         get { settingsController.chartSmoothingAlpha }
-        set { settingsController.chartSmoothingAlpha = newValue }
+        set {
+            guard settingsController.chartSmoothingAlpha != newValue else { return }
+            settingsController.chartSmoothingAlpha = newValue
+            objectWillChange.send()
+        }
     }
 
     var selectedCPUPaneChart: CPUPaneChart {

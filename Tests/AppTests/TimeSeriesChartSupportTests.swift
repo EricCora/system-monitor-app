@@ -215,6 +215,19 @@ final class TimeSeriesChartSupportTests: XCTestCase {
         )
     }
 
+    func testMinorGridGuidePositionsStayInsidePlotBounds() {
+        let positions = DashboardMinorGridGeometry.guidePositions(length: 500)
+
+        XCTAssertEqual(positions, [100, 200, 300, 400])
+        XCTAssertFalse(positions.contains(0))
+        XCTAssertFalse(positions.contains(500))
+    }
+
+    func testMinorGridGuidePositionsIgnoreInvalidPlotLengths() {
+        XCTAssertEqual(DashboardMinorGridGeometry.guidePositions(length: 0), [])
+        XCTAssertEqual(DashboardMinorGridGeometry.guidePositions(length: -.infinity), [])
+    }
+
     func testHorizontalDetachedZoomIgnoresVerticalDistance() {
         let decision = DetachedChartInteractionOverlay.zoomDecision(
             horizontalDistance: 48,

@@ -93,6 +93,7 @@ struct MetricChartView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: Layout.plotCornerRadius, style: .continuous))
                 }
+                .id("minor-grid-\(displayOptions.showsMinorGrid)")
                 .frame(height: 180)
                 .chartOverlay { proxy in
                     GeometryReader { geometry in

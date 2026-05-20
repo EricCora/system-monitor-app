@@ -172,10 +172,57 @@ extension DashboardPalette {
                     endPoint: .bottomTrailing
                 )
             )
+            .overlay {
+                if showsMinorGrid == true {
+                    DashboardMinorGridOverlay()
+                        .clipShape(RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous))
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
                     .strokeBorder(chartPlotBorder.opacity(0.9), lineWidth: 1)
             )
+    }
+}
+
+enum DashboardMinorGridGeometry {
+    static let defaultSubdivisionCount = 4
+
+    static func guideFractions(subdivisionCount: Int = defaultSubdivisionCount) -> [CGFloat] {
+        guard subdivisionCount > 0 else { return [] }
+        return (1...subdivisionCount).map { CGFloat($0) / CGFloat(subdivisionCount + 1) }
+    }
+
+    static func guidePositions(length: CGFloat, subdivisionCount: Int = defaultSubdivisionCount) -> [CGFloat] {
+        guard length.isFinite, length > 0 else { return [] }
+        return guideFractions(subdivisionCount: subdivisionCount).map { length * $0 }
+    }
+}
+
+private struct DashboardMinorGridOverlay: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Canvas { context, size in
+                var path = Path()
+                for x in DashboardMinorGridGeometry.guidePositions(length: size.width) {
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                }
+
+                for y in DashboardMinorGridGeometry.guidePositions(length: size.height) {
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: size.width, y: y))
+                }
+
+                context.stroke(
+                    path,
+                    with: .color(DashboardPalette.chartGrid.opacity(0.64)),
+                    style: StrokeStyle(lineWidth: 1, dash: [2, 4], dashPhase: 1)
+                )
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .allowsHitTesting(false)
     }
 }
 

@@ -536,6 +536,7 @@ private struct MemoryCompositionChart: View {
                 .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+        .id("minor-grid-\(displayOptions.showsMinorGrid)")
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 let plotFrame = geometry[proxy.plotAreaFrame]
@@ -621,6 +622,7 @@ private struct MetricLinePaneChart: View {
                 .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: displayOptions.showsMinorGrid))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+        .id("minor-grid-\(displayOptions.showsMinorGrid)")
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 let plotFrame = geometry[proxy.plotAreaFrame]
