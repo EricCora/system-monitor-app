@@ -86,6 +86,7 @@ final class AppCoordinator: ObservableObject {
 
     @Published var launchAtLoginStatusMessage: String?
     @Published private(set) var dashboardSection: DashboardSection = .overview
+    @Published private(set) var temperatureCompareSelectionRevision = 0
 
     init(
         defaults: UserDefaults = .standard,
@@ -354,9 +355,12 @@ final class AppCoordinator: ObservableObject {
     var comparedTemperatureSensorIDs: [String] {
         get { temperaturePaneModel.comparedTemperatureSensorIDs }
         set {
-            objectWillChange.send()
+            let previous = temperaturePaneModel.comparedTemperatureSensorIDs
             temperaturePaneModel.comparedTemperatureSensorIDs = newValue
             temperaturePaneModel.reconcileComparedSensors(validIDs: Set(temperatureAggregateRows().map(\.id)))
+            if temperaturePaneModel.comparedTemperatureSensorIDs != previous {
+                temperatureCompareSelectionRevision += 1
+            }
         }
     }
 
@@ -802,8 +806,13 @@ final class AppCoordinator: ObservableObject {
     }
 
     func hideTemperatureSensor(sensorID: String) {
-        objectWillChange.send()
+        let previousComparedIDs = temperaturePaneModel.comparedTemperatureSensorIDs
         temperaturePaneModel.hideSensor(sensorID, allSensors: telemetryStore.latestSensorChannels)
+        if temperaturePaneModel.comparedTemperatureSensorIDs != previousComparedIDs {
+            temperatureCompareSelectionRevision += 1
+        } else {
+            objectWillChange.send()
+        }
         syncTemperatureFeatureStore()
     }
 
@@ -822,13 +831,19 @@ final class AppCoordinator: ObservableObject {
     }
 
     func toggleComparedTemperatureSensor(sensorID: String) {
-        objectWillChange.send()
+        let previous = temperaturePaneModel.comparedTemperatureSensorIDs
         temperaturePaneModel.toggleComparedSensor(sensorID, validIDs: Set(temperatureAggregateRows().map(\.id)))
+        if temperaturePaneModel.comparedTemperatureSensorIDs != previous {
+            temperatureCompareSelectionRevision += 1
+        }
     }
 
     func clearComparedTemperatureSensors() {
-        objectWillChange.send()
+        let previous = temperaturePaneModel.comparedTemperatureSensorIDs
         temperaturePaneModel.clearComparedSensors()
+        if temperaturePaneModel.comparedTemperatureSensorIDs != previous {
+            temperatureCompareSelectionRevision += 1
+        }
     }
 
     func latestValue(for metricID: MetricID) -> MetricSample? {
@@ -1854,8 +1869,9 @@ final class AppCoordinator: ObservableObject {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "sleep 0.4; /usr/bin/open -n \"$1\"",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; /usr/bin/open \"$2\"",
             "pulsebar-restart",
+            "\(ProcessInfo.processInfo.processIdentifier)",
             Bundle.main.bundleURL.path
         ]
         do {
@@ -1870,12 +1886,14 @@ final class AppCoordinator: ObservableObject {
     private func relaunchExecutableProcess() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let executableArguments = Array(CommandLine.arguments.dropFirst())
         process.arguments = [
             "-c",
-            "sleep 0.4; exec \"$@\"",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; shift; exec \"$@\"",
             "pulsebar-restart",
+            "\(ProcessInfo.processInfo.processIdentifier)",
             CommandLine.arguments[0]
-        ] + Array(CommandLine.arguments.dropFirst())
+        ] + executableArguments
         do {
             try process.run()
             NSApp.terminate(nil)

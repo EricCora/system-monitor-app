@@ -316,6 +316,7 @@ struct DashboardView: View {
                             tint: DashboardPalette.cpuAccent,
                             helpText: "Restart PulseBar"
                         ) {
+                            guard pendingAppAction == nil else { return }
                             pendingAppAction = .restart
                         }
 
@@ -324,6 +325,7 @@ struct DashboardView: View {
                             tint: DashboardPalette.danger,
                             helpText: "Quit PulseBar"
                         ) {
+                            guard pendingAppAction == nil else { return }
                             pendingAppAction = .quit
                         }
                     }
@@ -419,7 +421,7 @@ struct DashboardView: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(coordinator.isAppLifecycleTransitionInProgress)
+        .disabled(coordinator.isAppLifecycleTransitionInProgress || pendingAppAction != nil)
         .help(helpText)
         .accessibilityLabel(helpText)
     }

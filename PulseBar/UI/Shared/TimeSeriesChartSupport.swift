@@ -402,9 +402,9 @@ enum DashboardChartStyle {
     @AxisContentBuilder
     static func timeXAxis(showsMinorGrid: Bool = false) -> some AxisContent {
         if showsMinorGrid {
-            AxisMarks(values: .automatic(desiredCount: 9)) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8, dash: [1, 3]))
-                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
+            AxisMarks(values: .automatic(desiredCount: 13)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.9, dash: [1, 3]))
+                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.68))
             }
         }
 
@@ -429,9 +429,9 @@ enum DashboardChartStyle {
         label: @escaping (Double) -> String
     ) -> some AxisContent {
         if showsMinorGrid {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 7)) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8, dash: [1, 3]))
-                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 11)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.9, dash: [1, 3]))
+                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.68))
             }
         }
 

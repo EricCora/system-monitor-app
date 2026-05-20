@@ -165,17 +165,38 @@ public enum MenuBarMetricID: String, Codable, CaseIterable, Sendable {
 
 public enum MenuBarMetricStyle: String, Codable, CaseIterable, Sendable {
     case text
+    case value
+    case label
+    case icon
     case iconText
+    case pieValue
+    case graph
     case sparklineValue
+    case history
+    case historyValue
 
     public var label: String {
         switch self {
         case .text:
-            return "Text"
+            return "Label + Value"
+        case .value:
+            return "Value"
+        case .label:
+            return "Label"
+        case .icon:
+            return "Icon"
         case .iconText:
             return "Icon + Value"
+        case .pieValue:
+            return "Pie + Value"
+        case .graph:
+            return "Graph"
         case .sparklineValue:
-            return "Sparkline + Value"
+            return "Graph + Value"
+        case .history:
+            return "History"
+        case .historyValue:
+            return "History + Value"
         }
     }
 }

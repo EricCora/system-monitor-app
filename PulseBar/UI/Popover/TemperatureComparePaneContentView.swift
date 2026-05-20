@@ -77,7 +77,8 @@ struct TemperatureComparePaneContentView: View {
     }
 
     private var selectedSensors: [TemperatureAggregateRow] {
-        coordinator.comparedTemperatureRows()
+        _ = coordinator.temperatureCompareSelectionRevision
+        return coordinator.comparedTemperatureRows()
     }
 
     private var selectedSensorIDs: [String] {
@@ -278,18 +279,35 @@ struct TemperatureComparePaneContentView: View {
         var nextHistories: [String: [TemperatureHistoryPoint]] = [:]
         var descriptors: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>] = []
 
-        for (index, row) in sensors.enumerated() {
-            let history = await coordinator.temperatureAggregateHistorySeries(
-                rowID: row.id,
-                window: coordinator.selectedTemperatureHistoryWindow,
-                maxPoints: 480
-            )
+        let window = coordinator.selectedTemperatureHistoryWindow
+        let histories = await withTaskGroup(of: (Int, String, [TemperatureHistoryPoint]).self) { group in
+            for (index, row) in sensors.enumerated() {
+                group.addTask {
+                    let history = await coordinator.temperatureAggregateHistorySeries(
+                        rowID: row.id,
+                        window: window,
+                        maxPoints: 480
+                    )
+                    return (index, row.id, history)
+                }
+            }
+
+            var output: [(Int, String, [TemperatureHistoryPoint])] = []
+            output.reserveCapacity(sensors.count)
+            for await result in group {
+                output.append(result)
+            }
+            return output.sorted { $0.0 < $1.0 }
+        }
+
+        for (index, rowID, history) in histories {
+            let row = sensors[index]
             let sanitized = ChartSeriesPipeline.sanitize(history, timestamp: \.timestamp)
             let smoothed = ChartSeriesPipeline.lowPass(sanitized, alpha: coordinator.chartSmoothingAlpha)
-            nextHistories[row.id] = smoothed
+            nextHistories[rowID] = smoothed
             descriptors.append(
                 ChartMetricSeriesDescriptor(
-                    key: row.id,
+                    key: rowID,
                     label: row.displayName,
                     color: compareColor(for: index),
                     samples: smoothed
