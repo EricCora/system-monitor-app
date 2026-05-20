@@ -82,6 +82,7 @@ final class AppCoordinator: ObservableObject {
     private var startupTask: Task<Void, Never>?
     private var privilegedTemperaturePausedUntilRetry = false
     private var directTemperatureRuntimeState: DirectTemperatureRuntimeState?
+    private var appLifecycleTransitionInProgress = false
 
     @Published var launchAtLoginStatusMessage: String?
     @Published private(set) var dashboardSection: DashboardSection = .overview
@@ -252,6 +253,7 @@ final class AppCoordinator: ObservableObject {
     var metricHistoryRevision: UInt64 { telemetryStore.metricHistoryRevision }
     var memoryHistoryRevision: UInt64 { telemetryStore.memoryHistoryRevision }
     var temperatureHistoryRevision: UInt64 { telemetryStore.temperatureHistoryRevision }
+    var isAppLifecycleTransitionInProgress: Bool { appLifecycleTransitionInProgress }
 
     var liveCompositorFPSEnabled: Bool {
         get { settingsController.liveCompositorFPSEnabled }
@@ -264,10 +266,14 @@ final class AppCoordinator: ObservableObject {
     }
 
     func quitApplication() {
+        guard !appLifecycleTransitionInProgress else { return }
+        appLifecycleTransitionInProgress = true
         NSApp.terminate(nil)
     }
 
     func restartApplication() {
+        guard !appLifecycleTransitionInProgress else { return }
+        appLifecycleTransitionInProgress = true
         if Bundle.main.bundleURL.pathExtension == "app" {
             relaunchBundleApplication()
             return
@@ -1844,30 +1850,37 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func relaunchBundleApplication() {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        NSWorkspace.shared.openApplication(
-            at: Bundle.main.bundleURL,
-            configuration: configuration
-        ) { [weak self] app, error in
-            Task { @MainActor [weak self] in
-                guard error == nil, app != nil else {
-                    self?.launchAtLoginStatusMessage = "Unable to restart PulseBar. Reopen it manually."
-                    return
-                }
-                NSApp.terminate(nil)
-            }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "sleep 0.4; /usr/bin/open -n \"$1\"",
+            "pulsebar-restart",
+            Bundle.main.bundleURL.path
+        ]
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            appLifecycleTransitionInProgress = false
+            launchAtLoginStatusMessage = "Unable to restart PulseBar. Reopen it manually."
         }
     }
 
     private func relaunchExecutableProcess() {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
-        process.arguments = Array(CommandLine.arguments.dropFirst())
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "sleep 0.4; exec \"$@\"",
+            "pulsebar-restart",
+            CommandLine.arguments[0]
+        ] + Array(CommandLine.arguments.dropFirst())
         do {
             try process.run()
             NSApp.terminate(nil)
         } catch {
+            appLifecycleTransitionInProgress = false
             launchAtLoginStatusMessage = "Unable to restart PulseBar. Reopen it manually."
         }
     }

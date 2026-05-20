@@ -629,6 +629,7 @@ struct SettingsView: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(coordinator.isAppLifecycleTransitionInProgress)
         .help(helpText)
         .accessibilityLabel(helpText)
     }

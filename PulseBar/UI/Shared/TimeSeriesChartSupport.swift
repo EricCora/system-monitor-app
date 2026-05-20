@@ -496,20 +496,6 @@ enum DashboardChartStyle {
     }
 }
 
-struct DashboardMinorGridOverlay: View {
-    var isEnabled: Bool?
-    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
-
-    var body: some View {
-        GeometryReader { _ in
-            if isEnabled ?? displayOptions.showsMinorGrid {
-                EmptyView()
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}
-
 struct DetachedChartInteractionOverlay: View {
     enum ZoomMode {
         case horizontal

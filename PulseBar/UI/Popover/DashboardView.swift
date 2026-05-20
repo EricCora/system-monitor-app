@@ -80,15 +80,17 @@ struct DashboardView: View {
         ) {
             if pendingAppAction == .restart {
                 Button("Restart Now") {
-                    coordinator.restartApplication()
                     pendingAppAction = nil
+                    coordinator.restartApplication()
                 }
+                .disabled(coordinator.isAppLifecycleTransitionInProgress)
             }
             if pendingAppAction == .quit {
                 Button("Quit Now", role: .destructive) {
-                    coordinator.quitApplication()
                     pendingAppAction = nil
+                    coordinator.quitApplication()
                 }
+                .disabled(coordinator.isAppLifecycleTransitionInProgress)
             }
             Button("Cancel", role: .cancel) {
                 pendingAppAction = nil
@@ -417,6 +419,7 @@ struct DashboardView: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(coordinator.isAppLifecycleTransitionInProgress)
         .help(helpText)
         .accessibilityLabel(helpText)
     }
@@ -535,19 +538,38 @@ struct DashboardView: View {
                 alignment: .leading,
                 spacing: 10
             ) {
-                summaryTile("CPU", value: cpuSummaryText, caption: "Total load", tint: DashboardPalette.cpuAccent, systemImage: "cpu")
-                summaryTile("Memory", value: memorySummaryText, caption: "Used", tint: DashboardPalette.memoryAccent, systemImage: "memorychip")
-                summaryTile("Battery", value: batterySummaryText, caption: coordinator.batteryFeatureStore.isCharging ? "Charging" : "Charge", tint: DashboardPalette.batteryAccent, systemImage: "battery.75")
-                summaryTile("Temp", value: temperatureSummaryText, caption: "Primary sensor", tint: DashboardPalette.temperatureAccent, systemImage: "thermometer.medium")
-                summaryTile("Network", value: networkSummaryText, caption: "Down / Up", tint: DashboardPalette.networkAccent, systemImage: "network")
-                summaryTile("Disk", value: diskSummaryText, caption: "Free", tint: DashboardPalette.diskAccent, systemImage: "internaldrive")
+                summaryTile("CPU", value: cpuSummaryText, caption: "Total load", tint: DashboardPalette.cpuAccent, systemImage: "cpu") {
+                    coordinator.setDashboardSection(.cpu)
+                }
+                summaryTile("Memory", value: memorySummaryText, caption: "Used", tint: DashboardPalette.memoryAccent, systemImage: "memorychip") {
+                    coordinator.setDashboardSection(.memory)
+                }
+                summaryTile("Battery", value: batterySummaryText, caption: coordinator.batteryFeatureStore.isCharging ? "Charging" : "Charge", tint: DashboardPalette.batteryAccent, systemImage: "battery.75") {
+                    coordinator.setDashboardSection(.battery)
+                }
+                summaryTile("Temp", value: temperatureSummaryText, caption: "Primary sensor", tint: DashboardPalette.temperatureAccent, systemImage: "thermometer.medium") {
+                    coordinator.setDashboardSection(.temperature)
+                }
+                summaryTile("Network", value: networkSummaryText, caption: "Down / Up", tint: DashboardPalette.networkAccent, systemImage: "network") {
+                    coordinator.setDashboardSection(.network)
+                }
+                summaryTile("Disk", value: diskSummaryText, caption: "Free", tint: DashboardPalette.diskAccent, systemImage: "internaldrive") {
+                    coordinator.setDashboardSection(.disk)
+                }
             }
         }
         .padding(14)
         .dashboardSurface(padding: 0, cornerRadius: 8)
     }
 
-    private func summaryTile(_ title: String, value: String, caption: String, tint: Color, systemImage: String) -> some View {
+    private func summaryTile(
+        _ title: String,
+        value: String,
+        caption: String,
+        tint: Color,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(.subheadline.weight(.semibold))
@@ -583,6 +605,8 @@ struct DashboardView: View {
                         .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                 )
         )
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onTapGesture(perform: action)
     }
 
     private var cpuSummaryText: String {
