@@ -125,6 +125,7 @@ struct CPUPaneContentView: View {
             } else {
                 CPUUsagePaneChart(
                     model: usageChartModel ?? PreparedCPUUsageChartModel.empty,
+                    window: coordinator.selectedCPUHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     paneController: paneController,
                     hiddenLegendIDs: hiddenLegendIDs,
@@ -139,6 +140,7 @@ struct CPUPaneContentView: View {
             } else {
                 MultiSeriesLinePaneChart(
                     model: loadAverageChartModel ?? PreparedCPUMetricChartModel.empty,
+                    window: coordinator.selectedCPUHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
@@ -154,6 +156,7 @@ struct CPUPaneContentView: View {
             } else {
                 MultiSeriesLinePaneChart(
                     model: gpuChartModel ?? PreparedCPUMetricChartModel.empty,
+                    window: coordinator.selectedCPUHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
@@ -169,6 +172,7 @@ struct CPUPaneContentView: View {
             } else {
                 MultiSeriesLinePaneChart(
                     model: fpsChartModel ?? PreparedCPUMetricChartModel.empty,
+                    window: coordinator.selectedCPUHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
@@ -532,6 +536,7 @@ private extension CPUPaneChart {
 
 private struct CPUUsagePaneChart: View {
     let model: PreparedCPUUsageChartModel
+    let window: ChartWindow
     let areaOpacity: Double
     let paneController: DetachedMetricsPaneController
     let hiddenLegendIDs: Set<String>
@@ -558,7 +563,12 @@ private struct CPUUsagePaneChart: View {
                     .foregroundStyle(DashboardPalette.chartRule)
             }
         }
-        .chartXScale(domain: viewport.xDomain ?? model.xDomain)
+        .chartXScale(
+            domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
+                dataDomain: model.xDomain,
+                window: window
+            )
+        )
         .chartYScale(domain: viewport.yDomain ?? (0...100))
         .chartYAxis {
             DashboardChartStyle.leadingNumericAxis(values: [0, 25, 50, 75, 100], showsMinorGrid: displayOptions.showsMinorGrid) { value in
@@ -608,6 +618,7 @@ private struct CPUUsagePaneChart: View {
 
 private struct MultiSeriesLinePaneChart: View {
     let model: PreparedCPUMetricChartModel
+    let window: ChartWindow
     let areaOpacity: Double
     let throughputUnit: ThroughputDisplayUnit
     let paneController: DetachedMetricsPaneController
@@ -644,7 +655,12 @@ private struct MultiSeriesLinePaneChart: View {
                     .foregroundStyle(DashboardPalette.chartRule)
             }
         }
-        .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
+        .chartXScale(
+            domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
+                dataDomain: model.scale.xDomain ?? model.fallbackXDomain,
+                window: window
+            )
+        )
         .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
         .chartYAxis {
             DashboardChartStyle.leadingNumericAxis(showsMinorGrid: displayOptions.showsMinorGrid) { value in

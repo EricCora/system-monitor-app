@@ -112,7 +112,12 @@ struct TemperaturePaneContentView: View {
                                         .foregroundStyle(DashboardPalette.chartRule)
                                 }
                             }
-                            .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
+                            .chartXScale(
+                                domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
+                                    dataDomain: chartModel.scale.xDomain ?? chartModel.fallbackXDomain,
+                                    window: coordinator.selectedTemperatureHistoryWindow
+                                )
+                            )
                             .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
                             .chartYAxis {
                                 DashboardChartStyle.leadingNumericAxis(showsMinorGrid: coordinator.chartMinorGridEnabled) { value in

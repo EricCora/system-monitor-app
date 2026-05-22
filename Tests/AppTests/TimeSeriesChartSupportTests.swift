@@ -228,6 +228,34 @@ final class TimeSeriesChartSupportTests: XCTestCase {
         XCTAssertEqual(DashboardMinorGridGeometry.guidePositions(length: -.infinity), [])
     }
 
+    func testVisibleXDomainUsesSelectedWindowWhenHistoryIsSparse() {
+        let now = Date(timeIntervalSince1970: 7_200)
+        let sampleTime = Date(timeIntervalSince1970: 7_100)
+
+        let domain = DashboardChartStyle.visibleXDomain(
+            dataDomain: sampleTime...sampleTime,
+            window: .sixHours,
+            now: now
+        )
+
+        XCTAssertEqual(domain.lowerBound, now.addingTimeInterval(-ChartWindow.sixHours.seconds))
+        XCTAssertEqual(domain.upperBound, now)
+    }
+
+    func testVisibleXDomainIncludesNewerDataIfClockLags() {
+        let now = Date(timeIntervalSince1970: 7_200)
+        let sampleTime = Date(timeIntervalSince1970: 7_260)
+
+        let domain = DashboardChartStyle.visibleXDomain(
+            dataDomain: sampleTime...sampleTime,
+            window: .oneHour,
+            now: now
+        )
+
+        XCTAssertEqual(domain.lowerBound, sampleTime.addingTimeInterval(-ChartWindow.oneHour.seconds))
+        XCTAssertEqual(domain.upperBound, sampleTime)
+    }
+
     func testHorizontalDetachedZoomIgnoresVerticalDistance() {
         let decision = DetachedChartInteractionOverlay.zoomDecision(
             horizontalDistance: 48,

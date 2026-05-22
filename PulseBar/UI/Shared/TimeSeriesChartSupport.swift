@@ -396,8 +396,17 @@ enum ChartSeriesPipeline {
 }
 
 enum DashboardChartStyle {
-    static let xAxisStartPadding: CGFloat = 10
-    static let xAxisEndPadding: CGFloat = 24
+    static let xAxisStartPadding: CGFloat = 34
+    static let xAxisEndPadding: CGFloat = 48
+
+    static func visibleXDomain(
+        dataDomain: ClosedRange<Date>?,
+        window: ChartWindow,
+        now: Date = Date()
+    ) -> ClosedRange<Date> {
+        let endDate = max(dataDomain?.upperBound ?? now, now)
+        return endDate.addingTimeInterval(-window.seconds)...endDate
+    }
 
     @AxisContentBuilder
     static func timeXAxis(showsMinorGrid: Bool = false) -> some AxisContent {

@@ -458,7 +458,7 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         XCTAssertEqual(model.visibleSensorChannels(from: sensors).map(\.id), ["gpu-real", "fan"])
     }
 
-    func testTemperatureAggregateHistoryComputesAverageFromRawSensorSeries() async throws {
+    func testTemperatureAggregateHistoryReadsStoredAggregateSeries() async throws {
         let defaults = makeDefaults()
         let reading = makeGroupedTemperatureReading()
         let controller = SettingsController(defaults: defaults)
@@ -486,8 +486,9 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
                 maxPoints: 20
             )
 
-            XCTAssertEqual(points.count, 1)
-            XCTAssertEqual(points.first?.value ?? -1, 20, accuracy: 0.01)
+            XCTAssertFalse(points.isEmpty)
+            XCTAssertTrue(points.allSatisfy { $0.sensorID == TemperatureAggregateRow.id(category: .cpu, statistic: .avg) })
+            XCTAssertEqual(points.last?.value ?? -1, 20, accuracy: 0.01)
             await coordinator.shutdown()
         }
     }

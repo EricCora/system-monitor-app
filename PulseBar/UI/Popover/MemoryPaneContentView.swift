@@ -121,6 +121,7 @@ struct MemoryPaneContentView: View {
             } else {
                 MemoryCompositionChart(
                     model: compositionChartModel ?? PreparedMemoryCompositionChartModel.empty,
+                    window: coordinator.selectedMemoryHistoryWindow,
                     paneController: paneController,
                     hiddenLegendIDs: hiddenLegendIDs,
                     hoveredDate: $hoveredDate,
@@ -134,6 +135,7 @@ struct MemoryPaneContentView: View {
             } else {
                 MetricLinePaneChart(
                     model: pressureChartModel ?? PreparedMetricLineChartModel.empty,
+                    window: coordinator.selectedMemoryHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
@@ -149,6 +151,7 @@ struct MemoryPaneContentView: View {
             } else {
                 MetricLinePaneChart(
                     model: swapChartModel ?? PreparedMetricLineChartModel.empty,
+                    window: coordinator.selectedMemoryHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
@@ -164,6 +167,7 @@ struct MemoryPaneContentView: View {
             } else {
                 MetricLinePaneChart(
                     model: pagesChartModel ?? PreparedMetricLineChartModel.empty,
+                    window: coordinator.selectedMemoryHistoryWindow,
                     areaOpacity: coordinator.chartAreaOpacity,
                     throughputUnit: coordinator.throughputUnit,
                     paneController: paneController,
@@ -496,6 +500,7 @@ private extension MemoryPaneChart {
 
 private struct MemoryCompositionChart: View {
     let model: PreparedMemoryCompositionChartModel
+    let window: ChartWindow
     let paneController: DetachedMetricsPaneController
     let hiddenLegendIDs: Set<String>
     @Environment(\.dashboardChartDisplayOptions) private var displayOptions
@@ -520,7 +525,12 @@ private struct MemoryCompositionChart: View {
                     .foregroundStyle(DashboardPalette.chartRule)
             }
         }
-        .chartXScale(domain: viewport.xDomain ?? model.xDomain)
+        .chartXScale(
+            domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
+                dataDomain: model.xDomain,
+                window: window
+            )
+        )
         .chartYScale(domain: 0...100)
         .chartYAxis {
             DashboardChartStyle.leadingNumericAxis(values: [0, 25, 50, 75, 100], showsMinorGrid: displayOptions.showsMinorGrid) { percent in
@@ -570,6 +580,7 @@ private struct MemoryCompositionChart: View {
 
 private struct MetricLinePaneChart: View {
     let model: PreparedMetricLineChartModel
+    let window: ChartWindow
     let areaOpacity: Double
     let throughputUnit: ThroughputDisplayUnit
     let paneController: DetachedMetricsPaneController
@@ -606,7 +617,12 @@ private struct MetricLinePaneChart: View {
                     .foregroundStyle(DashboardPalette.chartRule)
             }
         }
-        .chartXScale(domain: viewport.xDomain ?? model.scale.xDomain ?? model.fallbackXDomain)
+        .chartXScale(
+            domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
+                dataDomain: model.scale.xDomain ?? model.fallbackXDomain,
+                window: window
+            )
+        )
         .chartYScale(domain: viewport.yDomain ?? model.scale.yDomain)
         .chartYAxis {
             DashboardChartStyle.leadingNumericAxis(showsMinorGrid: displayOptions.showsMinorGrid) { value in

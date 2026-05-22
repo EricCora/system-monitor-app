@@ -729,67 +729,24 @@ final class AppCoordinator: ObservableObject {
         maxPoints: Int = 900
     ) async -> [TemperatureHistoryPoint] {
         guard let row = temperatureAggregateRow(id: rowID) else { return [] }
-        var valuesByTimestamp: [Date: [Double]] = [:]
-
-        for sensorID in row.sensorIDs {
-            let history = await temperatureHistorySeries(
-                sensorID: sensorID,
-                channelType: .temperatureCelsius,
-                window: window,
-                maxPoints: maxPoints
-            )
-            for point in history {
-                valuesByTimestamp[point.timestamp, default: []].append(point.value)
-            }
-        }
-
-        let points = valuesByTimestamp.compactMap { timestamp, values -> TemperatureHistoryPoint? in
-            guard let value = row.statistic.value(from: values) else { return nil }
-            return TemperatureHistoryPoint(
-                sensorID: row.id,
-                timestamp: timestamp,
-                value: value,
-                channelType: .temperatureCelsius
-            )
-        }
-        .sorted { $0.timestamp < $1.timestamp }
-
-        return downsampleTemperatureHistory(points, maxPoints: maxPoints)
+        return await temperatureAggregateHistorySeries(
+            row: row,
+            window: window,
+            maxPoints: maxPoints
+        )
     }
 
-    private func downsampleTemperatureHistory(
-        _ points: [TemperatureHistoryPoint],
-        maxPoints: Int
-    ) -> [TemperatureHistoryPoint] {
-        guard maxPoints > 0, points.count > maxPoints else {
-            return points
-        }
-
-        let bucketSize = Int(ceil(Double(points.count) / Double(maxPoints)))
-        var output: [TemperatureHistoryPoint] = []
-        output.reserveCapacity(maxPoints)
-
-        var index = 0
-        while index < points.count {
-            let end = min(index + bucketSize, points.count)
-            let bucket = points[index..<end]
-            guard let last = bucket.last else {
-                index = end
-                continue
-            }
-            let average = bucket.map(\.value).reduce(0, +) / Double(bucket.count)
-            output.append(
-                TemperatureHistoryPoint(
-                    sensorID: last.sensorID,
-                    timestamp: last.timestamp,
-                    value: average,
-                    channelType: last.channelType
-                )
-            )
-            index = end
-        }
-
-        return output
+    func temperatureAggregateHistorySeries(
+        row: TemperatureAggregateRow,
+        window: ChartWindow,
+        maxPoints: Int = 900
+    ) async -> [TemperatureHistoryPoint] {
+        await temperatureHistoryStore.series(
+            sensorID: row.id,
+            channelType: .temperatureCelsius,
+            window: window,
+            maxPoints: maxPoints
+        )
     }
 
     func fallbackTemperatureRows() -> [TemperatureSensorReading] {
@@ -1828,8 +1785,25 @@ final class AppCoordinator: ObservableObject {
             )
         }
         syncTemperatureFeatureStore()
-        await temperatureHistoryStore.append(channels: mappedChannels)
+        await temperatureHistoryStore.append(
+            channels: mappedChannels + aggregateTemperatureHistoryChannels()
+        )
         telemetryStore.recordTemperatureHistoryAppend()
+    }
+
+    private func aggregateTemperatureHistoryChannels() -> [SensorReading] {
+        temperatureAggregateRows().map { row in
+            SensorReading(
+                id: row.id,
+                rawName: row.displayName,
+                displayName: row.displayName,
+                category: row.category,
+                channelType: .temperatureCelsius,
+                value: row.value,
+                source: "aggregate",
+                timestamp: row.timestamp
+            )
+        }
     }
 
     private func isGPUSample(_ sample: MetricSample) -> Bool {

@@ -38,14 +38,10 @@ struct TemperatureComparePaneContentView: View {
                     title: "No sensors selected",
                     message: "Enable Compare in the Temperature pane and select up to \(coordinator.maxComparedTemperatureSensors) aggregate rows."
                 )
-            } else if (chartModel?.points ?? []).isEmpty {
-                emptyState(
-                    systemImage: "chart.xyaxis.line",
-                    title: "Collecting comparison history",
-                    message: coordinator.temperatureHistoryStoreStatusMessage ?? "Selected sensors will appear together once history is available."
-                )
-            } else {
+            } else if chartModel?.hasRenderableHistory == true {
                 compareChart
+            } else {
+                liveOnlyState
             }
         }
         .foregroundStyle(DashboardPalette.primaryText)
@@ -140,7 +136,6 @@ struct TemperatureComparePaneContentView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(DashboardPalette.secondaryText)
             }
-
             ZStack(alignment: .topLeading) {
                 Chart(visibleChartPoints(from: chartModel)) { point in
                     LineMark(
@@ -158,7 +153,12 @@ struct TemperatureComparePaneContentView: View {
                             .foregroundStyle(DashboardPalette.chartRule)
                     }
                 }
-                .chartXScale(domain: viewport.xDomain ?? chartModel.scale.xDomain ?? chartModel.fallbackXDomain)
+                .chartXScale(
+                    domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
+                        dataDomain: chartModel.scale.xDomain ?? chartModel.fallbackXDomain,
+                        window: coordinator.selectedTemperatureHistoryWindow
+                    )
+                )
                 .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
                 .chartYAxis {
                     DashboardChartStyle.leadingNumericAxis(showsMinorGrid: coordinator.chartMinorGridEnabled) { value in
@@ -204,6 +204,38 @@ struct TemperatureComparePaneContentView: View {
             legend
         }
         .padding(12)
+        .dashboardInset(cornerRadius: 16)
+    }
+
+    private var liveOnlyState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                DashboardSectionLabel(title: "Combined History", tint: DashboardPalette.secondaryText)
+                Spacer()
+                Text(coordinator.selectedTemperatureHistoryWindow.label)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            }
+
+            VStack(spacing: 8) {
+                Image(systemName: "clock.badge.plus")
+                    .font(.title2)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                Text("History starts now")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DashboardPalette.primaryText)
+                Text(coordinator.temperatureHistoryStoreStatusMessage ?? "PulseBar is recording aggregate compare history from this build. Current values are shown below.")
+                    .font(.caption)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 380)
+            }
+            .frame(maxWidth: .infinity, minHeight: 190)
+
+            legend
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 300)
         .dashboardInset(cornerRadius: 16)
     }
 
@@ -281,19 +313,19 @@ struct TemperatureComparePaneContentView: View {
         var descriptors: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>] = []
 
         let window = coordinator.selectedTemperatureHistoryWindow
-        let histories = await withTaskGroup(of: (Int, String, [TemperatureHistoryPoint]).self) { group in
+        let histories = await withTaskGroup(of: (Int, TemperatureAggregateRow, [TemperatureHistoryPoint]).self) { group in
             for (index, row) in sensors.enumerated() {
                 group.addTask {
                     let history = await coordinator.temperatureAggregateHistorySeries(
-                        rowID: row.id,
+                        row: row,
                         window: window,
                         maxPoints: 480
                     )
-                    return (index, row.id, history)
+                    return (index, row, history)
                 }
             }
 
-            var output: [(Int, String, [TemperatureHistoryPoint])] = []
+            var output: [(Int, TemperatureAggregateRow, [TemperatureHistoryPoint])] = []
             output.reserveCapacity(sensors.count)
             for await result in group {
                 output.append(result)
@@ -301,14 +333,13 @@ struct TemperatureComparePaneContentView: View {
             return output.sorted { $0.0 < $1.0 }
         }
 
-        for (index, rowID, history) in histories {
-            let row = sensors[index]
+        for (index, row, history) in histories {
             let sanitized = ChartSeriesPipeline.sanitize(history, timestamp: \.timestamp)
             let smoothed = ChartSeriesPipeline.lowPass(sanitized, alpha: coordinator.chartSmoothingAlpha)
-            nextHistories[rowID] = smoothed
+            nextHistories[row.id] = smoothed
             descriptors.append(
                 ChartMetricSeriesDescriptor(
-                    key: rowID,
+                    key: row.id,
                     label: row.displayName,
                     color: compareColor(for: index),
                     samples: smoothed
@@ -365,11 +396,13 @@ private struct PreparedTemperatureCompareChartModel {
     let points: [TimeSeriesChartPoint]
     let scale: ChartScale
     let fallbackXDomain: ClosedRange<Date>
+    let hasRenderableHistory: Bool
 
     init(series: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>]) {
         points = ChartSeriesPipeline.temperatureHistory(series: series)
         scale = ChartSeriesPipeline.scale(for: points, baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12))
         fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
+        hasRenderableHistory = series.contains { $0.samples.count > 1 }
     }
 
     static let empty = PreparedTemperatureCompareChartModel(series: [])
