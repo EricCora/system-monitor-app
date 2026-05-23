@@ -136,7 +136,7 @@ final class ProfileSettingsTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(ProfileSettings.self, from: Data(legacyJSON.utf8))
         XCTAssertFalse(decoded.showBatteryInMenu)
-        XCTAssertEqual(decoded.chartAreaOpacity, 0.18)
+        XCTAssertEqual(decoded.chartAreaOpacity, 0.32)
         XCTAssertFalse(decoded.memoryPressureAlertEnabled)
         XCTAssertEqual(decoded.memoryPressureAlertThreshold, 90)
         XCTAssertEqual(decoded.memoryPressureAlertDuration, 30)

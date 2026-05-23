@@ -51,11 +51,13 @@ fi
 rm -rf "$APP_BUNDLE"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
+xattr -cr "$APP_EXECUTABLE" "$HELPER_EXECUTABLE" 2>/dev/null || true
 cp "$APP_EXECUTABLE" "$MACOS_DIR/$APP_NAME"
 cp "$HELPER_EXECUTABLE" "$MACOS_DIR/PulseBarPrivilegedHelper"
+xattr -cr "$MACOS_DIR"
 
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
-    cp -R "$RESOURCE_BUNDLE" "$RESOURCES_DIR/"
+    COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$RESOURCE_BUNDLE" "$RESOURCES_DIR/$(basename "$RESOURCE_BUNDLE")"
 fi
 
 if [[ -f "$APP_ICON" ]]; then
@@ -100,6 +102,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'EOF'
 EOF
 
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
+find "$APP_BUNDLE" -exec xattr -c {} \; 2>/dev/null || true
 xattr -cr "$APP_BUNDLE"
 codesign --force --deep --sign - "$APP_BUNDLE"
 
@@ -109,7 +112,8 @@ echo "  $APP_BUNDLE"
 if [[ "$INSTALL_TO_APPLICATIONS" -eq 1 ]]; then
     INSTALL_PATH="/Applications/$APP_NAME.app"
     rm -rf "$INSTALL_PATH"
-    cp -R "$APP_BUNDLE" "$INSTALL_PATH"
+    COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$APP_BUNDLE" "$INSTALL_PATH"
+    find "$INSTALL_PATH" -exec xattr -c {} \; 2>/dev/null || true
     xattr -cr "$INSTALL_PATH"
     codesign --force --deep --sign - "$INSTALL_PATH"
     echo "Installed app bundle:"

@@ -5,7 +5,25 @@ import XCTest
 final class ProcessMemoryProviderTests: XCTestCase {
     private struct FixtureError: Error {}
 
-    func testParsePSOutputSortsAndTrimsTopN() {
+    func testParsePSOutputWithPIDSortsAndTrimsTopN() {
+        let output = """
+          900101 1024 /Applications/A.app/Contents/MacOS/A
+          900202 4096 /Applications/B.app/Contents/MacOS/B
+          900303 2048 /Applications/C.app/Contents/MacOS/C
+        """
+
+        let entries = ProcessMemoryProvider.parsePSOutput(output, maxEntries: 2)
+
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].pid, 900_202)
+        XCTAssertEqual(entries[0].name, "/Applications/B.app/Contents/MacOS/B")
+        XCTAssertEqual(entries[0].displayName, "B")
+        XCTAssertEqual(entries[1].pid, 900_303)
+        XCTAssertEqual(entries[0].residentBytes, 4_096 * 1_024, accuracy: 0.001)
+        XCTAssertEqual(entries[0].id, "pid:900202")
+    }
+
+    func testParsePSOutputLegacyFormatWithoutPID() {
         let output = """
           1024 /Applications/A.app/Contents/MacOS/A
           4096 /Applications/B.app/Contents/MacOS/B
@@ -15,9 +33,9 @@ final class ProcessMemoryProviderTests: XCTestCase {
         let entries = ProcessMemoryProvider.parsePSOutput(output, maxEntries: 2)
 
         XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].pid, 0)
         XCTAssertEqual(entries[0].name, "/Applications/B.app/Contents/MacOS/B")
         XCTAssertEqual(entries[1].name, "/Applications/C.app/Contents/MacOS/C")
-        XCTAssertEqual(entries[0].residentBytes, 4_096 * 1_024, accuracy: 0.001)
     }
 
     func testParsePSOutputSkipsMalformedLines() {
@@ -32,11 +50,22 @@ final class ProcessMemoryProviderTests: XCTestCase {
 
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.name, "/usr/bin/valid")
+        XCTAssertEqual(entries.first?.displayName, "valid")
+    }
+
+    func testMemoryProcessEntryDecodesLegacyPayload() throws {
+        let json = """
+        {"name":"/Applications/B.app/Contents/MacOS/B","residentBytes":4194304}
+        """.data(using: .utf8)!
+        let entry = try JSONDecoder().decode(MemoryProcessEntry.self, from: json)
+        XCTAssertEqual(entry.pid, 0)
+        XCTAssertEqual(entry.displayName, "B")
+        XCTAssertEqual(entry.residentBytes, 4_194_304)
     }
 
     func testProviderUsesCacheAndHandlesRunnerFailureGracefully() async {
         let runner = RunnerSequence([
-            .success("1024 /usr/bin/first\n2048 /usr/bin/second"),
+            .success("101 1024 /usr/bin/first\n202 2048 /usr/bin/second"),
             .failure(FixtureError())
         ])
         let provider = ProcessMemoryProvider(
@@ -47,6 +76,7 @@ final class ProcessMemoryProviderTests: XCTestCase {
 
         let first = await provider.topProcesses(at: Date(timeIntervalSince1970: 1_700_000_000))
         XCTAssertEqual(first.count, 2)
+        XCTAssertEqual(first[0].pid, 202)
         XCTAssertEqual(runner.callCount(), 1)
 
         let cached = await provider.topProcesses(at: Date(timeIntervalSince1970: 1_700_000_000.5))

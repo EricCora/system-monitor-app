@@ -5,6 +5,15 @@ struct DiskTabView: View {
     let coordinator: AppCoordinator
     @ObservedObject var featureStore: DiskFeatureStore
 
+    private var chartDisplayOptions: ChartDisplayOptions {
+        ChartDisplayOptions(
+            showsMinorGrid: coordinator.chartMinorGridEnabled,
+            smoothingAlpha: coordinator.chartSmoothingAlpha,
+            areaOpacity: coordinator.chartAreaOpacity,
+            plotCornerRadius: DashboardChartTheme.tabPlotCornerRadius
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ChartWindowPicker(
@@ -87,30 +96,27 @@ struct DiskTabView: View {
                 title: "Disk Read Throughput",
                 samples: featureStore.readSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.diskAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: DashboardPalette.diskChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: "Disk Write Throughput",
                 samples: featureStore.writeSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.cpuAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: DashboardPalette.networkChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: "Disk Combined Throughput",
                 samples: featureStore.throughputSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.diskAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: DashboardPalette.diskChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
         }
         .foregroundStyle(DashboardPalette.primaryText)

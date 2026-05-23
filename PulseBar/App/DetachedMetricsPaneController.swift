@@ -29,12 +29,6 @@ enum DetachedMetricsPaneTarget: Hashable {
 @MainActor
 final class DetachedMetricsPaneController: ObservableObject {
     private enum Layout {
-        static let preferredPanelWidth: CGFloat = 560
-        static let minimumUsablePanelWidth: CGFloat = 420
-        static let absoluteMinimumPanelWidth: CGFloat = 260
-        static let panelGap: CGFloat = 4
-        static let minPanelHeight: CGFloat = 460
-        static let minimumPanelHeight: CGFloat = 340
         static let hideDelay: TimeInterval = 0.18
     }
 
@@ -81,6 +75,9 @@ final class DetachedMetricsPaneController: ObservableObject {
     ) {
         pinnedTarget = target
         hoveredTarget = nil
+        if case .cpu = target {
+            coordinator.selectedCPUHistoryWindow = coordinator.compactCPUChartWindow
+        }
         presentPanel(coordinator: coordinator, parentWindow: parentWindow)
     }
 
@@ -148,7 +145,7 @@ final class DetachedMetricsPaneController: ObservableObject {
         if clearSelection {
             pinnedTarget = nil
             hoveredTarget = nil
-        } else if pinnedTarget == nil {
+        } else {
             hoveredTarget = nil
         }
 
@@ -167,6 +164,10 @@ final class DetachedMetricsPaneController: ObservableObject {
     func setPreviewTargetForTesting(_ target: DetachedMetricsPaneTarget?) {
         hoveredTarget = target
     }
+
+    func setPinnedTargetForTesting(_ target: DetachedMetricsPaneTarget?) {
+        pinnedTarget = target
+    }
     #endif
 
     private func presentPanel(coordinator: AppCoordinator, parentWindow: NSWindow) {
@@ -184,8 +185,9 @@ final class DetachedMetricsPaneController: ObservableObject {
             return
         }
 
+        let initialHeight = DetachedPaneLayout.contentHeight(for: activeTarget)
         let panel = DetachedMetricsPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Layout.preferredPanelWidth, height: Layout.minPanelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: DetachedPaneLayout.preferredPanelWidth, height: initialHeight),
             styleMask: [.utilityWindow, .nonactivatingPanel, .titled, .fullSizeContentView],
             backing: .buffered,
             defer: true
@@ -223,7 +225,11 @@ final class DetachedMetricsPaneController: ObservableObject {
             ?? NSRect(x: 0, y: 0, width: 1600, height: 1000)
 
         panel.setFrame(
-            Self.computePanelFrame(parentFrame: parentFrame, visibleFrame: visibleFrame),
+            Self.computePanelFrame(
+                parentFrame: parentFrame,
+                visibleFrame: visibleFrame,
+                target: activeTarget
+            ),
             display: true
         )
     }
@@ -296,48 +302,70 @@ final class DetachedMetricsPaneController: ObservableObject {
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.closePanel(clearSelection: true)
+                    self?.closePanel(clearSelection: false)
                 }
             }
         }
     }
 
-    static func computePanelFrame(parentFrame: NSRect, visibleFrame: NSRect) -> NSRect {
-        let desiredHeight = max(Layout.minPanelHeight, parentFrame.height - 8)
-        let maxVisibleHeight = max(Layout.minimumPanelHeight, visibleFrame.height - 8)
-        let panelHeight = min(desiredHeight, maxVisibleHeight)
+    func dismissActivePreview() {
+        guard pinnedTarget == nil else { return }
+        closePanel(clearSelection: true)
+    }
 
-        let availableLeft = max(0, parentFrame.minX - visibleFrame.minX - Layout.panelGap)
-        let availableRight = max(0, visibleFrame.maxX - parentFrame.maxX - Layout.panelGap)
+    static func computePanelFrame(
+        parentFrame: NSRect,
+        visibleFrame: NSRect,
+        target: DetachedMetricsPaneTarget? = nil
+    ) -> NSRect {
+        let contentHeight = contentHeight(for: target)
+        let maxVisibleHeight = max(DetachedPaneLayout.minimumPanelHeight, visibleFrame.height - 8)
+        let panelHeight = min(contentHeight, maxVisibleHeight)
+
+        let availableLeft = max(0, parentFrame.minX - visibleFrame.minX - DetachedPaneLayout.panelGap)
+        let availableRight = max(0, visibleFrame.maxX - parentFrame.maxX - DetachedPaneLayout.panelGap)
 
         let placeOnLeft: Bool
-        if availableLeft >= Layout.minimumUsablePanelWidth {
+        if availableLeft >= DetachedPaneLayout.minimumUsablePanelWidth {
             placeOnLeft = true
-        } else if availableRight >= Layout.minimumUsablePanelWidth {
+        } else if availableRight >= DetachedPaneLayout.minimumUsablePanelWidth {
             placeOnLeft = false
         } else {
             placeOnLeft = availableLeft >= availableRight
         }
 
         let availableOnChosenSide = placeOnLeft ? availableLeft : availableRight
-        let maxVisibleWidth = max(Layout.absoluteMinimumPanelWidth, visibleFrame.width - 8)
-        let unclampedWidth = max(Layout.absoluteMinimumPanelWidth, availableOnChosenSide)
-        let panelWidth = min(Layout.preferredPanelWidth, min(unclampedWidth, maxVisibleWidth))
+        let maxVisibleWidth = max(DetachedPaneLayout.absoluteMinimumPanelWidth, visibleFrame.width - 8)
+        let unclampedWidth = max(DetachedPaneLayout.absoluteMinimumPanelWidth, availableOnChosenSide)
+        let panelWidth = min(DetachedPaneLayout.preferredPanelWidth, min(unclampedWidth, maxVisibleWidth))
 
         var originX: CGFloat
         if placeOnLeft {
-            originX = parentFrame.minX - Layout.panelGap - panelWidth
+            originX = parentFrame.minX - DetachedPaneLayout.panelGap - panelWidth
             originX = max(originX, visibleFrame.minX)
         } else {
-            originX = parentFrame.maxX + Layout.panelGap
+            originX = parentFrame.maxX + DetachedPaneLayout.panelGap
             originX = min(originX, visibleFrame.maxX - panelWidth)
         }
 
         var originY = parentFrame.maxY - panelHeight
-        originY = min(originY, visibleFrame.maxY - panelHeight)
-        originY = max(originY, visibleFrame.minY)
+        let alignsWithParentTop = parentFrame.maxY >= visibleFrame.maxY - 1
+        if !alignsWithParentTop, originY + panelHeight > visibleFrame.maxY {
+            originY = visibleFrame.maxY - panelHeight
+        }
+        if originY < visibleFrame.minY {
+            originY = visibleFrame.minY
+        }
 
         return NSRect(x: originX, y: originY, width: panelWidth, height: panelHeight)
+    }
+
+    static func contentHeight(for target: DetachedMetricsPaneTarget?) -> CGFloat {
+        let measured = DetachedPaneLayout.contentHeight(for: target)
+        return min(
+            max(measured, DetachedPaneLayout.minimumPanelHeight),
+            DetachedPaneLayout.maximumPanelHeight
+        )
     }
 
     private func removeParentObservers() {
@@ -375,14 +403,10 @@ private struct DetachedMetricsPaneHostView: View {
 
     var body: some View {
         content
-            .padding(10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(DetachedPaneLayout.hostPadding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .fixedSize(horizontal: false, vertical: true)
             .dashboardCanvasBackground()
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
-            )
             .onHover { hovering in
                 paneController.setPanelHovering(hovering)
             }

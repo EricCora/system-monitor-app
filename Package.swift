@@ -35,7 +35,8 @@ let package = Package(
             exclude: [
                 "App",
                 "UI",
-                "Resources"
+                "Resources",
+                "Utilities"
             ],
             sources: [
                 "Core",
@@ -63,7 +64,8 @@ let package = Package(
             ],
             sources: [
                 "App",
-                "UI"
+                "UI",
+                "Utilities"
             ],
             resources: [
                 .process("Resources")

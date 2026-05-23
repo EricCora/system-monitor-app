@@ -5,6 +5,15 @@ struct BatteryTabView: View {
     let coordinator: AppCoordinator
     @ObservedObject var featureStore: BatteryFeatureStore
 
+    private var chartDisplayOptions: ChartDisplayOptions {
+        ChartDisplayOptions(
+            showsMinorGrid: coordinator.chartMinorGridEnabled,
+            smoothingAlpha: coordinator.chartSmoothingAlpha,
+            areaOpacity: coordinator.chartAreaOpacity,
+            plotCornerRadius: DashboardChartTheme.tabPlotCornerRadius
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if coordinator.hasBatteryTelemetry() {
@@ -83,20 +92,18 @@ struct BatteryTabView: View {
                 title: "Battery Charge",
                 samples: featureStore.chargeSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.batteryAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: DashboardPalette.batteryChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: powerChartTitle,
                 samples: featureStore.powerSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: featureStore.isCharging ? DashboardPalette.batteryChartAccent : DashboardPalette.cpuChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
             } else {
                 Text("Battery Unavailable")

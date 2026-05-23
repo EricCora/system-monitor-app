@@ -24,7 +24,7 @@ struct ChartWindowPicker: View {
                     )
                 }
             }
-            .padding(style == .detached ? 2 : 0)
+            .padding(style == .detached ? DashboardControlMetrics.chartWindowPickerDetachedPadding : 0)
         }
     }
 }
@@ -44,7 +44,9 @@ struct ChartToolsStrip: View {
     }
 
     private var spacing: CGFloat {
-        style == .detached ? 12 : 10
+        style == .detached
+            ? DashboardControlMetrics.chartToolsDetachedSpacing
+            : DashboardControlMetrics.chartToolsCompactSpacing
     }
 
     var body: some View {
@@ -54,7 +56,11 @@ struct ChartToolsStrip: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(DashboardPalette.secondaryText)
                 Slider(value: $smoothingAlpha, in: sliderBounds, step: 0.05)
-                    .frame(minWidth: style == .detached ? 220 : 140)
+                    .frame(
+                        minWidth: style == .detached
+                            ? DashboardControlMetrics.chartToolsDetachedSliderMinWidth
+                            : DashboardControlMetrics.chartToolsCompactSliderMinWidth
+                    )
                 Text(String(format: "%.2f", smoothingAlpha))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(DashboardPalette.primaryText)
@@ -67,26 +73,46 @@ struct ChartToolsStrip: View {
                 .font(.caption)
                 .foregroundStyle(DashboardPalette.secondaryText)
         }
-        .padding(.horizontal, style == .detached ? 10 : 8)
-        .padding(.vertical, style == .detached ? 8 : 6)
+        .padding(
+            .horizontal,
+            style == .detached
+                ? DashboardControlMetrics.chartToolsDetachedHorizontalPadding
+                : DashboardControlMetrics.chartToolsCompactHorizontalPadding
+        )
+        .padding(
+            .vertical,
+            style == .detached
+                ? DashboardControlMetrics.chartToolsDetachedVerticalPadding
+                : DashboardControlMetrics.chartToolsCompactVerticalPadding
+        )
         .background(
-            RoundedRectangle(cornerRadius: style == .detached ? 12 : 10, style: .continuous)
-                .fill(DashboardPalette.insetFill.opacity(style == .detached ? 0.92 : 0.86))
-                .overlay(
-                    RoundedRectangle(cornerRadius: style == .detached ? 12 : 10, style: .continuous)
-                        .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: style == .detached
+                    ? DashboardControlMetrics.chartToolsDetachedCornerRadius
+                    : DashboardControlMetrics.chartToolsCompactCornerRadius,
+                style: .continuous
+            )
+            .fill(
+                DashboardPalette.insetFill.opacity(
+                    style == .detached
+                        ? DashboardControlMetrics.chartToolsDetachedFillOpacity
+                        : DashboardControlMetrics.chartToolsCompactFillOpacity
                 )
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: style == .detached
+                        ? DashboardControlMetrics.chartToolsDetachedCornerRadius
+                        : DashboardControlMetrics.chartToolsCompactCornerRadius,
+                    style: .continuous
+                )
+                .strokeBorder(DashboardPalette.divider, lineWidth: 1)
+            )
         )
     }
 }
 
 private struct ChartWindowChip: View {
-    private enum Layout {
-        static let compactWidth: CGFloat = 58
-        static let detachedWidth: CGFloat = 74
-        static let compactHeight: CGFloat = 34
-        static let detachedHeight: CGFloat = 42
-    }
 
     let option: ChartWindow
     @Binding var selection: ChartWindow
@@ -111,8 +137,12 @@ private struct ChartWindowChip: View {
                 .minimumScaleFactor(0.9)
                 .multilineTextAlignment(.center)
                 .frame(
-                    width: style == .detached ? Layout.detachedWidth : Layout.compactWidth,
-                    height: style == .detached ? Layout.detachedHeight : Layout.compactHeight,
+                    width: style == .detached
+                        ? DashboardControlMetrics.chartWindowChipDetachedWidth
+                        : DashboardControlMetrics.chartWindowChipCompactWidth,
+                    height: style == .detached
+                        ? DashboardControlMetrics.chartWindowChipDetachedHeight
+                        : DashboardControlMetrics.chartWindowChipCompactHeight,
                     alignment: .center
                 )
                 .background(backgroundColor, in: Capsule())

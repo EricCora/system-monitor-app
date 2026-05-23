@@ -1,4 +1,5 @@
 import AppKit
+import PulseBarCore
 import SwiftUI
 
 private extension Color {
@@ -61,7 +62,7 @@ private struct DashboardSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
-        let resolvedRadius = min(cornerRadius, 8)
+        let resolvedRadius = DashboardTabMetrics.resolvedCornerRadius(cornerRadius)
         content
             .padding(padding)
             .background(
@@ -101,7 +102,7 @@ private struct DashboardInsetModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
-        let resolvedRadius = min(cornerRadius, 8)
+        let resolvedRadius = DashboardTabMetrics.resolvedCornerRadius(cornerRadius)
         content
             .background(
                 RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
@@ -159,8 +160,8 @@ extension View {
 }
 
 extension DashboardPalette {
-    static func chartPlotBackground(cornerRadius: CGFloat = 8, showsMinorGrid: Bool? = nil) -> some View {
-        let resolvedRadius = min(cornerRadius, 8)
+    static func chartPlotBackground(cornerRadius: CGFloat = DashboardChartTheme.defaultPlotCornerRadius, showsMinorGrid: Bool? = nil) -> some View {
+        let resolvedRadius = cornerRadius
         return RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
             .fill(
                 LinearGradient(
@@ -459,136 +460,40 @@ struct DashboardCard<Content: View>: View {
 
 struct DashboardSparklineView: View {
     let values: [Double]
-    var lineColor: Color = .accentColor
-    var fillColor: Color = .accentColor.opacity(0.18)
+    var lineColor: Color = DashboardPalette.cpuChartAccent
+    var fillColor: Color = DashboardChartTheme.sparklineFill(DashboardPalette.cpuChartAccent)
 
     var body: some View {
-        GeometryReader { proxy in
-            if plottedValues.count < 2 {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                DashboardPalette.chromeFill,
-                                DashboardPalette.sectionFill
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            } else {
-                let points = scaledPoints(in: proxy.size)
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DashboardPalette.chromeFill)
-
-                    Path { path in
-                        guard let first = points.first else { return }
-                        path.move(to: CGPoint(x: first.x, y: proxy.size.height))
-                        for point in points {
-                            path.addLine(to: point)
-                        }
-                        if let last = points.last {
-                            path.addLine(to: CGPoint(x: last.x, y: proxy.size.height))
-                        }
-                        path.closeSubpath()
-                    }
-                    .fill(fillColor)
-
-                    Path { path in
-                        guard let first = points.first else { return }
-                        path.move(to: first)
-                        for point in points.dropFirst() {
-                            path.addLine(to: point)
-                        }
-                    }
-                    .stroke(lineColor, style: StrokeStyle(lineWidth: 2.25, lineCap: .round, lineJoin: .round))
-                }
-            }
-        }
+        DashboardMiniChart(
+            model: PreparedTimeSeriesChartModel.fromSparklineValues(values, color: lineColor),
+            areaOpacity: DashboardChartTheme.defaultAreaOpacity,
+            lineColor: lineColor,
+            fillColor: fillColor,
+            showsPlotBackground: true
+        )
         .frame(height: 80)
-    }
-
-    private var plottedValues: [Double] {
-        let values = values.suffix(36)
-        return values.isEmpty ? [0] : Array(values)
-    }
-
-    private func scaledPoints(in size: CGSize) -> [CGPoint] {
-        let values = plottedValues
-        let maxValue = values.max() ?? 0
-        let minValue = values.min() ?? 0
-        let span = max(maxValue - minValue, 0.001)
-
-        return values.enumerated().map { index, value in
-            let x = size.width * CGFloat(index) / CGFloat(max(values.count - 1, 1))
-            let normalized = (value - minValue) / span
-            let y = size.height - (CGFloat(normalized) * (size.height - 8)) - 4
-            return CGPoint(x: x, y: y)
-        }
     }
 }
 
 struct DashboardBidirectionalSparklineView: View {
     let positiveValues: [Double]
     let negativeValues: [Double]
-    var positiveColor: Color = .pink
-    var negativeColor: Color = .blue
+    var positiveColor: Color = DashboardPalette.networkChartAccent
+    var negativeColor: Color = DashboardPalette.diskChartAccent
 
     var body: some View {
-        GeometryReader { proxy in
-            let count = max(plottedPositive.count, plottedNegative.count)
-            let maxValue = max((plottedPositive + plottedNegative).max() ?? 1, 1)
-
-            ZStack(alignment: .center) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                DashboardPalette.chromeFill,
-                                DashboardPalette.sectionFill
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                Rectangle()
-                    .fill(DashboardPalette.chromeBorder)
-                    .frame(height: 1)
-
-                HStack(alignment: .center, spacing: 2) {
-                    ForEach(0..<count, id: \.self) { index in
-                        let upValue = index < plottedPositive.count ? plottedPositive[index] : 0
-                        let downValue = index < plottedNegative.count ? plottedNegative[index] : 0
-
-                        VStack(spacing: 0) {
-                            Spacer()
-                            Rectangle()
-                                .fill(positiveColor)
-                                .frame(height: max(1, CGFloat(upValue / maxValue) * ((proxy.size.height / 2) - 6)))
-                            Spacer().frame(height: 1)
-                            Rectangle()
-                                .fill(negativeColor)
-                                .frame(height: max(1, CGFloat(downValue / maxValue) * ((proxy.size.height / 2) - 6)))
-                            Spacer()
-                        }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-            }
-        }
+        DashboardMiniChart(
+            model: PreparedTimeSeriesChartModel.fromBidirectionalSparkline(
+                positiveValues: positiveValues,
+                negativeValues: negativeValues,
+                positiveColor: positiveColor,
+                negativeColor: negativeColor
+            ),
+            positiveColor: positiveColor,
+            negativeColor: negativeColor,
+            showsPlotBackground: true
+        )
         .frame(height: 82)
-    }
-
-    private var plottedPositive: [Double] {
-        Array(positiveValues.suffix(36))
-    }
-
-    private var plottedNegative: [Double] {
-        Array(negativeValues.suffix(36))
     }
 }
 
@@ -650,13 +555,30 @@ struct DashboardMetricRow: View {
     }
 }
 
-struct DashboardProcessListRow: View {
-    let name: String
+struct ProcessListRow: View {
+    let displayName: String
     let value: String
+    let executablePath: String
+    let fallbackName: String
+
+    init(entry: CPUProcessEntry) {
+        displayName = entry.displayName
+        value = UnitsFormatter.format(entry.cpuPercent, unit: .percent)
+        executablePath = entry.executablePath
+        fallbackName = entry.name
+    }
+
+    init(entry: MemoryProcessEntry) {
+        displayName = entry.displayName
+        value = UnitsFormatter.format(entry.residentBytes, unit: .bytes)
+        executablePath = entry.executablePath
+        fallbackName = entry.name
+    }
 
     var body: some View {
-        HStack {
-            Text(name)
+        HStack(spacing: 8) {
+            ProcessAppearanceResolver.iconView(forExecutablePath: executablePath)
+            Text(displayName)
                 .lineLimit(1)
                 .foregroundStyle(DashboardPalette.primaryText)
             Spacer()
@@ -665,6 +587,7 @@ struct DashboardProcessListRow: View {
                 .foregroundStyle(DashboardPalette.secondaryText)
         }
         .font(.subheadline)
+        .help(ProcessAppearanceResolver.helpText(executablePath: executablePath, fallbackName: fallbackName))
     }
 }
 

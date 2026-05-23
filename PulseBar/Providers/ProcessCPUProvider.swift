@@ -12,7 +12,7 @@ public actor ProcessCPUProvider {
     public init(
         maxEntries: Int = 5,
         minCollectionInterval: TimeInterval = 2,
-        processRunner: @escaping ProcessRunner = { try ProcessCPUProvider.runPSOutput() }
+        processRunner: @escaping ProcessRunner = ProcessListProviderSupport.cpuProcessOutput
     ) {
         self.maxEntries = max(1, maxEntries)
         self.minCollectionInterval = max(1, minCollectionInterval)
@@ -58,25 +58,10 @@ public actor ProcessCPUProvider {
                 continue
             }
 
-            guard let cpuStart = trimmed.firstIndex(where: { !$0.isWhitespace }) else {
+            guard let entry = parseLine(trimmed) else {
                 continue
             }
-            guard let splitIndex = trimmed[cpuStart...].firstIndex(where: \.isWhitespace) else {
-                continue
-            }
-
-            let cpuToken = String(trimmed[cpuStart..<splitIndex])
-                .replacingOccurrences(of: ",", with: ".")
-            guard let cpuPercent = Double(cpuToken), cpuPercent >= 0 else {
-                continue
-            }
-
-            let nameToken = trimmed[splitIndex...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if nameToken.isEmpty {
-                continue
-            }
-
-            entries.append(CPUProcessEntry(name: nameToken, cpuPercent: cpuPercent))
+            entries.append(entry)
         }
 
         return entries
@@ -84,37 +69,45 @@ public actor ProcessCPUProvider {
                 if lhs.cpuPercent != rhs.cpuPercent {
                     return lhs.cpuPercent > rhs.cpuPercent
                 }
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
             .prefix(safeMax)
             .map { $0 }
     }
 
-    public static func runPSOutput() throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-axo", "%cpu=,comm="]
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let message = errorOutput?.isEmpty == false ? errorOutput! : "ps exited with status \(process.terminationStatus)"
-            throw ProviderError.unavailable(message)
+    private static func parseLine(_ trimmed: String) -> CPUProcessEntry? {
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard tokens.count >= 3,
+              let pid = Int32(tokens[0]),
+              let cpuPercent = Double(tokens[1].replacingOccurrences(of: ",", with: ".")),
+              cpuPercent >= 0 else {
+            return parseLegacyLine(trimmed)
         }
 
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            throw ProviderError.parsingFailed("Unable to decode ps output")
+        let comm = tokens.dropFirst(2).joined(separator: " ")
+        guard !comm.isEmpty else { return nil }
+
+        let executablePath = ProcessExecutablePathResolver.executablePath(pid: pid, comm: comm)
+        let displayName = ProcessDisplayNameFormatter.format(executablePath: executablePath, fallback: comm)
+        return CPUProcessEntry(
+            pid: pid,
+            name: comm,
+            executablePath: executablePath,
+            displayName: displayName,
+            cpuPercent: cpuPercent
+        )
+    }
+
+    private static func parseLegacyLine(_ trimmed: String) -> CPUProcessEntry? {
+        guard let parsed = ProcessListProviderSupport.parseLegacyCPULine(trimmed) else {
+            return nil
         }
-        return output
+        return CPUProcessEntry(
+            pid: 0,
+            name: parsed.name,
+            executablePath: parsed.name,
+            displayName: ProcessDisplayNameFormatter.format(executablePath: parsed.name, fallback: parsed.name),
+            cpuPercent: parsed.value
+        )
     }
 }

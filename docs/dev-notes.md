@@ -17,6 +17,17 @@
 - Launch-at-login via `SMAppService` can fail in unsigned/debug contexts.
 - Notification delivery requires user authorization.
 
+## Chart System Guardrails
+
+- Full-size charts: build `PreparedTimeSeriesChartModel` via `ChartSeriesPipeline` factories only; render with `DashboardTimeSeriesChart` (do not add inline `Chart` / `AreaMark` / `LineMark` in tab or pane views).
+- Mini charts: use `DashboardMiniChart` for overview sparklines, compact CPU history, and menu bar graphs (no ad-hoc time-series `Path` elsewhere).
+- Detached panes: `DetachedMetricsPaneShell` + `DetachedPaneLayout.contentHeight(for:)`; panel height must not track parent window height.
+- Default chart area opacity: `0.32` (profile backfill uses the same value for legacy installs missing the field).
+- Chart sample budgets (`ChartSampleBudget`) are separate from mini-chart presentation (`DashboardMiniChartPresentation`).
+- Detached pane reload deferral lives in `DetachedPaneHistoryRefresh`; panel height uses `DetachedPaneShellMetrics` sums that mirror `DetachedMetricsPaneShell`.
+- Chart data prep: `ChartSeriesPipeline.swift`; chart types/overlays: `TimeSeriesChartSupport.swift`; hover/legend helpers: `ChartInteractionSupport.swift`; plot paths: `ChartPlotGeometry.swift`.
+- Detached pane models: `PreparedTimeSeriesChartModel.fromCPU` / `.fromMemory` snapshot factories.
+
 ## Performance Guardrails
 
 - Sampling runs on async tasks, not the UI thread.

@@ -20,6 +20,31 @@ final class DetachedMetricsPaneControllerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.minX, visibleFrame.minX)
     }
 
+    func testComputePanelFrameUsesContentHeightNotParentHeight() {
+        let parentFrame = NSRect(x: 760, y: 240, width: 520, height: 900)
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
+
+        let frame = DetachedMetricsPaneController.computePanelFrame(
+            parentFrame: parentFrame,
+            visibleFrame: visibleFrame,
+            target: .cpu(chart: .usage)
+        )
+
+        let expectedHeight = DetachedMetricsPaneController.contentHeight(for: .cpu(chart: .usage))
+        XCTAssertEqual(frame.height, expectedHeight, accuracy: 0.5)
+        XCTAssertNotEqual(frame.height, parentFrame.height - 8, accuracy: 0.5)
+        XCTAssertEqual(frame.maxY, parentFrame.maxY, accuracy: 0.5)
+    }
+
+    func testContentHeightRespectsMinimumAndMaximumBounds() {
+        let standard = DetachedMetricsPaneController.contentHeight(for: .memory(chart: .pressure))
+        XCTAssertGreaterThanOrEqual(standard, DetachedPaneLayout.minimumPanelHeight)
+        XCTAssertLessThanOrEqual(standard, DetachedPaneLayout.maximumPanelHeight)
+
+        let compare = DetachedMetricsPaneController.contentHeight(for: .temperatureCompare)
+        XCTAssertGreaterThanOrEqual(compare, DetachedPaneLayout.minimumPanelHeight)
+    }
+
     func testComputePanelFrameSwitchesToRightWhenLeftSpaceIsInsufficient() {
         let parentFrame = NSRect(x: 240, y: 200, width: 520, height: 500)
         let visibleFrame = NSRect(x: 0, y: 0, width: 1728, height: 1117)
@@ -53,6 +78,17 @@ final class DetachedMetricsPaneControllerTests: XCTestCase {
         XCTAssertEqual(controller.hoveredTarget, .temperature(sensorID: "cpu_die_5"))
 
         try? await Task.sleep(nanoseconds: 180_000_000)
+        XCTAssertNil(controller.hoveredTarget)
+    }
+
+    func testAppDeactivateHidesPanelWithoutClearingPinnedTarget() {
+        let controller = DetachedMetricsPaneController()
+        controller.setPinnedTargetForTesting(.cpu(chart: .usage))
+        controller.setPreviewTargetForTesting(.cpu(chart: .loadAverage))
+
+        controller.closePanel(clearSelection: false)
+
+        XCTAssertEqual(controller.pinnedTarget, .cpu(chart: .usage))
         XCTAssertNil(controller.hoveredTarget)
     }
 

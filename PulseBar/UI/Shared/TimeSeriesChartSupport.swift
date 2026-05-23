@@ -67,6 +67,16 @@ struct ChartMetricSeriesDescriptor<Sample> {
 struct ChartDisplayOptions: Equatable {
     var showsMinorGrid: Bool = false
     var smoothingAlpha: Double = 1.0
+    var areaOpacity: Double?
+    var plotCornerRadius: CGFloat?
+
+    var resolvedAreaOpacity: Double {
+        areaOpacity ?? DashboardChartTheme.defaultAreaOpacity
+    }
+
+    var resolvedPlotCornerRadius: CGFloat {
+        plotCornerRadius ?? DashboardChartTheme.defaultPlotCornerRadius
+    }
 
     var normalizedSmoothingAlpha: Double {
         guard smoothingAlpha.isFinite else { return 1.0 }
@@ -85,316 +95,6 @@ extension EnvironmentValues {
     }
 }
 
-enum ChartSeriesPipeline {
-    static func metricSamples(
-        _ samples: [MetricSample],
-        key: String,
-        label: String,
-        color: Color
-    ) -> [TimeSeriesChartPoint] {
-        metricSamples(series: [
-            ChartMetricSeriesDescriptor(key: key, label: label, color: color, samples: samples)
-        ])
-    }
-
-    static func metricSamples(
-        series: [ChartMetricSeriesDescriptor<MetricSample>]
-    ) -> [TimeSeriesChartPoint] {
-        flatten(series: series) { entry in
-            segmented(
-                sanitize(entry.samples, timestamp: \.timestamp),
-                seriesKey: entry.key,
-                timestamp: \.timestamp
-            ) { sample, continuityKey in
-                TimeSeriesChartPoint(
-                    timestamp: sample.timestamp,
-                    value: sample.value,
-                    seriesKey: entry.key,
-                    seriesLabel: entry.label,
-                    continuityKey: continuityKey,
-                    color: entry.color
-                )
-            }
-        }
-    }
-
-    static func metricHistory(
-        series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>]
-    ) -> [TimeSeriesChartPoint] {
-        flatten(series: series) { entry in
-            segmented(
-                sanitize(entry.samples, timestamp: \.timestamp),
-                seriesKey: entry.key,
-                timestamp: \.timestamp
-            ) { point, continuityKey in
-                TimeSeriesChartPoint(
-                    timestamp: point.timestamp,
-                    value: point.value,
-                    seriesKey: entry.key,
-                    seriesLabel: entry.label,
-                    continuityKey: continuityKey,
-                    color: entry.color
-                )
-            }
-        }
-    }
-
-    static func temperatureHistory(
-        _ points: [TemperatureHistoryPoint],
-        key: String,
-        label: String,
-        color: Color
-    ) -> [TimeSeriesChartPoint] {
-        temperatureHistory(series: [
-            ChartMetricSeriesDescriptor(key: key, label: label, color: color, samples: points)
-        ])
-    }
-
-    static func temperatureHistory(
-        series: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>]
-    ) -> [TimeSeriesChartPoint] {
-        flatten(series: series) { entry in
-            segmented(
-                sanitize(entry.samples, timestamp: \.timestamp),
-                seriesKey: entry.key,
-                timestamp: \.timestamp
-            ) { point, continuityKey in
-                TimeSeriesChartPoint(
-                    timestamp: point.timestamp,
-                    value: point.value,
-                    seriesKey: entry.key,
-                    seriesLabel: entry.label,
-                    continuityKey: continuityKey,
-                    color: entry.color
-                )
-            }
-        }
-    }
-
-    static func sanitize<T>(_ values: [T], timestamp: KeyPath<T, Date>) -> [T] {
-        var latestByTimestamp: [Date: T] = [:]
-        for value in values {
-            latestByTimestamp[value[keyPath: timestamp]] = value
-        }
-        return latestByTimestamp.values.sorted {
-            $0[keyPath: timestamp] < $1[keyPath: timestamp]
-        }
-    }
-
-    static func lowPass(_ samples: [MetricSample], alpha: Double) -> [MetricSample] {
-        let normalizedAlpha = normalizedAlpha(alpha)
-        guard normalizedAlpha < 0.999, samples.count > 1 else { return samples }
-
-        var previousByMetric: [MetricID: Double] = [:]
-        return samples.map { sample in
-            let previous = previousByMetric[sample.metricID] ?? sample.value
-            let smoothed = (normalizedAlpha * sample.value) + ((1 - normalizedAlpha) * previous)
-            previousByMetric[sample.metricID] = smoothed
-            return MetricSample(metricID: sample.metricID, timestamp: sample.timestamp, value: smoothed, unit: sample.unit)
-        }
-    }
-
-    static func lowPass(_ points: [MetricHistoryPoint], alpha: Double) -> [MetricHistoryPoint] {
-        let normalizedAlpha = normalizedAlpha(alpha)
-        guard normalizedAlpha < 0.999, points.count > 1 else { return points }
-
-        var previous = points.first?.value ?? 0
-        return points.map { point in
-            let smoothed = (normalizedAlpha * point.value) + ((1 - normalizedAlpha) * previous)
-            previous = smoothed
-            return MetricHistoryPoint(timestamp: point.timestamp, value: smoothed, unit: point.unit)
-        }
-    }
-
-    static func lowPass(_ points: [TemperatureHistoryPoint], alpha: Double) -> [TemperatureHistoryPoint] {
-        let normalizedAlpha = normalizedAlpha(alpha)
-        guard normalizedAlpha < 0.999, points.count > 1 else { return points }
-
-        var previousBySensor: [String: Double] = [:]
-        return points.map { point in
-            let previous = previousBySensor[point.sensorID] ?? point.value
-            let smoothed = (normalizedAlpha * point.value) + ((1 - normalizedAlpha) * previous)
-            previousBySensor[point.sensorID] = smoothed
-            return TemperatureHistoryPoint(sensorID: point.sensorID, timestamp: point.timestamp, value: smoothed, channelType: point.channelType)
-        }
-    }
-
-    static func continuityKeys<Sample>(
-        for values: [Sample],
-        seriesKey: String,
-        timestamp: KeyPath<Sample, Date>
-    ) -> [String] {
-        guard !values.isEmpty else { return [] }
-
-        let cadence = inferredCadence(for: values, timestamp: timestamp)
-        let gapThreshold = max(cadence * 1.9, cadence + 1)
-        var segmentIndex = 0
-        var previousTimestamp: Date?
-
-        return values.map { value in
-            let currentTimestamp = value[keyPath: timestamp]
-            if let previousTimestamp,
-               currentTimestamp.timeIntervalSince(previousTimestamp) > gapThreshold {
-                segmentIndex += 1
-            }
-            previousTimestamp = currentTimestamp
-            return "\(seriesKey)#\(segmentIndex)"
-        }
-    }
-
-    static func scale(
-        for points: [TimeSeriesChartPoint],
-        baseline: ChartBaselinePolicy
-    ) -> ChartScale {
-        switch baseline {
-        case .fixed(let range):
-            return ChartScale(
-                xDomain: xDomain(for: points),
-                yDomain: range,
-                areaBaseline: range.lowerBound
-            )
-        case .zero(let minimumSpan, let paddingFraction):
-            let domain = paddedDomain(
-                for: points.map(\.value),
-                minimumSpan: minimumSpan,
-                paddingFraction: paddingFraction,
-                includeZero: true
-            )
-            return ChartScale(
-                xDomain: xDomain(for: points),
-                yDomain: domain,
-                areaBaseline: 0
-            )
-        case .dataMin(let minimumSpan, let paddingFraction):
-            let domain = paddedDomain(
-                for: points.map(\.value),
-                minimumSpan: minimumSpan,
-                paddingFraction: paddingFraction,
-                includeZero: false
-            )
-            return ChartScale(
-                xDomain: xDomain(for: points),
-                yDomain: domain,
-                areaBaseline: domain.lowerBound
-            )
-        }
-    }
-
-    static func colorScaleDomain(for points: [TimeSeriesChartPoint]) -> [String] {
-        orderedSeriesValues(for: points, value: \.seriesKey)
-    }
-
-    static func colorScaleRange(for points: [TimeSeriesChartPoint]) -> [Color] {
-        var colors: [Color] = []
-        var seen = Set<String>()
-        for point in points {
-            if seen.insert(point.seriesKey).inserted {
-                colors.append(point.color)
-            }
-        }
-        return colors
-    }
-
-    private static func flatten<Input>(
-        series: [Input],
-        transform: (Input) -> [TimeSeriesChartPoint]
-    ) -> [TimeSeriesChartPoint] {
-        series
-            .flatMap(transform)
-            .sorted {
-                if $0.timestamp == $1.timestamp {
-                    return $0.seriesKey < $1.seriesKey
-                }
-                return $0.timestamp < $1.timestamp
-            }
-    }
-
-    private static func orderedSeriesValues<Value: Hashable>(
-        for points: [TimeSeriesChartPoint],
-        value: KeyPath<TimeSeriesChartPoint, Value>
-    ) -> [Value] {
-        var output: [Value] = []
-        var seen = Set<Value>()
-        for point in points {
-            let item = point[keyPath: value]
-            if seen.insert(item).inserted {
-                output.append(item)
-            }
-        }
-        return output
-    }
-
-    private static func segmented<Sample>(
-        _ values: [Sample],
-        seriesKey: String,
-        timestamp: KeyPath<Sample, Date>,
-        map: (Sample, String) -> TimeSeriesChartPoint
-    ) -> [TimeSeriesChartPoint] {
-        guard !values.isEmpty else { return [] }
-        let continuityKeys = continuityKeys(for: values, seriesKey: seriesKey, timestamp: timestamp)
-        return zip(values, continuityKeys).map(map)
-    }
-
-    private static func paddedDomain(
-        for values: [Double],
-        minimumSpan: Double,
-        paddingFraction: Double,
-        includeZero: Bool
-    ) -> ClosedRange<Double> {
-        guard let minValue = values.min(), let maxValue = values.max() else {
-            return 0...1
-        }
-
-        let lowerBound: Double
-        let upperBound: Double
-
-        if minValue == maxValue {
-            let delta = max(minimumSpan, abs(minValue * 0.1))
-            lowerBound = minValue - delta
-            upperBound = maxValue + delta
-        } else {
-            let padding = max(minimumSpan * 0.1, (maxValue - minValue) * paddingFraction)
-            lowerBound = minValue - padding
-            upperBound = maxValue + padding
-        }
-
-        if includeZero {
-            return min(0, lowerBound)...max(upperBound, minimumSpan)
-        }
-        return lowerBound...upperBound
-    }
-
-    private static func xDomain(for points: [TimeSeriesChartPoint]) -> ClosedRange<Date>? {
-        guard let minDate = points.map(\.timestamp).min(),
-              let maxDate = points.map(\.timestamp).max() else {
-            return nil
-        }
-        if minDate == maxDate {
-            let expanded = minDate.addingTimeInterval(-30)...maxDate.addingTimeInterval(30)
-            return expanded
-        }
-        return minDate...maxDate
-    }
-
-    private static func inferredCadence<Sample>(
-        for values: [Sample],
-        timestamp: KeyPath<Sample, Date>
-    ) -> TimeInterval {
-        let deltas = zip(values, values.dropFirst()).compactMap { previous, current -> TimeInterval? in
-            let delta = current[keyPath: timestamp].timeIntervalSince(previous[keyPath: timestamp])
-            return delta > 0 ? delta : nil
-        }
-        guard !deltas.isEmpty else { return 1 }
-        let sorted = deltas.sorted()
-        return sorted[sorted.count / 2]
-    }
-
-    private static func normalizedAlpha(_ alpha: Double) -> Double {
-        guard alpha.isFinite else { return 1.0 }
-        return min(max(alpha, 0.05), 1.0)
-    }
-}
-
 enum DashboardChartStyle {
     static let xAxisStartPadding: CGFloat = 34
     static let xAxisEndPadding: CGFloat = 48
@@ -410,13 +110,6 @@ enum DashboardChartStyle {
 
     @AxisContentBuilder
     static func timeXAxis(showsMinorGrid: Bool = false) -> some AxisContent {
-        if showsMinorGrid {
-            AxisMarks(values: .automatic(desiredCount: 13)) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.9, dash: [1, 3]))
-                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.68))
-            }
-        }
-
         AxisMarks(values: .automatic(desiredCount: 3)) { value in
             AxisGridLine()
                 .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
@@ -437,13 +130,6 @@ enum DashboardChartStyle {
         showsMinorGrid: Bool = false,
         label: @escaping (Double) -> String
     ) -> some AxisContent {
-        if showsMinorGrid {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 11)) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.9, dash: [1, 3]))
-                    .foregroundStyle(DashboardPalette.chartGrid.opacity(0.68))
-            }
-        }
-
         if let values {
             AxisMarks(preset: .aligned, position: .leading, values: values) { value in
                 AxisGridLine()
@@ -502,6 +188,35 @@ enum DashboardChartStyle {
         case .scalar:
             return String(format: "%.1f", value)
         }
+    }
+}
+
+struct ChartHoverOverlay: View {
+    let proxy: ChartProxy
+    let geometry: GeometryProxy
+    @Binding var hoveredDate: Date?
+
+    var body: some View {
+        let plotFrame = geometry[proxy.plotAreaFrame]
+
+        Rectangle()
+            .fill(.clear)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    let xPosition = location.x - plotFrame.origin.x
+                    guard xPosition >= 0,
+                          xPosition <= proxy.plotAreaSize.width,
+                          let date: Date = proxy.value(atX: xPosition, as: Date.self) else {
+                        hoveredDate = nil
+                        return
+                    }
+                    hoveredDate = date
+                case .ended:
+                    hoveredDate = nil
+                }
+            }
     }
 }
 

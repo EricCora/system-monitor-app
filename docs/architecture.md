@@ -63,7 +63,11 @@
   - Detailed sections reuse the existing CPU/memory/battery/network/temperature/disk module views, chart-window pickers, and detached-pane hover/pin interactions, now themed with the same shared adaptive palette used by `Overview`
   - Sensors overview card supports favorites-first curation, preset switching, and a direct drill-down into the restored temperature detail surface
   - Dashboard cards reuse prepared compact CPU/memory/network/battery/temperature surface models rather than rebuilding large live charts every tick
-  - Shared chart rendering through `ChartSeriesPipeline` and detached chart viewport overlays (single sanitization boundary, stable series identity, shared y-domain policy, optional minor grid overlay, view-level LPF smoothing, shared hover/zoom interactions)
+  - Shared chart rendering through `ChartSeriesPipeline`, `PreparedTimeSeriesChartModel`, `DashboardTimeSeriesChart` (full-size Swift Charts marks), and `DashboardMiniChart` (Canvas sparklines / compact CPU / menu bar graphs). Modes: stacked CPU usage, baseline area + line, bidirectional bars, or line-only compare. Theme via `DashboardChartTheme` / `DashboardPalette` (default area opacity `0.32`).
+  - Detached CPU/memory/temperature panes share `DetachedMetricsPaneShell` + `DetachedPaneLayout` content-sized panel frames (not parent-window height). Shell: window picker, tools strip, zoom/unpin/close, optional accessory toolbar; pin survives app deactivate; CPU pin syncs `compactCPUChartWindow` → `selectedCPUHistoryWindow`.
+  - Tab chrome primitives: `HoverDetachSection`, `ChartTabToolbar`, `DashboardTabSection`, `ProcessListSection`; CPU/Memory/Temperature tabs use `ChartTabToolbar` for window + smoothing/grid controls.
+  - Minor grid is plot-background overlay only in `DashboardTimeSeriesChart` / `DashboardMiniChart` (no duplicate dashed axis grid marks).
+  - Detached chart viewport overlays (sanitization boundary, stable series identity, shared y-domain policy, view-level LPF smoothing, shared hover/zoom interactions)
   - Temperature detail view combines always-available thermal-state history with aggregate primary/maximum temperature traces when metric history exists, while the sensor list presents per-group max/avg/min rows backed by raw privileged/hydrated channels and a detached aggregate comparison pane
   - Full sidebar-based settings window for detailed configuration of profiles, dashboard layout/order/visibility/density, chart readability, menu bar display styles, alerts, and sensor presets
 
@@ -85,7 +89,7 @@
 14. Latest privileged channels are persisted into `TemperatureHistoryStore` (SQLite) for long-window sensor chart queries, while a separate latest-temperature snapshot is stored in `UserDefaults` for quiet startup hydration.
 15. Batch is sent to `AlertEngine` for multi-rule evaluation; alert results are mirrored into `AlertDeliveryCenter` so alerts remain visible during `swift run`.
 16. `TelemetryStore` publishes latest values, provider failures, history revision tokens, privileged status, channel diagnostics, fan parity gate state, recent alerts, and process status.
-17. The popover dashboard and menu bar observe narrower surface stores, while detached panes request grouped CPU/memory history snapshots keyed by window/selection/revision and coalesce updates during hover/zoom interaction.
+17. The popover dashboard and menu bar observe narrower surface stores. Detached CPU/memory panes call `AppCoordinator.cpuHistorySnapshot(window:)` / `memoryHistorySnapshot(window:)` once per refresh (not N× per-series `metricHistorySeries`), build `PreparedTimeSeriesChartModel` factories per chart kind, and coalesce updates during hover/zoom interaction.
 18. `PowerSourceMonitor` transitions can update the active profile through `SettingsController` auto-switch rules.
 
 ## Thread Model

@@ -5,6 +5,15 @@ struct NetworkTabView: View {
     let coordinator: AppCoordinator
     @ObservedObject var featureStore: NetworkFeatureStore
 
+    private var chartDisplayOptions: ChartDisplayOptions {
+        ChartDisplayOptions(
+            showsMinorGrid: coordinator.chartMinorGridEnabled,
+            smoothingAlpha: coordinator.chartSmoothingAlpha,
+            areaOpacity: coordinator.chartAreaOpacity,
+            plotCornerRadius: DashboardChartTheme.tabPlotCornerRadius
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ChartWindowPicker(
@@ -52,20 +61,18 @@ struct NetworkTabView: View {
                 title: "Inbound Throughput",
                 samples: featureStore.inboundSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.networkAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: DashboardPalette.networkChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             MetricChartView(
                 title: "Outbound Throughput",
                 samples: featureStore.outboundSamples,
                 throughputUnit: coordinator.throughputUnit,
-                areaOpacity: coordinator.chartAreaOpacity,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore,
-                seriesColor: DashboardPalette.cpuAccent,
-                displayOptions: ChartDisplayOptions(showsMinorGrid: coordinator.chartMinorGridEnabled, smoothingAlpha: coordinator.chartSmoothingAlpha)
+                seriesColor: DashboardPalette.diskChartAccent,
+                displayOptions: chartDisplayOptions,
+                diagnosticsStore: coordinator.performanceDiagnosticsStore
             )
 
             if !readableInterfaceRates.isEmpty {

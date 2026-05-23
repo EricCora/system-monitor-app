@@ -708,13 +708,13 @@ private struct CPUDashboardCard: View {
 
             DashboardSparklineView(
                 values: usageStore.snapshot.renderModel.segments.flatMap(\.points).map(\.totalValue),
-                lineColor: DashboardPalette.cpuAccent,
-                fillColor: DashboardPalette.cpuAccent.opacity(0.18)
+                lineColor: DashboardPalette.cpuUserAccent,
+                fillColor: DashboardChartTheme.sparklineFill(DashboardPalette.cpuUserAccent)
             )
 
             HStack(spacing: 10) {
-                metricPill(label: "User", value: usageStore.snapshot.summary.userPercent, tint: DashboardPalette.memoryAccent)
-                metricPill(label: "System", value: usageStore.snapshot.summary.systemPercent, tint: DashboardPalette.cpuAccent)
+                metricPill(label: "User", value: usageStore.snapshot.summary.userPercent, tint: DashboardPalette.cpuUserAccent)
+                metricPill(label: "System", value: usageStore.snapshot.summary.systemPercent, tint: DashboardPalette.cpuSystemAccent)
                 metricPill(label: "Idle", value: usageStore.snapshot.summary.idlePercent, tint: DashboardPalette.tertiaryText)
             }
 
@@ -752,10 +752,7 @@ private struct CPUDashboardCard: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
 
                     ForEach(Array(processesStore.snapshot.entries.prefix(4))) { entry in
-                        DashboardProcessListRow(
-                            name: entry.name,
-                            value: UnitsFormatter.format(entry.cpuPercent, unit: .percent)
-                        )
+                        ProcessListRow(entry: entry)
                     }
                 }
             }
@@ -841,10 +838,7 @@ private struct MemoryDashboardCard: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
 
                     ForEach(Array(featureStore.topProcesses.prefix(4))) { entry in
-                        DashboardProcessListRow(
-                            name: entry.name,
-                            value: UnitsFormatter.format(entry.residentBytes, unit: .bytes)
-                        )
+                        ProcessListRow(entry: entry)
                     }
                 }
             }
@@ -908,10 +902,7 @@ private struct BatteryDashboardCard: View {
                         .foregroundStyle(DashboardPalette.secondaryText)
 
                     ForEach(Array(featureStore.significantEnergyProcesses.prefix(3))) { entry in
-                        DashboardProcessListRow(
-                            name: entry.name,
-                            value: UnitsFormatter.format(entry.cpuPercent, unit: .percent)
-                        )
+                        ProcessListRow(entry: entry)
                     }
                 }
             }

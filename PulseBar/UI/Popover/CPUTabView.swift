@@ -13,11 +13,11 @@ struct CPUTabView: View {
     @State private var hostWindow: NSWindow?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DashboardTabMetrics.sectionSpacing) {
             if showsCompactChartWindowPicker {
-                ChartWindowPicker(
-                    options: coordinator.visibleChartWindows,
-                    selection: Binding(
+                ChartTabToolbar(
+                    coordinator: coordinator,
+                    historyWindow: Binding(
                         get: { coordinator.compactCPUChartWindow },
                         set: { coordinator.compactCPUChartWindow = $0 }
                     )
@@ -101,33 +101,24 @@ struct CPUTabView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         let target = DetachedMetricsPaneTarget.cpu(chart: chart)
-        return Button {
-            coordinator.selectedCPUPaneChart = chart
-            if let parentWindow = currentParentWindow {
-                paneController.pin(target, coordinator: coordinator, parentWindow: parentWindow)
-            }
-        } label: {
-            content()
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(paneController.isActive(target) ? DashboardPalette.selectionFill : DashboardPalette.sectionFill)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(paneController.isActive(target) ? DashboardPalette.cpuAccent.opacity(0.45) : DashboardPalette.chromeBorder, lineWidth: 1)
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
+        return HoverDetachSection(
+            isActive: paneController.isActive(target),
+            accent: DashboardPalette.cpuChartAccent,
+            onPin: {
+                coordinator.selectedCPUPaneChart = chart
                 if let parentWindow = currentParentWindow {
-                    paneController.preview(target, coordinator: coordinator, parentWindow: parentWindow)
+                    paneController.pin(target, coordinator: coordinator, parentWindow: parentWindow)
                 }
-            } else {
-                paneController.clearPreview(target)
-            }
-        }
+            },
+            onPreview: { hovering in
+                if hovering, let parentWindow = currentParentWindow {
+                    paneController.preview(target, coordinator: coordinator, parentWindow: parentWindow)
+                } else {
+                    paneController.clearPreview(target)
+                }
+            },
+            content: content
+        )
     }
 
     private var currentParentWindow: NSWindow? {
@@ -150,9 +141,12 @@ private struct CPUUsageSection: View {
             CPUSectionTitle("CPU")
 
             HStack(alignment: .top, spacing: 8) {
-                CompactCPUUsageCanvasChart(
-                    model: snapshot.renderModel,
-                    areaOpacity: areaOpacity
+                DashboardMiniChart(
+                    model: PreparedTimeSeriesChartModel.fromCompactCPUUsage(
+                        renderModel: snapshot.renderModel
+                    ),
+                    areaOpacity: areaOpacity,
+                    showsPlotBackground: true
                 )
                 .frame(height: 92)
 
@@ -160,8 +154,8 @@ private struct CPUUsageSection: View {
                     .frame(width: 78, height: 92)
             }
 
-            CPULegendRow(title: "User", color: DashboardPalette.cpuAccent, value: snapshot.summary.userPercent)
-            CPULegendRow(title: "System", color: DashboardPalette.memoryAccent, value: snapshot.summary.systemPercent)
+            CPULegendRow(title: "User", color: DashboardPalette.cpuUserAccent, value: snapshot.summary.userPercent)
+            CPULegendRow(title: "System", color: DashboardPalette.cpuSystemAccent, value: snapshot.summary.systemPercent)
             CPULegendRow(title: "Idle", color: DashboardPalette.tertiaryText, value: snapshot.summary.idlePercent)
         }
     }
@@ -181,14 +175,7 @@ private struct CPUProcessesSection: View {
                     .foregroundStyle(DashboardPalette.secondaryText)
             } else {
                 ForEach(store.snapshot.entries.prefix(processCount)) { process in
-                    HStack(spacing: 8) {
-                        Text(process.name)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(String(format: "%.1f%%", process.cpuPercent))
-                            .font(.body.monospacedDigit())
-                    }
-                    .font(.subheadline)
+                    ProcessListRow(entry: process)
                 }
             }
         }
@@ -250,9 +237,10 @@ private struct CPULoadSection: View {
         VStack(alignment: .leading, spacing: 8) {
             CPUSectionTitle("LOAD AVERAGE")
 
-            CompactCPULoadCanvasChart(
-                model: snapshot.renderModel,
-                areaOpacity: areaOpacity
+            DashboardMiniChart(
+                model: PreparedTimeSeriesChartModel.fromCompactCPULoad(renderModel: snapshot.renderModel),
+                areaOpacity: areaOpacity,
+                showsPlotBackground: true
             )
             .frame(height: 92)
 
@@ -354,101 +342,6 @@ private struct CPULoadBadge: View {
     }
 }
 
-private struct CompactCPUUsageCanvasChart: View {
-    let model: CompactCPUUsageRenderModel
-    let areaOpacity: Double
-
-    var body: some View {
-        GeometryReader { proxy in
-            Canvas(rendersAsynchronously: true) { context, size in
-                drawCPUUsage(in: &context, size: size)
-            }
-        }
-    }
-
-    private func drawCPUUsage(in context: inout GraphicsContext, size: CGSize) {
-        guard let xDomain = model.xDomain else { return }
-        let yDomain = 0.0...100.0
-
-        for segment in model.segments where segment.points.count >= 2 {
-            let totalArea = areaPath(
-                points: segment.points,
-                timestamp: \.timestamp,
-                value: \.totalValue,
-                baseline: yDomain.lowerBound,
-                xDomain: xDomain,
-                yDomain: yDomain,
-                size: size
-            )
-            context.fill(totalArea, with: .color(DashboardPalette.memoryAccent.opacity(areaOpacity)))
-
-            let userArea = areaPath(
-                points: segment.points,
-                timestamp: \.timestamp,
-                value: \.userValue,
-                baseline: yDomain.lowerBound,
-                xDomain: xDomain,
-                yDomain: yDomain,
-                size: size
-            )
-            context.fill(userArea, with: .color(DashboardPalette.cpuAccent.opacity(areaOpacity)))
-
-            context.stroke(
-                linePath(points: segment.points, timestamp: \.timestamp, value: \.totalValue, xDomain: xDomain, yDomain: yDomain, size: size),
-                with: .color(DashboardPalette.memoryAccent.opacity(0.95)),
-                lineWidth: 1.5
-            )
-            context.stroke(
-                linePath(points: segment.points, timestamp: \.timestamp, value: \.userValue, xDomain: xDomain, yDomain: yDomain, size: size),
-                with: .color(DashboardPalette.cpuAccent.opacity(0.98)),
-                lineWidth: 1.5
-            )
-        }
-    }
-}
-
-private struct CompactCPULoadCanvasChart: View {
-    let model: CompactCPULoadRenderModel
-    let areaOpacity: Double
-
-    var body: some View {
-        GeometryReader { proxy in
-            Canvas(rendersAsynchronously: true) { context, size in
-                drawSeries(segments: model.fifteenMinuteSegments, color: DashboardPalette.tertiaryText, context: &context, size: size)
-                drawSeries(segments: model.fiveMinuteSegments, color: DashboardPalette.memoryAccent, context: &context, size: size)
-                drawSeries(segments: model.oneMinuteSegments, color: DashboardPalette.cpuAccent, context: &context, size: size)
-            }
-        }
-    }
-
-    private func drawSeries(
-        segments: [CompactChartSegment<CompactChartPoint>],
-        color: Color,
-        context: inout GraphicsContext,
-        size: CGSize
-    ) {
-        guard let xDomain = model.xDomain else { return }
-
-        for segment in segments where segment.points.count >= 2 {
-            let area = areaPath(
-                points: segment.points,
-                timestamp: \.timestamp,
-                value: \.value,
-                baseline: model.areaBaseline,
-                xDomain: xDomain,
-                yDomain: model.yDomain,
-                size: size
-            )
-            context.fill(area, with: .color(color.opacity(areaOpacity)))
-            context.stroke(
-                linePath(points: segment.points, timestamp: \.timestamp, value: \.value, xDomain: xDomain, yDomain: model.yDomain, size: size),
-                with: .color(color.opacity(0.95)),
-                lineWidth: 1.5
-            )
-        }
-    }
-}
-
 private struct CompactCPUBars: View {
     let coreSamples: [MetricSample]
 
@@ -476,71 +369,4 @@ private struct CompactCPUBars: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
     }
-}
-
-private func areaPath<Point>(
-    points: [Point],
-    timestamp: KeyPath<Point, Date>,
-    value: KeyPath<Point, Double>,
-    baseline: Double,
-    xDomain: ClosedRange<Date>,
-    yDomain: ClosedRange<Double>,
-    size: CGSize
-) -> Path where Point: Equatable {
-    guard let first = points.first, let last = points.last else { return Path() }
-
-    var path = Path()
-    let baselineY = yPosition(for: baseline, domain: yDomain, height: size.height)
-    path.move(to: CGPoint(x: xPosition(for: first[keyPath: timestamp], domain: xDomain, width: size.width), y: baselineY))
-
-    for point in points {
-        path.addLine(to: CGPoint(
-            x: xPosition(for: point[keyPath: timestamp], domain: xDomain, width: size.width),
-            y: yPosition(for: point[keyPath: value], domain: yDomain, height: size.height)
-        ))
-    }
-
-    path.addLine(to: CGPoint(
-        x: xPosition(for: last[keyPath: timestamp], domain: xDomain, width: size.width),
-        y: baselineY
-    ))
-    path.closeSubpath()
-    return path
-}
-
-private func linePath<Point>(
-    points: [Point],
-    timestamp: KeyPath<Point, Date>,
-    value: KeyPath<Point, Double>,
-    xDomain: ClosedRange<Date>,
-    yDomain: ClosedRange<Double>,
-    size: CGSize
-) -> Path where Point: Equatable {
-    guard let first = points.first else { return Path() }
-    var path = Path()
-    path.move(to: CGPoint(
-        x: xPosition(for: first[keyPath: timestamp], domain: xDomain, width: size.width),
-        y: yPosition(for: first[keyPath: value], domain: yDomain, height: size.height)
-    ))
-    for point in points.dropFirst() {
-        path.addLine(to: CGPoint(
-            x: xPosition(for: point[keyPath: timestamp], domain: xDomain, width: size.width),
-            y: yPosition(for: point[keyPath: value], domain: yDomain, height: size.height)
-        ))
-    }
-    return path
-}
-
-private func xPosition(for timestamp: Date, domain: ClosedRange<Date>, width: CGFloat) -> CGFloat {
-    let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
-    guard span > 0 else { return width / 2 }
-    let offset = timestamp.timeIntervalSince(domain.lowerBound)
-    return CGFloat(min(max(offset / span, 0), 1)) * width
-}
-
-private func yPosition(for value: Double, domain: ClosedRange<Double>, height: CGFloat) -> CGFloat {
-    let span = domain.upperBound - domain.lowerBound
-    guard span > 0 else { return height / 2 }
-    let normalized = (value - domain.lowerBound) / span
-    return height - (CGFloat(min(max(normalized, 0), 1)) * height)
 }

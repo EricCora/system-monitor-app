@@ -8,7 +8,15 @@ struct MemoryTabView: View {
     @State private var hostWindow: NSWindow?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DashboardTabMetrics.sectionSpacing) {
+            ChartTabToolbar(
+                coordinator: coordinator,
+                historyWindow: Binding(
+                    get: { coordinator.selectedMemoryHistoryWindow },
+                    set: { coordinator.selectedMemoryHistoryWindow = $0 }
+                )
+            )
+
             ForEach(coordinator.memoryMenuLayout.visibleSections, id: \.self) { section in
                 switch section {
                 case .pressure:
@@ -66,33 +74,24 @@ struct MemoryTabView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         let target = DetachedMetricsPaneTarget.memory(chart: chart)
-        return Button {
-            coordinator.selectedMemoryPaneChart = chart
-            if let parentWindow = currentParentWindow {
-                paneController.pin(target, coordinator: coordinator, parentWindow: parentWindow)
-            }
-        } label: {
-            content()
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(paneController.isActive(target) ? DashboardPalette.selectionFill : DashboardPalette.sectionFill)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(paneController.isActive(target) ? DashboardPalette.memoryAccent.opacity(0.45) : DashboardPalette.chromeBorder, lineWidth: 1)
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
+        return HoverDetachSection(
+            isActive: paneController.isActive(target),
+            accent: DashboardPalette.memoryChartAccent,
+            onPin: {
+                coordinator.selectedMemoryPaneChart = chart
                 if let parentWindow = currentParentWindow {
-                    paneController.preview(target, coordinator: coordinator, parentWindow: parentWindow)
+                    paneController.pin(target, coordinator: coordinator, parentWindow: parentWindow)
                 }
-            } else {
-                paneController.clearPreview(target)
-            }
-        }
+            },
+            onPreview: { hovering in
+                if hovering, let parentWindow = currentParentWindow {
+                    paneController.preview(target, coordinator: coordinator, parentWindow: parentWindow)
+                } else {
+                    paneController.clearPreview(target)
+                }
+            },
+            content: content
+        )
     }
 
     private var processesSection: some View {
@@ -105,14 +104,7 @@ struct MemoryTabView: View {
                     .foregroundStyle(DashboardPalette.secondaryText)
             } else {
                 ForEach(featureStore.topProcesses.prefix(coordinator.memoryProcessCount)) { process in
-                    HStack(spacing: 8) {
-                        Text(process.name)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(UnitsFormatter.format(process.residentBytes, unit: .bytes))
-                            .font(.body.monospacedDigit())
-                    }
-                    .font(.subheadline)
+                    ProcessListRow(entry: process)
                 }
             }
         }

@@ -110,17 +110,21 @@ private struct MenuBarMetricChip: View {
                 }
             case .graph:
                 MenuBarBarGraph(values: sparklineValues, tint: tintColor)
+                    .frame(width: 28, height: 12)
             case .sparklineValue:
                 HStack(spacing: 5) {
                     MenuBarBarGraph(values: sparklineValues, tint: tintColor)
+                        .frame(width: 28, height: 12)
                     Text(valueText)
                         .lineLimit(1)
                 }
             case .history:
                 MenuBarHistoryGraph(values: sparklineValues, tint: tintColor)
+                    .frame(width: 30, height: 13)
             case .historyValue:
                 HStack(spacing: 5) {
                     MenuBarHistoryGraph(values: sparklineValues, tint: tintColor)
+                        .frame(width: 30, height: 13)
                     Text(valueText)
                         .lineLimit(1)
                 }
@@ -193,23 +197,12 @@ private struct MenuBarBarGraph: View {
     let tint: Color
 
     var body: some View {
-        GeometryReader { proxy in
-            let values = Array(values.suffix(18))
-            if values.count < 2 {
-                Capsule()
-                    .fill(tint.opacity(0.2))
-            } else {
-                let maxValue = max(values.max() ?? 1, 1)
-                HStack(alignment: .bottom, spacing: 1) {
-                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
-                        Capsule()
-                            .fill(tint)
-                            .frame(height: max(2, CGFloat(value / maxValue) * proxy.size.height))
-                    }
-                }
-            }
-        }
-        .frame(width: 28, height: 12)
+        DashboardMiniChart(
+            model: PreparedTimeSeriesChartModel.fromMenuBarBars(values, color: tint),
+            lineColor: tint,
+            showsPlotBackground: false,
+            plotCornerRadius: 2
+        )
     }
 }
 
@@ -218,35 +211,12 @@ private struct MenuBarHistoryGraph: View {
     let tint: Color
 
     var body: some View {
-        GeometryReader { proxy in
-            let values = Array(values.suffix(28))
-            if values.count < 2 {
-                Capsule()
-                    .fill(tint.opacity(0.2))
-            } else {
-                let maxValue = max(values.max() ?? 1, 1)
-                let minValue = values.min() ?? 0
-                let span = max(maxValue - minValue, 1)
-                Path { path in
-                    for (index, value) in values.enumerated() {
-                        let x = proxy.size.width * CGFloat(index) / CGFloat(max(values.count - 1, 1))
-                        let normalized = (value - minValue) / span
-                        let y = proxy.size.height - (CGFloat(normalized) * proxy.size.height)
-                        if index == 0 {
-                            path.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            path.addLine(to: CGPoint(x: x, y: y))
-                        }
-                    }
-                }
-                .stroke(tint, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                .background(
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(tint.opacity(0.12))
-                )
-            }
-        }
-        .frame(width: 30, height: 13)
+        DashboardMiniChart(
+            model: PreparedTimeSeriesChartModel.fromMenuBarHistory(values, color: tint),
+            lineColor: tint,
+            showsPlotBackground: false,
+            plotCornerRadius: 2
+        )
     }
 }
 

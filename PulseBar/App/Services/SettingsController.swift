@@ -912,7 +912,7 @@ final class SettingsController: ObservableObject {
             showDiskInMenu: showDiskInMenu,
             showTemperatureInMenu: showTemperatureInMenu,
             throughputUnit: throughputUnit,
-            chartAreaOpacity: 0.18,
+            chartAreaOpacity: 0.32,
             selectedWindow: selectedWindow,
             cpuAlertEnabled: cpuAlertEnabled,
             cpuAlertThreshold: cpuAlertThreshold,

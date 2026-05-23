@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 import PulseBarCore
 
@@ -7,232 +6,45 @@ struct TemperaturePaneContentView: View {
     @ObservedObject var paneController: DetachedMetricsPaneController
 
     @State private var sensorHistory: [TemperatureHistoryPoint] = []
-    @State private var hoveredHistoryPoint: TemperatureHistoryPoint?
-    @State private var hoveringHistoryChart = false
+    @State private var hoveredDate: Date?
     @State private var viewport = ChartViewport()
     @State private var zoomSelectionRect: CGRect?
-    @State private var lastRefreshContextID = ""
-    @State private var chartModel: PreparedTemperatureChartModel?
-    @State private var deferredRefreshTriggerID: String?
+    @State private var chartModel = PreparedTimeSeriesChartModel.empty
     @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ChartWindowPicker(
-                options: coordinator.visibleChartWindows,
-                selection: $coordinator.selectedTemperatureHistoryWindow,
-                paneController: paneController,
-                style: .detached
-            )
-            ChartToolsStrip(
-                smoothingAlpha: $coordinator.chartSmoothingAlpha,
-                showsMinorGrid: $coordinator.chartMinorGridEnabled,
-                style: .detached
-            )
-
-            paneHeader
-
-            HStack(spacing: 8) {
-                if viewport.isZoomed {
-                    Button("Reset Zoom") {
-                        viewport.reset()
-                        zoomSelectionRect = nil
-                        hoveredHistoryPoint = nil
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if paneController.pinnedTarget != nil {
-                    Button("Unpin") {
-                        paneController.unpin()
-                    }
-                    .buttonStyle(.bordered)
-                }
-
+        DetachedMetricsPaneShell(
+            coordinator: coordinator,
+            paneController: paneController,
+            historyWindow: $coordinator.selectedTemperatureHistoryWindow,
+            hoveredDate: $hoveredDate,
+            viewport: $viewport,
+            zoomSelectionRect: $zoomSelectionRect,
+            paneStyle: DetachedPaneLayout.temperaturePane,
+            sectionAccent: DashboardPalette.temperatureChartAccent,
+            header: { paneHeader },
+            chart: { chartSection },
+            footer: {
                 if let activeSensor {
-                    Button("Hide This Sensor") {
-                        coordinator.hideTemperatureSensor(sensorID: activeSensor.id)
-                        paneController.reconcileTemperatureSensors(Set(coordinator.visibleSensorChannels().map(\.id)))
+                    ChartLegendStrip(items: legendItems(for: activeSensor), hiddenItemIDs: hiddenLegendIDs) { item in
+                        ChartInteractionSupport.toggleLegendItem(item.id, hiddenLegendIDs: &hiddenLegendIDs)
                     }
-                    .buttonStyle(.bordered)
-                }
-
-                if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
-                    Button("Show Hidden (\(coordinator.hiddenTemperatureSensorIDs.count))") {
-                        coordinator.resetHiddenTemperatureSensors()
-                        paneController.reconcileTemperatureSensors(Set(coordinator.visibleSensorChannels().map(\.id)))
-                    }
-                    .buttonStyle(.bordered)
+                    summaryRow(for: activeSensor)
                 }
             }
-            .padding(.bottom, 2)
-
-            if let activeSensor {
-                if sensorHistory.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "chart.xyaxis.line")
-                            .font(.title2)
-                            .foregroundStyle(DashboardPalette.secondaryText)
-                        Text(historyEmptyStateText(for: activeSensor))
-                            .font(.subheadline)
-                            .foregroundStyle(DashboardPalette.secondaryText)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 280)
-                    .dashboardInset(cornerRadius: 16)
-                } else {
-                    let chartModel = chartModel ?? PreparedTemperatureChartModel.empty
-                    VStack(alignment: .leading, spacing: 10) {
-                        DashboardSectionLabel(title: "Sensor History", tint: DashboardPalette.secondaryText)
-
-                        ZStack(alignment: .topLeading) {
-                            Chart(visibleChartPoints(from: chartModel)) { point in
-                                AreaMark(
-                                    x: .value("Time", point.timestamp),
-                                    yStart: .value("Baseline", chartModel.scale.renderedAreaBaseline(viewport: viewport)),
-                                    yEnd: .value("Value", point.value),
-                                    series: .value("Segment", point.continuityKey)
-                                )
-                                .foregroundStyle(point.color)
-                                .opacity(coordinator.chartAreaOpacity)
-                                .interpolationMethod(.linear)
-
-                                LineMark(
-                                    x: .value("Time", point.timestamp),
-                                    y: .value("Value", point.value),
-                                    series: .value("Segment", point.continuityKey)
-                                )
-                                .foregroundStyle(point.color)
-                                .lineStyle(StrokeStyle(lineWidth: 2))
-                                .interpolationMethod(.linear)
-
-                                if let hoveredHistoryPoint {
-                                    RuleMark(x: .value("Hover", hoveredHistoryPoint.timestamp))
-                                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                        .foregroundStyle(DashboardPalette.chartRule)
-                                }
-                            }
-                            .chartXScale(
-                                domain: viewport.xDomain ?? DashboardChartStyle.visibleXDomain(
-                                    dataDomain: chartModel.scale.xDomain ?? chartModel.fallbackXDomain,
-                                    window: coordinator.selectedTemperatureHistoryWindow
-                                )
-                            )
-                            .chartYScale(domain: viewport.yDomain ?? chartModel.scale.yDomain)
-                            .chartYAxis {
-                                DashboardChartStyle.leadingNumericAxis(showsMinorGrid: coordinator.chartMinorGridEnabled) { value in
-                                    axisLabel(for: value, sensor: activeSensor)
-                                }
-                            }
-                            .chartXAxis {
-                                DashboardChartStyle.timeXAxis(showsMinorGrid: coordinator.chartMinorGridEnabled)
-                            }
-                            .chartXScale(range: .plotDimension(startPadding: DashboardChartStyle.xAxisStartPadding, endPadding: DashboardChartStyle.xAxisEndPadding))
-                            .chartPlotStyle { plot in
-                                plot
-                                    .background(DashboardPalette.chartPlotBackground(cornerRadius: 14, showsMinorGrid: coordinator.chartMinorGridEnabled))
-                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            }
-                            .id("minor-grid-\(coordinator.chartMinorGridEnabled)")
-                            .frame(height: 260)
-                            .chartOverlay { proxy in
-                                GeometryReader { geometry in
-                                    let plotFrame = geometry[proxy.plotAreaFrame]
-
-                                    ZStack(alignment: .topLeading) {
-                                        DetachedChartInteractionOverlay(
-                                            proxy: proxy,
-                                            geometry: geometry,
-                                            paneController: paneController,
-                                            zoomMode: .bothAxes,
-                                            hoveredDate: Binding(
-                                                get: { hoveredHistoryPoint?.timestamp },
-                                                set: { newDate in
-                                                    hoveringHistoryChart = newDate != nil || zoomSelectionRect != nil
-                                                    if let newDate {
-                                                        hoveredHistoryPoint = TemperatureHistoryHelpers.nearestPoint(
-                                                            to: newDate,
-                                                            in: sensorHistory
-                                                        )
-                                                    } else {
-                                                        hoveredHistoryPoint = nil
-                                                    }
-                                                }
-                                            ),
-                                            viewport: $viewport,
-                                            selectionRect: $zoomSelectionRect
-                                        )
-
-                                        ChartZoomSelectionOverlay(
-                                            selectionRect: zoomSelectionRect,
-                                            plotFrame: plotFrame,
-                                            cornerRadius: 14
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        ChartLegendStrip(items: legendItems(for: activeSensor), hiddenItemIDs: hiddenLegendIDs) { item in
-                            toggleLegend(item.id)
-                        }
-
-                        HStack {
-                            if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
-                                Text(summaryPoint.timestamp.formatted(date: .omitted, time: .standard))
-                                    .foregroundStyle(DashboardPalette.secondaryText)
-                                Spacer()
-                                Text(TemperatureHistoryHelpers.valueText(for: activeSensor, value: summaryPoint.value))
-                            } else {
-                                Text(" ")
-                                Spacer()
-                                Text(" ")
-                            }
-                        }
-                        .font(.caption)
-                        .frame(height: 18)
-                    }
-                    .padding(12)
-                    .dashboardInset(cornerRadius: 16)
-                }
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "thermometer.medium")
-                        .font(.title2)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                    Text("No sensor selected")
-                        .font(.subheadline)
-                        .foregroundStyle(DashboardPalette.secondaryText)
-                }
-                .frame(maxWidth: .infinity, minHeight: 280)
-                .dashboardInset(cornerRadius: 16)
-            }
-        }
-        .foregroundStyle(DashboardPalette.primaryText)
-        .dashboardSurface(padding: 14, cornerRadius: 18)
-        .animation(.easeInOut(duration: 0.18), value: activeSensor?.id)
-        .task(id: refreshTriggerID) {
-            if lastRefreshContextID != contextRefreshID {
-                hoveredHistoryPoint = nil
-                hoveringHistoryChart = false
+        )
+        .detachedPaneHistoryRefresh(
+            contextRefreshID: contextRefreshID,
+            refreshTriggerID: refreshTriggerID,
+            isInteractionActive: isInteractionActive,
+            onContextChange: {
+                hoveredDate = nil
                 viewport.reset()
                 zoomSelectionRect = nil
                 hiddenLegendIDs = []
-                lastRefreshContextID = contextRefreshID
-            }
-            if isInteractionActive {
-                deferredRefreshTriggerID = refreshTriggerID
-                return
-            }
-            await refreshHistory()
-        }
-        .onChange(of: isInteractionActive) { isActive in
-            guard !isActive, deferredRefreshTriggerID != nil else { return }
-            deferredRefreshTriggerID = nil
-            Task {
-                await refreshHistory()
-            }
-        }
+            },
+            refresh: { await refreshHistory() }
+        )
     }
 
     private var activeSensor: SensorReading? {
@@ -264,11 +76,70 @@ struct TemperaturePaneContentView: View {
         )
     }
 
+    @ViewBuilder
+    private var chartSection: some View {
+        if let activeSensor {
+            sensorActionsRow(for: activeSensor)
+            DashboardSectionLabel(title: "Sensor History", tint: DashboardPalette.secondaryText)
+
+            if chartModel.isEmpty {
+                DetachedPaneEmptyChartState(message: historyEmptyStateText(for: activeSensor))
+            } else {
+                DashboardTimeSeriesChart(
+                    model: chartModel,
+                    window: coordinator.selectedTemperatureHistoryWindow,
+                    height: DetachedPaneLayout.temperaturePane.chartHeight,
+                    paneController: paneController,
+                    hiddenLegendIDs: hiddenLegendIDs,
+                    yAxisLabel: { value in
+                        axisLabel(for: value, sensor: activeSensor)
+                    },
+                    hoveredDate: $hoveredDate,
+                    viewport: $viewport,
+                    zoomSelectionRect: $zoomSelectionRect
+                )
+            }
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "thermometer.medium")
+                    .font(.title2)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                Text("No sensor selected")
+                    .font(.subheadline)
+                    .foregroundStyle(DashboardPalette.secondaryText)
+            }
+            .frame(maxWidth: .infinity, minHeight: 280)
+        }
+    }
+
+    @ViewBuilder
+    private func summaryRow(for sensor: SensorReading) -> some View {
+        HStack {
+            if let summaryPoint = hoveredHistoryPoint ?? sensorHistory.last {
+                Text(summaryPoint.timestamp.formatted(date: .omitted, time: .standard))
+                    .foregroundStyle(DashboardPalette.secondaryText)
+                Spacer()
+                Text(TemperatureHistoryHelpers.valueText(for: sensor, value: summaryPoint.value))
+            } else {
+                Text(" ")
+                Spacer()
+                Text(" ")
+            }
+        }
+        .font(.caption)
+        .frame(height: 18)
+    }
+
+    private var hoveredHistoryPoint: TemperatureHistoryPoint? {
+        guard let hoveredDate else { return nil }
+        return TemperatureHistoryHelpers.nearestPoint(to: hoveredDate, in: sensorHistory)
+    }
+
     private func refreshHistory() async {
         coordinator.performanceDiagnosticsStore.recordDetachedPaneQuery()
         guard let activeSensor else {
             sensorHistory = []
-            chartModel = nil
+            chartModel = .empty
             return
         }
 
@@ -279,19 +150,20 @@ struct TemperaturePaneContentView: View {
             window: coordinator.selectedTemperatureHistoryWindow,
             maxPoints: 480
         )
-        sensorHistory = ChartSeriesPipeline.sanitize(sensorHistory, timestamp: \.timestamp)
-        let smoothedHistory = ChartSeriesPipeline.lowPass(
-            sensorHistory,
-            alpha: coordinator.chartSmoothingAlpha
-        )
-        chartModel = PreparedTemperatureChartModel(
-            points: ChartSeriesPipeline.temperatureHistory(
-                smoothedHistory,
-                key: activeSensor.id,
-                label: activeSensor.displayName,
-                color: activeSensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent
-            ),
-            baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12)
+        let color = activeSensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureChartAccent
+        chartModel = PreparedTimeSeriesChartModel.fromTemperatureHistory(
+            series: [
+                ChartMetricSeriesDescriptor(
+                    key: activeSensor.id,
+                    label: activeSensor.displayName,
+                    color: color,
+                    samples: sensorHistory
+                )
+            ],
+            baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12),
+            window: coordinator.selectedTemperatureHistoryWindow,
+            smoothingAlpha: coordinator.chartSmoothingAlpha,
+            sampleBudget: .fullChart
         )
         let elapsed = start.duration(to: ContinuousClock.now)
         coordinator.performanceDiagnosticsStore.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
@@ -311,7 +183,7 @@ struct TemperaturePaneContentView: View {
     }
 
     private var isInteractionActive: Bool {
-        hoveredHistoryPoint != nil || zoomSelectionRect != nil
+        ChartInteractionSupport.isChartInteractionActive(hoveredDate: hoveredDate, zoomSelectionRect: zoomSelectionRect)
     }
 
     private func historyEmptyStateText(for sensor: SensorReading) -> String {
@@ -332,7 +204,7 @@ struct TemperaturePaneContentView: View {
             ChartLegendItem(
                 id: sensor.id,
                 label: sensor.displayName,
-                color: sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureAccent,
+                color: sensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureChartAccent,
                 valueText: (hoveredHistoryPoint ?? sensorHistory.last).map {
                     TemperatureHistoryHelpers.valueText(for: sensor, value: $0.value)
                 }
@@ -340,38 +212,24 @@ struct TemperaturePaneContentView: View {
         ]
     }
 
-    private func visibleChartPoints(from model: PreparedTemperatureChartModel) -> [TimeSeriesChartPoint] {
-        model.points.filter { !hiddenLegendIDs.contains($0.seriesKey) }
-    }
+    @ViewBuilder
+    private func sensorActionsRow(for sensor: SensorReading) -> some View {
+        HStack(spacing: 8) {
+            Button("Hide This Sensor") {
+                coordinator.hideTemperatureSensor(sensorID: sensor.id)
+                paneController.reconcileTemperatureSensors(Set(coordinator.visibleSensorChannels().map(\.id)))
+            }
+            .buttonStyle(.bordered)
 
-    private func toggleLegend(_ id: String) {
-        if hiddenLegendIDs.contains(id) {
-            hiddenLegendIDs.remove(id)
-        } else {
-            hiddenLegendIDs.insert(id)
+            if !coordinator.hiddenTemperatureSensorIDs.isEmpty {
+                Button("Show Hidden (\(coordinator.hiddenTemperatureSensorIDs.count))") {
+                    coordinator.resetHiddenTemperatureSensors()
+                    paneController.reconcileTemperatureSensors(Set(coordinator.visibleSensorChannels().map(\.id)))
+                }
+                .buttonStyle(.bordered)
+            }
         }
-    }
-}
-
-private struct PreparedTemperatureChartModel {
-    let points: [TimeSeriesChartPoint]
-    let scale: ChartScale
-    let fallbackXDomain: ClosedRange<Date>
-
-    init(points: [TimeSeriesChartPoint], baseline: ChartBaselinePolicy) {
-        self.points = points
-        scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
-        fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
+        .padding(.bottom, 2)
     }
 
-    static let empty = PreparedTemperatureChartModel(points: [], baseline: .dataMin())
-
-    private static func makeXDomain(from dates: [Date]) -> ClosedRange<Date> {
-        let minDate = dates.min() ?? Date()
-        let maxDate = dates.max() ?? minDate.addingTimeInterval(1)
-        if minDate == maxDate {
-            return minDate.addingTimeInterval(-30)...maxDate.addingTimeInterval(30)
-        }
-        return minDate...maxDate
-    }
 }
