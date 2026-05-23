@@ -17,42 +17,30 @@ enum ChartSeriesPipeline {
     static func metricSamples(
         series: [ChartMetricSeriesDescriptor<MetricSample>]
     ) -> [TimeSeriesChartPoint] {
-        flatten(series: series) { entry in
-            segmented(
-                sanitize(entry.samples, timestamp: \.timestamp),
+        seriesPoints(series: series, timestamp: \.timestamp) { sample, entry, continuityKey in
+            TimeSeriesChartPoint(
+                timestamp: sample.timestamp,
+                value: sample.value,
                 seriesKey: entry.key,
-                timestamp: \.timestamp
-            ) { sample, continuityKey in
-                TimeSeriesChartPoint(
-                    timestamp: sample.timestamp,
-                    value: sample.value,
-                    seriesKey: entry.key,
-                    seriesLabel: entry.label,
-                    continuityKey: continuityKey,
-                    color: entry.color
-                )
-            }
+                seriesLabel: entry.label,
+                continuityKey: continuityKey,
+                color: entry.color
+            )
         }
     }
 
     static func metricHistory(
         series: [ChartMetricSeriesDescriptor<MetricHistoryPoint>]
     ) -> [TimeSeriesChartPoint] {
-        flatten(series: series) { entry in
-            segmented(
-                sanitize(entry.samples, timestamp: \.timestamp),
+        seriesPoints(series: series, timestamp: \.timestamp) { point, entry, continuityKey in
+            TimeSeriesChartPoint(
+                timestamp: point.timestamp,
+                value: point.value,
                 seriesKey: entry.key,
-                timestamp: \.timestamp
-            ) { point, continuityKey in
-                TimeSeriesChartPoint(
-                    timestamp: point.timestamp,
-                    value: point.value,
-                    seriesKey: entry.key,
-                    seriesLabel: entry.label,
-                    continuityKey: continuityKey,
-                    color: entry.color
-                )
-            }
+                seriesLabel: entry.label,
+                continuityKey: continuityKey,
+                color: entry.color
+            )
         }
     }
 
@@ -70,21 +58,50 @@ enum ChartSeriesPipeline {
     static func temperatureHistory(
         series: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>]
     ) -> [TimeSeriesChartPoint] {
-        flatten(series: series) { entry in
-            segmented(
-                sanitize(entry.samples, timestamp: \.timestamp),
+        seriesPoints(series: series, timestamp: \.timestamp) { point, entry, continuityKey in
+            TimeSeriesChartPoint(
+                timestamp: point.timestamp,
+                value: point.value,
                 seriesKey: entry.key,
-                timestamp: \.timestamp
-            ) { point, continuityKey in
-                TimeSeriesChartPoint(
-                    timestamp: point.timestamp,
-                    value: point.value,
-                    seriesKey: entry.key,
-                    seriesLabel: entry.label,
-                    continuityKey: continuityKey,
-                    color: entry.color
+                seriesLabel: entry.label,
+                continuityKey: continuityKey,
+                color: entry.color
+            )
+        }
+    }
+
+    static func compactCPUUsagePoints(renderModel: CompactCPUUsageRenderModel) -> [TimeSeriesChartPoint] {
+        var points: [TimeSeriesChartPoint] = []
+        for segment in renderModel.segments {
+            let keys = continuityKeys(for: segment.points, seriesKey: "cpu.usage", timestamp: \.timestamp)
+            for (point, continuityKey) in zip(segment.points, keys) {
+                points.append(
+                    TimeSeriesChartPoint(
+                        timestamp: point.timestamp,
+                        value: point.totalValue,
+                        seriesKey: "cpu.system",
+                        seriesLabel: "System",
+                        continuityKey: continuityKey,
+                        color: DashboardPalette.cpuSystemAccent
+                    )
+                )
+                points.append(
+                    TimeSeriesChartPoint(
+                        timestamp: point.timestamp,
+                        value: point.userValue,
+                        seriesKey: "cpu.user",
+                        seriesLabel: "User",
+                        continuityKey: continuityKey,
+                        color: DashboardPalette.cpuUserAccent
+                    )
                 )
             }
+        }
+        return points.sorted {
+            if $0.timestamp == $1.timestamp {
+                return $0.seriesKey < $1.seriesKey
+            }
+            return $0.timestamp < $1.timestamp
         }
     }
 
@@ -129,54 +146,24 @@ enum ChartSeriesPipeline {
     }
 
     static func downsampleHistory(_ points: [MetricHistoryPoint], maxPoints: Int) -> [MetricHistoryPoint] {
-        guard maxPoints > 0, points.count > maxPoints else { return points }
-
-        let bucketSize = Int(ceil(Double(points.count) / Double(maxPoints)))
-        var output: [MetricHistoryPoint] = []
-        output.reserveCapacity(maxPoints)
-
-        var index = 0
-        while index < points.count {
-            let end = min(index + bucketSize, points.count)
-            let bucket = points[index..<end]
-            guard let first = bucket.first, let last = bucket.last else {
-                index = end
-                continue
-            }
+        downsample(points, maxPoints: maxPoints, timestamp: \.timestamp) { bucket in
+            guard let first = bucket.first, let last = bucket.last else { return nil }
             let average = bucket.reduce(0.0) { $0 + $1.value } / Double(bucket.count)
-            output.append(MetricHistoryPoint(timestamp: last.timestamp, value: average, unit: first.unit))
-            index = end
+            return MetricHistoryPoint(timestamp: last.timestamp, value: average, unit: first.unit)
         }
-        return output
     }
 
     static func downsampleTemperature(_ points: [TemperatureHistoryPoint], maxPoints: Int) -> [TemperatureHistoryPoint] {
-        guard maxPoints > 0, points.count > maxPoints else { return points }
-
-        let bucketSize = Int(ceil(Double(points.count) / Double(maxPoints)))
-        var output: [TemperatureHistoryPoint] = []
-        output.reserveCapacity(maxPoints)
-
-        var index = 0
-        while index < points.count {
-            let end = min(index + bucketSize, points.count)
-            let bucket = points[index..<end]
-            guard let first = bucket.first, let last = bucket.last else {
-                index = end
-                continue
-            }
+        downsample(points, maxPoints: maxPoints, timestamp: \.timestamp) { bucket in
+            guard let first = bucket.first, let last = bucket.last else { return nil }
             let average = bucket.reduce(0.0) { $0 + $1.value } / Double(bucket.count)
-            output.append(
-                TemperatureHistoryPoint(
-                    sensorID: last.sensorID,
-                    timestamp: last.timestamp,
-                    value: average,
-                    channelType: first.channelType
-                )
+            return TemperatureHistoryPoint(
+                sensorID: last.sensorID,
+                timestamp: last.timestamp,
+                value: average,
+                channelType: first.channelType
             )
-            index = end
         }
-        return output
     }
 
     static func targetPointCount(for window: ChartWindow?, budget: ChartSampleBudget) -> Int {
@@ -406,6 +393,46 @@ enum ChartSeriesPipeline {
             }
         }
         return colors
+    }
+
+    private static func seriesPoints<Sample>(
+        series: [ChartMetricSeriesDescriptor<Sample>],
+        timestamp: KeyPath<Sample, Date>,
+        map: (Sample, ChartMetricSeriesDescriptor<Sample>, String) -> TimeSeriesChartPoint
+    ) -> [TimeSeriesChartPoint] {
+        flatten(series: series) { entry in
+            segmented(
+                sanitize(entry.samples, timestamp: timestamp),
+                seriesKey: entry.key,
+                timestamp: timestamp
+            ) { sample, continuityKey in
+                map(sample, entry, continuityKey)
+            }
+        }
+    }
+
+    private static func downsample<Sample>(
+        _ points: [Sample],
+        maxPoints: Int,
+        timestamp: KeyPath<Sample, Date>,
+        combine: ([Sample]) -> Sample?
+    ) -> [Sample] {
+        guard maxPoints > 0, points.count > maxPoints else { return points }
+
+        let bucketSize = Int(ceil(Double(points.count) / Double(maxPoints)))
+        var output: [Sample] = []
+        output.reserveCapacity(maxPoints)
+
+        var index = 0
+        while index < points.count {
+            let end = min(index + bucketSize, points.count)
+            let bucket = Array(points[index..<end])
+            if let combined = combine(bucket) {
+                output.append(combined)
+            }
+            index = end
+        }
+        return output
     }
 
     private static func flatten<Input>(

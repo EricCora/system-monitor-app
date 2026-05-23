@@ -6,11 +6,6 @@ enum DashboardTabMetrics {
     static let surfaceCornerRadius: CGFloat = 8
     static let hoverSectionCornerRadius: CGFloat = 16
     static let insetCornerRadius: CGFloat = 16
-
-    /// Pass-through for `dashboardSurface` / `dashboardInset`; radii are not clamped here.
-    static func resolvedCornerRadius(_ requested: CGFloat) -> CGFloat {
-        requested
-    }
 }
 
 enum DashboardControlMetrics {
@@ -44,7 +39,10 @@ enum DetachedPaneShellMetrics {
     static let paneToolbarBlockHeight: CGFloat = 32
     static let chartInsetTopPadding: CGFloat = 12
     static let chartInsetBottomPadding: CGFloat = 12
+    static let chartInsetInnerSpacing: CGFloat = 10
+    static let chartSectionLabelHeight: CGFloat = 18
     static let legendFooterBlockHeight: CGFloat = 58
+    static let compareFooterToolbarHeight: CGFloat = 28
 
     /// Matches `DetachedMetricsPaneShell` rows above the chart plot (window picker through inset top padding).
     static var chromeAboveChart: CGFloat {
@@ -102,12 +100,26 @@ enum DetachedPaneLayout {
 
     static func contentHeight(for target: DetachedMetricsPaneTarget?) -> CGFloat {
         let style = paneStyle(for: target)
+        let chartBlock = DetachedPaneShellMetrics.chartSectionLabelHeight
+            + style.chartHeight
+            + DetachedPaneShellMetrics.chartInsetInnerSpacing
+            + DetachedPaneShellMetrics.legendFooterBlockHeight
+            + compareFooterExtraHeight(for: target)
         return DetachedPaneShellMetrics.chromeAboveChart
             + style.extraToolbarRowHeight
-            + style.chartHeight
-            + DetachedPaneShellMetrics.legendFooterBlockHeight
+            + chartBlock
+            + DetachedPaneShellMetrics.chartInsetBottomPadding
             + (hostPadding * 2)
             + (shellSurfacePadding * 2)
+    }
+
+    static func detachedHistoryMaxPoints(window: ChartWindow) -> Int {
+        ChartSeriesPipeline.targetPointCount(for: window, budget: .fullChart)
+    }
+
+    private static func compareFooterExtraHeight(for target: DetachedMetricsPaneTarget?) -> CGFloat {
+        guard target == .temperatureCompare else { return 0 }
+        return DetachedPaneShellMetrics.compareFooterToolbarHeight
     }
 }
 

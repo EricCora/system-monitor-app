@@ -62,11 +62,10 @@ private struct DashboardSurfaceModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
-        let resolvedRadius = DashboardTabMetrics.resolvedCornerRadius(cornerRadius)
         content
             .padding(padding)
             .background(
-                RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -78,11 +77,11 @@ private struct DashboardSurfaceModifier: ViewModifier {
                         )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .strokeBorder(DashboardPalette.chromeBorder, lineWidth: 1)
                     )
                     .overlay(alignment: .top) {
-                        RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(DashboardPalette.shellHighlight, lineWidth: 1)
                             .blur(radius: 0.5)
                             .mask(
@@ -102,10 +101,9 @@ private struct DashboardInsetModifier: ViewModifier {
     let cornerRadius: CGFloat
 
     func body(content: Content) -> some View {
-        let resolvedRadius = DashboardTabMetrics.resolvedCornerRadius(cornerRadius)
         content
             .background(
-                RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -117,7 +115,7 @@ private struct DashboardInsetModifier: ViewModifier {
                         )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: resolvedRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                     )
             )

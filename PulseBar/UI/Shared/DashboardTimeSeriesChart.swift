@@ -34,16 +34,15 @@ struct DashboardTimeSeriesChart: View {
 
     var body: some View {
         Chart {
-            switch model.renderStyle {
-            case .stackedArea:
-                ForEach(visiblePoints) { point in
-                    chartMarks(for: point)
-                }
-            case .baselineAreaLine, .lineOnly:
+            if ChartRenderSemantics.usesContinuitySegments(for: model.renderStyle) {
                 ForEach(Array(continuitySegments.enumerated()), id: \.offset) { _, segment in
                     ForEach(segment) { point in
                         chartMarks(for: point)
                     }
+                }
+            } else {
+                ForEach(visiblePoints) { point in
+                    chartMarks(for: point)
                 }
             }
 
@@ -174,7 +173,7 @@ struct DashboardTimeSeriesChart: View {
     }
 
     private var continuitySegments: [[TimeSeriesChartPoint]] {
-        ChartPlotGeometry.groupedSegments(from: visiblePoints)
+        ChartRenderSemantics.continuitySegments(for: model.renderStyle, points: visiblePoints)
     }
 
     private var resolvedXDomain: ClosedRange<Date> {

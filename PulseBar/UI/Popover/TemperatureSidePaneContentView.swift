@@ -20,7 +20,6 @@ struct TemperaturePaneContentView: View {
             hoveredDate: $hoveredDate,
             viewport: $viewport,
             zoomSelectionRect: $zoomSelectionRect,
-            paneStyle: DetachedPaneLayout.temperaturePane,
             sectionAccent: DashboardPalette.temperatureChartAccent,
             header: { paneHeader },
             chart: { chartSection },
@@ -80,25 +79,20 @@ struct TemperaturePaneContentView: View {
     private var chartSection: some View {
         if let activeSensor {
             sensorActionsRow(for: activeSensor)
-            DashboardSectionLabel(title: "Sensor History", tint: DashboardPalette.secondaryText)
-
-            if chartModel.isEmpty {
-                DetachedPaneEmptyChartState(message: historyEmptyStateText(for: activeSensor))
-            } else {
-                DashboardTimeSeriesChart(
-                    model: chartModel,
-                    window: coordinator.selectedTemperatureHistoryWindow,
-                    height: DetachedPaneLayout.temperaturePane.chartHeight,
-                    paneController: paneController,
-                    hiddenLegendIDs: hiddenLegendIDs,
-                    yAxisLabel: { value in
-                        axisLabel(for: value, sensor: activeSensor)
-                    },
-                    hoveredDate: $hoveredDate,
-                    viewport: $viewport,
-                    zoomSelectionRect: $zoomSelectionRect
-                )
-            }
+            DetachedPaneChartSection(
+                historyTitle: "Sensor History",
+                emptyMessage: historyEmptyStateText(for: activeSensor),
+                model: chartModel,
+                window: coordinator.selectedTemperatureHistoryWindow,
+                paneController: paneController,
+                hiddenLegendIDs: hiddenLegendIDs,
+                yAxisLabel: { value in
+                    axisLabel(for: value, sensor: activeSensor)
+                },
+                hoveredDate: $hoveredDate,
+                viewport: $viewport,
+                zoomSelectionRect: $zoomSelectionRect
+            )
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "thermometer.medium")
@@ -148,7 +142,9 @@ struct TemperaturePaneContentView: View {
             sensorID: activeSensor.id,
             channelType: activeSensor.channelType,
             window: coordinator.selectedTemperatureHistoryWindow,
-            maxPoints: 480
+            maxPoints: DetachedPaneLayout.detachedHistoryMaxPoints(
+                window: coordinator.selectedTemperatureHistoryWindow
+            )
         )
         let color = activeSensor.channelType == .fanRPM ? DashboardPalette.diskAccent : DashboardPalette.temperatureChartAccent
         chartModel = PreparedTimeSeriesChartModel.fromTemperatureHistory(

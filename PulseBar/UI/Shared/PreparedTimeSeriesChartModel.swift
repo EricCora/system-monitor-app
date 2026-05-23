@@ -3,7 +3,7 @@ import PulseBarCore
 import SwiftUI
 
 enum DashboardTimeSeriesRenderStyle: Equatable {
-    case stackedArea(fixedYDomain: ClosedRange<Double> = 0 ... 100)
+    case stackedArea
     case baselineAreaLine
     case lineOnly
 }
@@ -96,7 +96,7 @@ struct PreparedTimeSeriesChartModel {
         return PreparedTimeSeriesChartModel(
             points: points,
             baseline: .fixed(0 ... 100),
-            renderStyle: .stackedArea(),
+            renderStyle: .stackedArea,
             sampleBudget: .fullChart,
             primaryUnit: .percent,
             fixedYDomain: 0 ... 100
@@ -161,7 +161,7 @@ struct PreparedTimeSeriesChartModel {
         return PreparedTimeSeriesChartModel(
             points: points,
             baseline: .fixed(0 ... 100),
-            renderStyle: .stackedArea(),
+            renderStyle: .stackedArea,
             sampleBudget: .fullChart,
             fixedYDomain: 0 ... 100
         )
@@ -212,42 +212,11 @@ struct PreparedTimeSeriesChartModel {
     static func fromCompactCPUUsage(
         renderModel: CompactCPUUsageRenderModel
     ) -> PreparedTimeSeriesChartModel {
-        var points: [TimeSeriesChartPoint] = []
-        for segment in renderModel.segments {
-            let keys = ChartSeriesPipeline.continuityKeys(for: segment.points, seriesKey: "cpu.usage", timestamp: \.timestamp)
-            for (point, continuityKey) in zip(segment.points, keys) {
-                points.append(
-                    TimeSeriesChartPoint(
-                        timestamp: point.timestamp,
-                        value: point.totalValue,
-                        seriesKey: "cpu.system",
-                        seriesLabel: "System",
-                        continuityKey: continuityKey,
-                        color: DashboardPalette.cpuSystemAccent
-                    )
-                )
-                points.append(
-                    TimeSeriesChartPoint(
-                        timestamp: point.timestamp,
-                        value: point.userValue,
-                        seriesKey: "cpu.user",
-                        seriesLabel: "User",
-                        continuityKey: continuityKey,
-                        color: DashboardPalette.cpuUserAccent
-                    )
-                )
-            }
-        }
-        points.sort {
-            if $0.timestamp == $1.timestamp {
-                return $0.seriesKey < $1.seriesKey
-            }
-            return $0.timestamp < $1.timestamp
-        }
+        let points = ChartSeriesPipeline.compactCPUUsagePoints(renderModel: renderModel)
         return PreparedTimeSeriesChartModel(
             points: points,
             baseline: .fixed(0 ... 100),
-            renderStyle: .stackedArea(),
+            renderStyle: .stackedArea,
             sampleBudget: .compactChart,
             miniPresentation: .timeSeries,
             primaryUnit: .percent,

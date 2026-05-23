@@ -62,24 +62,18 @@ struct CPUPaneContentView: View {
         )
     }
 
-    @ViewBuilder
     private var chartSection: some View {
-        DashboardSectionLabel(title: activeChart.historyTitle, tint: DashboardPalette.secondaryText)
-
-        if chartModel.isEmpty {
-            DetachedPaneEmptyChartState(message: emptyStateMessage)
-        } else {
-            DashboardTimeSeriesChart(
-                model: chartModel,
-                window: coordinator.selectedCPUHistoryWindow,
-                height: DetachedPaneLayout.standardPane.chartHeight,
-                paneController: paneController,
-                hiddenLegendIDs: hiddenLegendIDs,
-                hoveredDate: $hoveredDate,
-                viewport: $viewport,
-                zoomSelectionRect: $zoomSelectionRect
-            )
-        }
+        DetachedPaneChartSection(
+            historyTitle: activeChart.historyTitle,
+            emptyMessage: emptyStateMessage,
+            model: chartModel,
+            window: coordinator.selectedCPUHistoryWindow,
+            paneController: paneController,
+            hiddenLegendIDs: hiddenLegendIDs,
+            hoveredDate: $hoveredDate,
+            viewport: $viewport,
+            zoomSelectionRect: $zoomSelectionRect
+        )
     }
 
     private var emptyStateMessage: String {
@@ -109,7 +103,7 @@ struct CPUPaneContentView: View {
                     )
                     .font(.caption.monospacedDigit())
                 } else {
-                    emptySummary
+                    DetachedPaneSummaryRow.placeholder()
                 }
             case .loadAverage:
                 if let snapshot = historySnapshot,
@@ -128,7 +122,7 @@ struct CPUPaneContentView: View {
                     )
                     .font(.caption.monospacedDigit())
                 } else {
-                    emptySummary
+                    DetachedPaneSummaryRow.placeholder()
                 }
             case .gpu:
                 if let snapshot = historySnapshot,
@@ -142,7 +136,7 @@ struct CPUPaneContentView: View {
                     )
                     .font(.caption.monospacedDigit())
                 } else {
-                    emptySummary
+                    DetachedPaneSummaryRow.placeholder()
                 }
             case .framesPerSecond:
                 if let snapshot = historySnapshot,
@@ -153,7 +147,7 @@ struct CPUPaneContentView: View {
                     Text(String(format: "%.1f fps", point.value))
                         .font(.caption.monospacedDigit())
                 } else {
-                    emptySummary
+                    DetachedPaneSummaryRow.placeholder()
                 }
             }
         }
@@ -215,18 +209,12 @@ struct CPUPaneContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var emptySummary: some View {
-        Text(" ")
-        Spacer()
-        Text(" ")
-    }
-
     private func refresh() async {
         coordinator.performanceDiagnosticsStore.recordDetachedPaneQuery()
         let start = ContinuousClock.now
         let window = coordinator.selectedCPUHistoryWindow
-        let snapshot = await coordinator.cpuHistorySnapshot(window: window, maxPoints: 360)
+        let maxPoints = DetachedPaneLayout.detachedHistoryMaxPoints(window: window)
+        let snapshot = await coordinator.cpuHistorySnapshot(window: window, maxPoints: maxPoints)
         historySnapshot = snapshot
 
         chartModel = PreparedTimeSeriesChartModel.fromCPU(

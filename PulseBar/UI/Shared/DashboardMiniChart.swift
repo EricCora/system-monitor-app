@@ -76,7 +76,7 @@ struct DashboardMiniChart: View {
         } else {
             let xDomain = model.scale.xDomain ?? model.fallbackXDomain
             let yDomain = model.fixedYDomain ?? model.scale.yDomain
-            let segments = groupedSegments()
+            let segments = ChartRenderSemantics.continuitySegments(for: model.renderStyle, points: model.points)
 
             ZStack {
                 if showsPlotBackground {
@@ -201,10 +201,6 @@ struct DashboardMiniChart: View {
             return model.points.map(\.value)
         }
         return []
-    }
-
-    private func groupedSegments() -> [[TimeSeriesChartPoint]] {
-        ChartPlotGeometry.groupedSegments(from: model.points)
     }
 
     private func drawStackedArea(

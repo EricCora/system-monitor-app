@@ -62,25 +62,19 @@ struct MemoryPaneContentView: View {
         )
     }
 
-    @ViewBuilder
     private var chartSection: some View {
-        DashboardSectionLabel(title: activeChart.historyTitle, tint: DashboardPalette.secondaryText)
-
-        if chartModel.isEmpty {
-            DetachedPaneEmptyChartState(message: emptyStateMessage)
-        } else {
-            DashboardTimeSeriesChart(
-                model: chartModel,
-                window: coordinator.selectedMemoryHistoryWindow,
-                height: DetachedPaneLayout.standardPane.chartHeight,
-                throughputUnit: coordinator.throughputUnit,
-                paneController: paneController,
-                hiddenLegendIDs: hiddenLegendIDs,
-                hoveredDate: $hoveredDate,
-                viewport: $viewport,
-                zoomSelectionRect: $zoomSelectionRect
-            )
-        }
+        DetachedPaneChartSection(
+            historyTitle: activeChart.historyTitle,
+            emptyMessage: emptyStateMessage,
+            model: chartModel,
+            window: coordinator.selectedMemoryHistoryWindow,
+            throughputUnit: coordinator.throughputUnit,
+            paneController: paneController,
+            hiddenLegendIDs: hiddenLegendIDs,
+            hoveredDate: $hoveredDate,
+            viewport: $viewport,
+            zoomSelectionRect: $zoomSelectionRect
+        )
     }
 
     private var emptyStateMessage: String {
@@ -105,7 +99,7 @@ struct MemoryPaneContentView: View {
                     )
                     .font(.caption.monospacedDigit())
                 } else {
-                    emptySummary
+                    DetachedPaneSummaryRow.placeholder()
                 }
             case .pressure:
                 metricSummary(primary: ChartInteractionSupport.nearestPoint(in: historySnapshot?.pressure ?? [], hoveredDate: hoveredDate))
@@ -122,7 +116,7 @@ struct MemoryPaneContentView: View {
                     )
                     .font(.caption.monospacedDigit())
                 } else {
-                    emptySummary
+                    DetachedPaneSummaryRow.placeholder()
                 }
             }
         }
@@ -185,15 +179,8 @@ struct MemoryPaneContentView: View {
             Text(UnitsFormatter.format(primary.value, unit: primary.unit, throughputUnit: coordinator.throughputUnit))
                 .font(.caption.monospacedDigit())
         } else {
-            emptySummary
+            DetachedPaneSummaryRow.placeholder()
         }
-    }
-
-    @ViewBuilder
-    private var emptySummary: some View {
-        Text(" ")
-        Spacer()
-        Text(" ")
     }
 
     private var nearestCompositionPoint: MemoryHistoryPoint? {
@@ -205,7 +192,8 @@ struct MemoryPaneContentView: View {
         coordinator.performanceDiagnosticsStore.recordDetachedPaneQuery()
         let start = ContinuousClock.now
         let window = coordinator.selectedMemoryHistoryWindow
-        let snapshot = await coordinator.memoryHistorySnapshot(window: window, maxPoints: 360)
+        let maxPoints = DetachedPaneLayout.detachedHistoryMaxPoints(window: window)
+        let snapshot = await coordinator.memoryHistorySnapshot(window: window, maxPoints: maxPoints)
         historySnapshot = snapshot
         chartModel = PreparedTimeSeriesChartModel.fromMemory(
             snapshot: snapshot,

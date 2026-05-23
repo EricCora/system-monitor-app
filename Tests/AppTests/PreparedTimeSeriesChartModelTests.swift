@@ -36,7 +36,7 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
         XCTAssertEqual(stackedSum, 100, accuracy: 0.01)
 
         let model = PreparedTimeSeriesChartModel.fromMemoryComposition(history: history)
-        XCTAssertEqual(model.renderStyle, .stackedArea(fixedYDomain: 0 ... 100))
+        XCTAssertEqual(model.renderStyle, .stackedArea)
         XCTAssertEqual(model.sampleBudget, .fullChart)
         XCTAssertEqual(model.fixedYDomain, 0 ... 100)
         XCTAssertFalse(model.isEmpty)
@@ -105,7 +105,7 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
 
         let model = PreparedTimeSeriesChartModel.fromCPUUsage(userHistory: user, systemHistory: system)
 
-        XCTAssertEqual(model.renderStyle, .stackedArea())
+        XCTAssertEqual(model.renderStyle, .stackedArea)
         XCTAssertEqual(model.sampleBudget, .fullChart)
         XCTAssertNil(model.miniPresentation)
         XCTAssertEqual(Set(model.points.map(\.seriesKey)), Set(["cpu.user", "cpu.system"]))
@@ -256,7 +256,7 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
 
         XCTAssertEqual(
             PreparedTimeSeriesChartModel.fromMemory(snapshot: snapshot, chart: .composition, smoothingAlpha: 1).renderStyle,
-            .stackedArea()
+            .stackedArea
         )
         XCTAssertEqual(
             PreparedTimeSeriesChartModel.fromMemory(snapshot: snapshot, chart: .pressure, smoothingAlpha: 1).renderStyle,
@@ -265,16 +265,42 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
     }
 
     func testDetachedPaneContentHeightMatchesLayoutFormula() {
-        let target = DetachedMetricsPaneTarget.cpu(chart: .usage)
-        let style = DetachedPaneLayout.paneStyle(for: target)
-        let expected = DetachedPaneShellMetrics.chromeAboveChart
-            + style.chartHeight
-            + DetachedPaneShellMetrics.legendFooterBlockHeight
-            + (DetachedPaneLayout.hostPadding * 2)
-            + (DetachedPaneLayout.shellSurfacePadding * 2)
+        for target in [
+            DetachedMetricsPaneTarget.cpu(chart: .usage),
+            .memory(chart: .composition),
+            .temperature(sensorID: "cpu_die"),
+            .temperatureCompare
+        ] {
+            let style = DetachedPaneLayout.paneStyle(for: target)
+            let expected = DetachedPaneShellMetrics.chromeAboveChart
+                + style.extraToolbarRowHeight
+                + DetachedPaneShellMetrics.chartSectionLabelHeight
+                + style.chartHeight
+                + DetachedPaneShellMetrics.chartInsetInnerSpacing
+                + DetachedPaneShellMetrics.legendFooterBlockHeight
+                + (target == .temperatureCompare ? DetachedPaneShellMetrics.compareFooterToolbarHeight : 0)
+                + DetachedPaneShellMetrics.chartInsetBottomPadding
+                + (DetachedPaneLayout.hostPadding * 2)
+                + (DetachedPaneLayout.shellSurfacePadding * 2)
 
-        XCTAssertEqual(DetachedPaneLayout.contentHeight(for: target), expected, accuracy: 0.5)
-        XCTAssertGreaterThanOrEqual(expected, DetachedPaneLayout.minimumPanelHeight)
+            XCTAssertEqual(
+                DetachedPaneLayout.contentHeight(for: target),
+                expected,
+                accuracy: 0.5,
+                "contentHeight mismatch for \(target)"
+            )
+        }
+        XCTAssertGreaterThanOrEqual(
+            DetachedPaneLayout.contentHeight(for: .cpu(chart: .usage)),
+            DetachedPaneLayout.minimumPanelHeight
+        )
+    }
+
+    func testDetachedHistoryMaxPointsUsesFullChartBudget() {
+        XCTAssertEqual(
+            DetachedPaneLayout.detachedHistoryMaxPoints(window: .oneHour),
+            ChartSeriesPipeline.targetPointCount(for: .oneHour, budget: .fullChart)
+        )
     }
 
     private func makeMemoryPoint(

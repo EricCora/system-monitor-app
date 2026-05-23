@@ -10,7 +10,6 @@ struct DetachedMetricsPaneShell<Header: View, AccessoryToolbar: View, Chart: Vie
     @Binding var viewport: ChartViewport
     @Binding var zoomSelectionRect: CGRect?
 
-    let paneStyle: DetachedPaneLayout.PaneStyle
     let sectionAccent: Color
     let header: Header
     let accessoryToolbar: AccessoryToolbar
@@ -24,7 +23,6 @@ struct DetachedMetricsPaneShell<Header: View, AccessoryToolbar: View, Chart: Vie
         hoveredDate: Binding<Date?>,
         viewport: Binding<ChartViewport>,
         zoomSelectionRect: Binding<CGRect?>,
-        paneStyle: DetachedPaneLayout.PaneStyle = DetachedPaneLayout.standardPane,
         sectionAccent: Color,
         @ViewBuilder header: () -> Header,
         @ViewBuilder accessoryToolbar: () -> AccessoryToolbar = { EmptyView() },
@@ -37,7 +35,6 @@ struct DetachedMetricsPaneShell<Header: View, AccessoryToolbar: View, Chart: Vie
         _hoveredDate = hoveredDate
         _viewport = viewport
         _zoomSelectionRect = zoomSelectionRect
-        self.paneStyle = paneStyle
         self.sectionAccent = sectionAccent
         self.header = header()
         self.accessoryToolbar = accessoryToolbar()
@@ -78,6 +75,7 @@ struct DetachedMetricsPaneShell<Header: View, AccessoryToolbar: View, Chart: Vie
             padding: DetachedPaneLayout.shellSurfacePadding,
             cornerRadius: DashboardTabMetrics.surfaceCornerRadius
         )
+        .environment(\.detachedPaneStyle, DetachedPaneLayout.paneStyle(for: paneController.activeTarget))
         .environment(
             \.dashboardChartDisplayOptions,
             ChartDisplayOptions(

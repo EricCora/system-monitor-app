@@ -2,6 +2,7 @@ import SwiftUI
 import PulseBarCore
 
 struct TemperatureComparePaneContentView: View {
+    @Environment(\.detachedPaneStyle) private var paneStyle
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var paneController: DetachedMetricsPaneController
 
@@ -20,7 +21,6 @@ struct TemperatureComparePaneContentView: View {
             hoveredDate: $hoveredDate,
             viewport: $viewport,
             zoomSelectionRect: $zoomSelectionRect,
-            paneStyle: DetachedPaneLayout.comparePane,
             sectionAccent: DashboardPalette.temperatureChartAccent,
             header: { paneHeader },
             chart: { chartSection },
@@ -83,7 +83,7 @@ struct TemperatureComparePaneContentView: View {
                 DashboardTimeSeriesChart(
                     model: chartModel,
                     window: coordinator.selectedTemperatureHistoryWindow,
-                    height: DetachedPaneLayout.comparePane.chartHeight,
+                    height: paneStyle.chartHeight,
                     paneController: paneController,
                     hiddenLegendIDs: hiddenLegendIDs,
                     yAxisLabel: { value in
@@ -216,13 +216,14 @@ struct TemperatureComparePaneContentView: View {
         var descriptors: [ChartMetricSeriesDescriptor<TemperatureHistoryPoint>] = []
 
         let window = coordinator.selectedTemperatureHistoryWindow
+        let maxPoints = DetachedPaneLayout.detachedHistoryMaxPoints(window: window)
         let histories = await withTaskGroup(of: (Int, TemperatureAggregateRow, [TemperatureHistoryPoint]).self) { group in
             for (index, row) in sensors.enumerated() {
                 group.addTask {
                     let history = await coordinator.temperatureAggregateHistorySeries(
                         row: row,
                         window: window,
-                        maxPoints: 480
+                        maxPoints: maxPoints
                     )
                     return (index, row, history)
                 }
