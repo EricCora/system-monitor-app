@@ -623,7 +623,7 @@ final class AppCoordinator: ObservableObject {
             return await metricHistoryStore.samples(for: metricID, window: window, maxPoints: maxPoints)
         }
         let raw = await store.series(for: metricID, window: window)
-        return Downsampler.downsample(raw, maxPoints: maxPoints)
+        return Downsampler.downsample(raw, maxPoints: maxPoints, bucketSeconds: window.bucketSeconds)
     }
 
     func metricHistorySeries(

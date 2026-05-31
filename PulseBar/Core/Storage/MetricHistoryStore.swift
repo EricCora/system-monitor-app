@@ -210,7 +210,7 @@ public actor MetricHistoryStore {
         if rows.count <= safeMaxPoints {
             return rows
         }
-        return Downsampler.downsample(rows, maxPoints: safeMaxPoints)
+        return Downsampler.downsample(rows, maxPoints: safeMaxPoints, bucketSeconds: bucketSeconds)
     }
 
     private static func createSchema(db: OpaquePointer?) throws {

@@ -47,6 +47,7 @@ final class DetachedMetricsPaneController: ObservableObject {
     private var hostingView: NSHostingView<DetachedMetricsPaneHostView>?
     private var hideWorkItem: DispatchWorkItem?
     private var paneInteractionCount = 0
+    private var cpuPreviewSavedHistoryWindow: ChartWindow?
 
     private var parentMoveObserver: NSObjectProtocol?
     private var parentResizeObserver: NSObjectProtocol?
@@ -59,6 +60,9 @@ final class DetachedMetricsPaneController: ObservableObject {
         parentWindow: NSWindow
     ) {
         guard pinnedTarget == nil else { return }
+        if case .cpu = target {
+            mirrorCompactCPUChartWindow(using: coordinator)
+        }
         hoveredTarget = target
         presentPanel(coordinator: coordinator, parentWindow: parentWindow)
     }
@@ -82,6 +86,9 @@ final class DetachedMetricsPaneController: ObservableObject {
     }
 
     func unpin() {
+        if case .cpu = pinnedTarget {
+            restoreCPUHistoryWindowIfNeeded(using: coordinator)
+        }
         pinnedTarget = nil
         if hoveredTarget == nil {
             scheduleHideIfNeeded()
@@ -141,6 +148,10 @@ final class DetachedMetricsPaneController: ObservableObject {
 
     func closePanel(clearSelection: Bool) {
         cancelScheduledHide()
+
+        if case .cpu = pinnedTarget ?? hoveredTarget {
+            restoreCPUHistoryWindowIfNeeded(using: coordinator)
+        }
 
         if clearSelection {
             pinnedTarget = nil
@@ -247,6 +258,9 @@ final class DetachedMetricsPaneController: ObservableObject {
             guard !self.mainListHovering else { return }
             guard !self.panelHovering else { return }
             guard self.paneInteractionCount == 0 else { return }
+            if case .cpu = self.hoveredTarget {
+                self.restoreCPUHistoryWindowIfNeeded(using: self.coordinator)
+            }
             self.hoveredTarget = nil
             self.panel?.orderOut(nil)
         }
@@ -389,6 +403,19 @@ final class DetachedMetricsPaneController: ObservableObject {
             NotificationCenter.default.removeObserver(appDeactivateObserver)
             self.appDeactivateObserver = nil
         }
+    }
+
+    private func mirrorCompactCPUChartWindow(using coordinator: AppCoordinator) {
+        if cpuPreviewSavedHistoryWindow == nil {
+            cpuPreviewSavedHistoryWindow = coordinator.selectedCPUHistoryWindow
+        }
+        coordinator.selectedCPUHistoryWindow = coordinator.compactCPUChartWindow
+    }
+
+    private func restoreCPUHistoryWindowIfNeeded(using coordinator: AppCoordinator?) {
+        guard let saved = cpuPreviewSavedHistoryWindow else { return }
+        coordinator?.selectedCPUHistoryWindow = saved
+        cpuPreviewSavedHistoryWindow = nil
     }
 }
 

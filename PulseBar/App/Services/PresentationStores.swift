@@ -230,6 +230,7 @@ struct CompactChartPoint: Equatable {
 struct CompactCPUUsagePoint: Equatable {
     let timestamp: Date
     let userValue: Double
+    let systemValue: Double
     let totalValue: Double
 }
 
@@ -471,6 +472,7 @@ private func makeCPUUsageRenderModel(
         return CompactCPUUsagePoint(
             timestamp: timestamp,
             userValue: user.value,
+            systemValue: system.value,
             totalValue: user.value + system.value
         )
     }
@@ -575,11 +577,13 @@ private func downsampleUsagePoints(_ points: [CompactCPUUsagePoint], maxPoints: 
         }
 
         let userAverage = bucket.reduce(0.0) { $0 + $1.userValue } / Double(bucket.count)
-        let totalAverage = bucket.reduce(0.0) { $0 + $1.totalValue } / Double(bucket.count)
+        let systemAverage = bucket.reduce(0.0) { $0 + $1.systemValue } / Double(bucket.count)
+        let totalAverage = userAverage + systemAverage
         output.append(
             CompactCPUUsagePoint(
                 timestamp: last.timestamp,
                 userValue: userAverage,
+                systemValue: systemAverage,
                 totalValue: totalAverage
             )
         )

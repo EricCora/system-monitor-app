@@ -163,6 +163,17 @@ final class TimeSeriesChartSupportTests: XCTestCase {
         XCTAssertGreaterThan(scale.yDomain.upperBound, 0)
     }
 
+    func testTimelineSegmentIndicesAlignAcrossSeries() {
+        let timestamps = [
+            Date(timeIntervalSince1970: 0),
+            Date(timeIntervalSince1970: 10),
+            Date(timeIntervalSince1970: 20),
+            Date(timeIntervalSince1970: 120)
+        ]
+        let indices = ChartSeriesPipeline.timelineSegmentIndices(for: timestamps)
+        XCTAssertEqual(indices, [0, 0, 0, 1])
+    }
+
     func testContinuityKeysSplitWhenLargeGapAppears() {
         let samples = [
             MetricHistoryPoint(timestamp: Date(timeIntervalSince1970: 0), value: 10, unit: .celsius),

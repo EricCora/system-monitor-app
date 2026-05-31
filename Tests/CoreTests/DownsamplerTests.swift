@@ -30,19 +30,57 @@ final class DownsamplerTests: XCTestCase {
         XCTAssertLessThanOrEqual(output.count, 20)
     }
 
-    func testDownsampleAveragesBuckets() {
-        let now = Date()
-        let input = [0.0, 10.0, 20.0, 30.0].enumerated().map { index, value in
-            MetricSample(
-                metricID: .cpuTotalPercent,
-                timestamp: now.addingTimeInterval(Double(index)),
-                value: value,
+    func testDownsampleUsesWallClockBuckets() {
+        let bucketSeconds = 30
+        let base = Date(timeIntervalSince1970: 1_000)
+        let input = [
+            MetricSample(metricID: .cpuTotalPercent, timestamp: base.addingTimeInterval(5), value: 10, unit: .percent),
+            MetricSample(metricID: .cpuTotalPercent, timestamp: base.addingTimeInterval(15), value: 20, unit: .percent),
+            MetricSample(metricID: .cpuTotalPercent, timestamp: base.addingTimeInterval(35), value: 30, unit: .percent),
+            MetricSample(metricID: .cpuTotalPercent, timestamp: base.addingTimeInterval(45), value: 40, unit: .percent)
+        ]
+
+        let output = Downsampler.downsample(input, maxPoints: 2, bucketSeconds: bucketSeconds)
+
+        XCTAssertEqual(output.count, 2)
+        XCTAssertEqual(output[0].timestamp, Downsampler.bucketTimestamp(input[0].timestamp, bucketSeconds: bucketSeconds))
+        XCTAssertEqual(output[1].timestamp, Downsampler.bucketTimestamp(input[2].timestamp, bucketSeconds: bucketSeconds))
+        XCTAssertEqual(output[0].value, 15, accuracy: 0.001)
+        XCTAssertEqual(output[1].value, 35, accuracy: 0.001)
+    }
+
+    func testDownsampleHistoryPreservesPastBucketsWhenNewSampleArrives() {
+        let bucketSeconds = 30
+        let base = Date(timeIntervalSince1970: 10_000)
+        let initial = (0..<4).map { index in
+            MetricHistoryPoint(
+                timestamp: base.addingTimeInterval(Double(index * bucketSeconds + 5)),
+                value: Double(index * 10),
                 unit: .percent
             )
         }
+        let extended = initial + [
+            MetricHistoryPoint(
+                timestamp: base.addingTimeInterval(Double(4 * bucketSeconds + 5)),
+                value: 99,
+                unit: .percent
+            )
+        ]
 
-        let output = Downsampler.downsample(input, maxPoints: 2)
-        XCTAssertEqual(output.count, 2)
-        XCTAssertEqual(output.map(\.value), [5.0, 25.0])
+        let first = Downsampler.downsampleHistory(initial, maxPoints: 10, bucketSeconds: bucketSeconds)
+        let second = Downsampler.downsampleHistory(extended, maxPoints: 10, bucketSeconds: bucketSeconds)
+
+        let sharedTimestamps = Set(first.map(\.timestamp))
+        for point in second where sharedTimestamps.contains(point.timestamp) {
+            let previous = first.first { $0.timestamp == point.timestamp }
+            XCTAssertEqual(previous?.value ?? -1, point.value, accuracy: 0.001)
+        }
+    }
+
+    func testBucketTimestampAlignsToBucketBoundary() {
+        let bucketSeconds = 60
+        let timestamp = Date(timeIntervalSince1970: 125)
+        let aligned = Downsampler.bucketTimestamp(timestamp, bucketSeconds: bucketSeconds)
+        XCTAssertEqual(aligned.timeIntervalSince1970, 120, accuracy: 0.001)
     }
 }

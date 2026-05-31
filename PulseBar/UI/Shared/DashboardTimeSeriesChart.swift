@@ -34,15 +34,11 @@ struct DashboardTimeSeriesChart: View {
 
     var body: some View {
         Chart {
-            if ChartRenderSemantics.usesContinuitySegments(for: model.renderStyle) {
-                ForEach(Array(continuitySegments.enumerated()), id: \.offset) { _, segment in
+            ForEach(renderGroups) { group in
+                ForEach(Array(group.segments.enumerated()), id: \.offset) { _, segment in
                     ForEach(segment) { point in
                         chartMarks(for: point)
                     }
-                }
-            } else {
-                ForEach(visiblePoints) { point in
-                    chartMarks(for: point)
                 }
             }
 
@@ -126,12 +122,13 @@ struct DashboardTimeSeriesChart: View {
 
     @ChartContentBuilder
     private func chartMarks(for point: TimeSeriesChartPoint) -> some ChartContent {
+        let seriesIdentity = ChartRenderSemantics.chartSeriesIdentity(for: point)
         switch model.renderStyle {
         case .stackedArea:
             AreaMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Value", point.value),
-                series: .value("Series", point.seriesKey),
+                series: .value("Series", seriesIdentity),
                 stacking: .standard
             )
             .foregroundStyle(DashboardChartTheme.areaFill(point.color, opacity: resolvedAreaOpacity))
@@ -142,7 +139,7 @@ struct DashboardTimeSeriesChart: View {
                 x: .value("Time", point.timestamp),
                 yStart: .value("Baseline", model.scale.renderedAreaBaseline(viewport: viewport)),
                 yEnd: .value("Value", point.value),
-                series: .value("Series", point.seriesKey)
+                series: .value("Series", seriesIdentity)
             )
             .foregroundStyle(DashboardChartTheme.areaFill(point.color, opacity: resolvedAreaOpacity))
             .interpolationMethod(.linear)
@@ -150,7 +147,7 @@ struct DashboardTimeSeriesChart: View {
             LineMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Value", point.value),
-                series: .value("Series", point.seriesKey)
+                series: .value("Series", seriesIdentity)
             )
             .foregroundStyle(DashboardChartTheme.seriesLineColor(point.color))
             .lineStyle(DashboardChartTheme.seriesStroke(point.color))
@@ -160,7 +157,7 @@ struct DashboardTimeSeriesChart: View {
             LineMark(
                 x: .value("Time", point.timestamp),
                 y: .value("Value", point.value),
-                series: .value("Series", point.seriesKey)
+                series: .value("Series", seriesIdentity)
             )
             .foregroundStyle(DashboardChartTheme.seriesLineColor(point.color))
             .lineStyle(DashboardChartTheme.seriesStroke(point.color))
@@ -172,8 +169,8 @@ struct DashboardTimeSeriesChart: View {
         model.points.filter { !hiddenLegendIDs.contains($0.seriesKey) }
     }
 
-    private var continuitySegments: [[TimeSeriesChartPoint]] {
-        ChartRenderSemantics.continuitySegments(for: model.renderStyle, points: visiblePoints)
+    private var renderGroups: [ChartRenderSemantics.RenderGroup] {
+        ChartRenderSemantics.renderGroups(for: model.renderStyle, points: visiblePoints)
     }
 
     private var resolvedXDomain: ClosedRange<Date> {

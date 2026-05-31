@@ -92,6 +92,41 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
         XCTAssertGreaterThan(model.scale.yDomain.upperBound, model.scale.yDomain.lowerBound)
     }
 
+    func testFromCompactCPUUsageAlignsVisibleXDomainToWindow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let renderModel = CompactCPUUsageRenderModel(
+            xDomain: now...(now.addingTimeInterval(3_600)),
+            segments: [
+                CompactChartSegment(points: [
+                    CompactCPUUsagePoint(timestamp: now, userValue: 10, systemValue: 5, totalValue: 15),
+                    CompactCPUUsagePoint(
+                        timestamp: now.addingTimeInterval(1_800),
+                        userValue: 20,
+                        systemValue: 8,
+                        totalValue: 28
+                    )
+                ])
+            ]
+        )
+
+        let model = PreparedTimeSeriesChartModel.fromCompactCPUUsage(
+            renderModel: renderModel,
+            window: .oneHour
+        )
+        guard let xDomain = model.scale.xDomain else {
+            XCTFail("Expected compact CPU chart x-domain")
+            return
+        }
+
+        XCTAssertEqual(
+            xDomain.upperBound.timeIntervalSince(xDomain.lowerBound),
+            ChartWindow.oneHour.seconds,
+            accuracy: 1
+        )
+        XCTAssertGreaterThanOrEqual(xDomain.upperBound, now.addingTimeInterval(3_600))
+        XCTAssertEqual(model.renderStyle, .stackedArea)
+    }
+
     func testFromCPUUsageBuildsStackedUserAndSystemSeries() {
         let now = Date(timeIntervalSince1970: 1_000)
         let user = [

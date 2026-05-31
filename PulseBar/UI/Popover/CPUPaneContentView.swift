@@ -5,7 +5,6 @@ struct CPUPaneContentView: View {
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var paneController: DetachedMetricsPaneController
 
-    @State private var historySnapshot: CPUHistorySnapshot?
     @State private var hoveredDate: Date?
     @State private var viewport = ChartViewport()
     @State private var zoomSelectionRect: CGRect?
@@ -13,6 +12,15 @@ struct CPUPaneContentView: View {
     @State private var hiddenLegendIDs = Set<String>()
 
     var body: some View {
+        let hoverReadout = ChartInteractionSupport.preparedReadout(
+            in: chartModel.points,
+            hoveredDate: hoveredDate
+        )
+        let latestReadout = ChartInteractionSupport.preparedReadout(
+            in: chartModel.points,
+            hoveredDate: nil
+        )
+
         DetachedMetricsPaneShell(
             coordinator: coordinator,
             paneController: paneController,
@@ -21,13 +29,13 @@ struct CPUPaneContentView: View {
             viewport: $viewport,
             zoomSelectionRect: $zoomSelectionRect,
             sectionAccent: DashboardPalette.cpuChartAccent,
-            header: { paneHeader },
+            header: { paneHeader(valueReadout: latestReadout) },
             chart: { chartSection },
             footer: {
-                ChartLegendStrip(items: legendItems, hiddenItemIDs: hiddenLegendIDs) { item in
+                ChartLegendStrip(items: legendItems(readout: hoverReadout), hiddenItemIDs: hiddenLegendIDs) { item in
                     ChartInteractionSupport.toggleLegendItem(item.id, hiddenLegendIDs: &hiddenLegendIDs)
                 }
-                summaryRow
+                summaryRow(readout: hoverReadout)
             }
         )
         .detachedPaneHistoryRefresh(
@@ -51,12 +59,12 @@ struct CPUPaneContentView: View {
         return coordinator.selectedCPUPaneChart
     }
 
-    private var paneHeader: some View {
+    private func paneHeader(valueReadout: PreparedChartReadout?) -> some View {
         DetachedPaneHeaderCard(
             sectionTitle: "CPU Detail",
             title: activeChart.title,
             subtitle: activeChart.subtitle,
-            valueText: currentValueText,
+            valueText: currentValueText(readout: valueReadout),
             badgeText: paneController.pinnedTarget != nil ? "Pinned" : "Hover Preview",
             accent: DashboardPalette.cpuChartAccent
         )
@@ -85,17 +93,15 @@ struct CPUPaneContentView: View {
         }
     }
 
-    private var summaryRow: some View {
+    private func summaryRow(readout: PreparedChartReadout?) -> some View {
         HStack {
             switch activeChart {
             case .usage:
-                if let snapshot = historySnapshot,
-                   let point = ChartInteractionSupport.nearestPoint(in: snapshot.user, hoveredDate: hoveredDate)
-                       ?? ChartInteractionSupport.nearestPoint(in: snapshot.system, hoveredDate: hoveredDate) {
-                    let user = ChartInteractionSupport.nearestPoint(in: snapshot.user, hoveredDate: hoveredDate)?.value ?? 0
-                    let system = ChartInteractionSupport.nearestPoint(in: snapshot.system, hoveredDate: hoveredDate)?.value ?? 0
-                    let idle = ChartInteractionSupport.nearestPoint(in: snapshot.idle, hoveredDate: hoveredDate)?.value ?? max(0, 100 - user - system)
-                    Text(point.timestamp.formatted(date: .omitted, time: .standard))
+                if let readout,
+                   let user = readout.value(forSeriesKey: "cpu.user"),
+                   let system = readout.value(forSeriesKey: "cpu.system") {
+                    let idle = max(0, 100 - user - system)
+                    Text(readout.timestamp.formatted(date: .omitted, time: .standard))
                         .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(
@@ -106,45 +112,39 @@ struct CPUPaneContentView: View {
                     DetachedPaneSummaryRow.placeholder()
                 }
             case .loadAverage:
-                if let snapshot = historySnapshot,
-                   let point = ChartInteractionSupport.nearestPoint(in: snapshot.load1, hoveredDate: hoveredDate)
-                       ?? ChartInteractionSupport.nearestPoint(in: snapshot.load5, hoveredDate: hoveredDate) {
-                    Text(point.timestamp.formatted(date: .omitted, time: .standard))
+                if let readout,
+                   let load1 = readout.value(forSeriesKey: "load.1"),
+                   let load5 = readout.value(forSeriesKey: "load.5"),
+                   let load15 = readout.value(forSeriesKey: "load.15") {
+                    Text(readout.timestamp.formatted(date: .omitted, time: .standard))
                         .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
-                    Text(
-                        String(
-                            format: "1m %.2f  5m %.2f  15m %.2f",
-                            ChartInteractionSupport.nearestPoint(in: snapshot.load1, hoveredDate: hoveredDate)?.value ?? 0,
-                            ChartInteractionSupport.nearestPoint(in: snapshot.load5, hoveredDate: hoveredDate)?.value ?? 0,
-                            ChartInteractionSupport.nearestPoint(in: snapshot.load15, hoveredDate: hoveredDate)?.value ?? 0
-                        )
-                    )
+                    Text(String(format: "1m %.2f  5m %.2f  15m %.2f", load1, load5, load15))
                     .font(.caption.monospacedDigit())
                 } else {
                     DetachedPaneSummaryRow.placeholder()
                 }
             case .gpu:
-                if let snapshot = historySnapshot,
-                   let point = ChartInteractionSupport.nearestPoint(in: snapshot.gpuProcessor, hoveredDate: hoveredDate)
-                       ?? ChartInteractionSupport.nearestPoint(in: snapshot.gpuMemory, hoveredDate: hoveredDate) {
-                    Text(point.timestamp.formatted(date: .omitted, time: .standard))
+                if let readout,
+                   let processor = readout.value(forSeriesKey: "gpu.processor"),
+                   let memory = readout.value(forSeriesKey: "gpu.memory") {
+                    Text(readout.timestamp.formatted(date: .omitted, time: .standard))
                         .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
                     Text(
-                        "Processor \(UnitsFormatter.format(ChartInteractionSupport.nearestPoint(in: snapshot.gpuProcessor, hoveredDate: hoveredDate)?.value ?? 0, unit: .percent))  Memory \(UnitsFormatter.format(ChartInteractionSupport.nearestPoint(in: snapshot.gpuMemory, hoveredDate: hoveredDate)?.value ?? 0, unit: .percent))"
+                        "Processor \(UnitsFormatter.format(processor, unit: .percent))  Memory \(UnitsFormatter.format(memory, unit: .percent))"
                     )
                     .font(.caption.monospacedDigit())
                 } else {
                     DetachedPaneSummaryRow.placeholder()
                 }
             case .framesPerSecond:
-                if let snapshot = historySnapshot,
-                   let point = ChartInteractionSupport.nearestPoint(in: snapshot.framesPerSecond, hoveredDate: hoveredDate) {
-                    Text(point.timestamp.formatted(date: .omitted, time: .standard))
+                if let readout,
+                   let fps = readout.value(forSeriesKey: "fps") {
+                    Text(readout.timestamp.formatted(date: .omitted, time: .standard))
                         .foregroundStyle(DashboardPalette.secondaryText)
                     Spacer()
-                    Text(String(format: "%.1f fps", point.value))
+                    Text(String(format: "%.1f fps", fps))
                         .font(.caption.monospacedDigit())
                 } else {
                     DetachedPaneSummaryRow.placeholder()
@@ -155,8 +155,8 @@ struct CPUPaneContentView: View {
         .frame(height: 18)
     }
 
-    private var legendItems: [ChartLegendItem] {
-        guard let snapshot = historySnapshot else { return [] }
+    private func legendItems(readout: PreparedChartReadout?) -> [ChartLegendItem] {
+        guard let readout else { return [] }
         switch activeChart {
         case .usage:
             return [
@@ -164,47 +164,48 @@ struct CPUPaneContentView: View {
                     id: "cpu.user",
                     label: "User",
                     color: DashboardPalette.cpuUserAccent,
-                    valueText: ChartInteractionSupport.nearestPoint(in: snapshot.user, hoveredDate: hoveredDate).map { UnitsFormatter.format($0.value, unit: .percent) }
+                    valueText: readout.value(forSeriesKey: "cpu.user").map { UnitsFormatter.format($0, unit: .percent) }
                 ),
                 ChartLegendItem(
                     id: "cpu.system",
                     label: "System",
                     color: DashboardPalette.cpuSystemAccent,
-                    valueText: ChartInteractionSupport.nearestPoint(in: snapshot.system, hoveredDate: hoveredDate).map { UnitsFormatter.format($0.value, unit: .percent) }
+                    valueText: readout.value(forSeriesKey: "cpu.system").map { UnitsFormatter.format($0, unit: .percent) }
                 )
             ]
         case .loadAverage:
             return [
-                ChartLegendItem(id: "load.1", label: "1 Minute", color: DashboardPalette.cpuUserAccent, valueText: ChartInteractionSupport.nearestPoint(in: snapshot.load1, hoveredDate: hoveredDate).map { String(format: "%.2f", $0.value) }),
-                ChartLegendItem(id: "load.5", label: "5 Minute", color: DashboardPalette.cpuSystemAccent, valueText: ChartInteractionSupport.nearestPoint(in: snapshot.load5, hoveredDate: hoveredDate).map { String(format: "%.2f", $0.value) }),
-                ChartLegendItem(id: "load.15", label: "15 Minute", color: DashboardPalette.tertiaryText, valueText: ChartInteractionSupport.nearestPoint(in: snapshot.load15, hoveredDate: hoveredDate).map { String(format: "%.2f", $0.value) })
+                ChartLegendItem(id: "load.1", label: "1 Minute", color: DashboardPalette.cpuUserAccent, valueText: readout.value(forSeriesKey: "load.1").map { String(format: "%.2f", $0) }),
+                ChartLegendItem(id: "load.5", label: "5 Minute", color: DashboardPalette.cpuSystemAccent, valueText: readout.value(forSeriesKey: "load.5").map { String(format: "%.2f", $0) }),
+                ChartLegendItem(id: "load.15", label: "15 Minute", color: DashboardPalette.tertiaryText, valueText: readout.value(forSeriesKey: "load.15").map { String(format: "%.2f", $0) })
             ]
         case .gpu:
             return [
-                ChartLegendItem(id: "gpu.processor", label: "Processor", color: DashboardPalette.cpuUserAccent, valueText: ChartInteractionSupport.nearestPoint(in: snapshot.gpuProcessor, hoveredDate: hoveredDate).map { UnitsFormatter.format($0.value, unit: .percent) }),
-                ChartLegendItem(id: "gpu.memory", label: "Memory", color: DashboardPalette.networkChartAccent, valueText: ChartInteractionSupport.nearestPoint(in: snapshot.gpuMemory, hoveredDate: hoveredDate).map { UnitsFormatter.format($0.value, unit: .percent) })
+                ChartLegendItem(id: "gpu.processor", label: "Processor", color: DashboardPalette.cpuUserAccent, valueText: readout.value(forSeriesKey: "gpu.processor").map { UnitsFormatter.format($0, unit: .percent) }),
+                ChartLegendItem(id: "gpu.memory", label: "Memory", color: DashboardPalette.networkChartAccent, valueText: readout.value(forSeriesKey: "gpu.memory").map { UnitsFormatter.format($0, unit: .percent) })
             ]
         case .framesPerSecond:
             return [
-                ChartLegendItem(id: "fps", label: "FPS", color: DashboardPalette.networkChartAccent, valueText: ChartInteractionSupport.nearestPoint(in: snapshot.framesPerSecond, hoveredDate: hoveredDate).map { String(format: "%.1f fps", $0.value) })
+                ChartLegendItem(id: "fps", label: "FPS", color: DashboardPalette.networkChartAccent, valueText: readout.value(forSeriesKey: "fps").map { String(format: "%.1f fps", $0) })
             ]
         }
     }
 
-    private var currentValueText: String {
-        guard let snapshot = historySnapshot else { return "--" }
+    private func currentValueText(readout: PreparedChartReadout?) -> String {
+        guard let readout else { return "--" }
         switch activeChart {
         case .usage:
-            let total = (snapshot.user.last?.value ?? 0) + (snapshot.system.last?.value ?? 0)
-            return UnitsFormatter.format(total, unit: .percent)
+            let user = readout.value(forSeriesKey: "cpu.user") ?? 0
+            let system = readout.value(forSeriesKey: "cpu.system") ?? 0
+            return UnitsFormatter.format(user + system, unit: .percent)
         case .loadAverage:
-            guard let load = snapshot.load1.last?.value else { return "--" }
+            guard let load = readout.value(forSeriesKey: "load.1") else { return "--" }
             return String(format: "%.2f", load)
         case .gpu:
-            guard let processor = snapshot.gpuProcessor.last?.value else { return "--" }
+            guard let processor = readout.value(forSeriesKey: "gpu.processor") else { return "--" }
             return UnitsFormatter.format(processor, unit: .percent)
         case .framesPerSecond:
-            guard let fps = snapshot.framesPerSecond.last?.value else { return "--" }
+            guard let fps = readout.value(forSeriesKey: "fps") else { return "--" }
             return String(format: "%.1f fps", fps)
         }
     }
@@ -215,11 +216,10 @@ struct CPUPaneContentView: View {
         let window = coordinator.selectedCPUHistoryWindow
         let maxPoints = DetachedPaneLayout.detachedHistoryMaxPoints(window: window)
         let snapshot = await coordinator.cpuHistorySnapshot(window: window, maxPoints: maxPoints)
-        historySnapshot = snapshot
-
         chartModel = PreparedTimeSeriesChartModel.fromCPU(
             snapshot: snapshot,
             chart: activeChart,
+            window: window,
             smoothingAlpha: coordinator.chartSmoothingAlpha
         )
 
@@ -232,7 +232,7 @@ struct CPUPaneContentView: View {
     }
 
     private var refreshTriggerID: String {
-        "\(contextRefreshID)-\(coordinator.metricHistoryRevision)"
+        "\(contextRefreshID)-\(coordinator.metricHistoryRevision)-\(coordinator.chartSmoothingAlpha)"
     }
 
     private var isInteractionActive: Bool {

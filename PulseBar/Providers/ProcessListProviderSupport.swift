@@ -1,11 +1,12 @@
 import Foundation
 
 public enum ProcessListProviderSupport {
-    public static func cpuProcessOutput() throws -> String {
+    /// Typed as `@Sendable` so actors can use these as default `ProcessRunner` values under Swift 6.
+    public static let cpuProcessOutput: @Sendable () throws -> String = {
         try runPSOutput(arguments: ["-axo", "pid=,%cpu=,comm="])
     }
 
-    public static func memoryProcessOutput() throws -> String {
+    public static let memoryProcessOutput: @Sendable () throws -> String = {
         try runPSOutput(arguments: ["-axo", "pid=,rss=,comm="])
     }
 

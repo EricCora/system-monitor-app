@@ -73,15 +73,17 @@ enum ChartSeriesPipeline {
     static func compactCPUUsagePoints(renderModel: CompactCPUUsageRenderModel) -> [TimeSeriesChartPoint] {
         var points: [TimeSeriesChartPoint] = []
         for segment in renderModel.segments {
-            let keys = continuityKeys(for: segment.points, seriesKey: "cpu.usage", timestamp: \.timestamp)
-            for (point, continuityKey) in zip(segment.points, keys) {
+            let segmentIndices = timelineSegmentIndices(for: segment.points.map(\.timestamp))
+            for index in segment.points.indices {
+                let point = segment.points[index]
+                let segmentSuffix = segmentIndices[index]
                 points.append(
                     TimeSeriesChartPoint(
                         timestamp: point.timestamp,
-                        value: point.totalValue,
+                        value: point.systemValue,
                         seriesKey: "cpu.system",
                         seriesLabel: "System",
-                        continuityKey: continuityKey,
+                        continuityKey: "cpu.system#\(segmentSuffix)",
                         color: DashboardPalette.cpuSystemAccent
                     )
                 )
@@ -91,7 +93,7 @@ enum ChartSeriesPipeline {
                         value: point.userValue,
                         seriesKey: "cpu.user",
                         seriesLabel: "User",
-                        continuityKey: continuityKey,
+                        continuityKey: "cpu.user#\(segmentSuffix)",
                         color: DashboardPalette.cpuUserAccent
                     )
                 )
@@ -120,23 +122,48 @@ enum ChartSeriesPipeline {
     static func prepareMetricHistory(
         _ points: [MetricHistoryPoint],
         maxPoints: Int? = nil,
+        bucketSeconds: Int = 1,
         smoothingAlpha: Double = 1.0
     ) -> [MetricHistoryPoint] {
-        var output = sanitize(points, timestamp: \.timestamp)
+        let output = sanitize(points, timestamp: \.timestamp)
+        let downsampled: [MetricHistoryPoint]
         if let maxPoints, maxPoints > 0, output.count > maxPoints {
-            output = downsampleHistory(output, maxPoints: maxPoints)
+            downsampled = downsampleHistory(output, maxPoints: maxPoints, bucketSeconds: bucketSeconds)
+        } else {
+            downsampled = output
         }
-        return lowPass(output, alpha: smoothingAlpha)
+        return lowPass(downsampled, alpha: smoothingAlpha)
+    }
+
+    static func prepareCPUUsageHistory(
+        userHistory: [MetricHistoryPoint],
+        systemHistory: [MetricHistoryPoint],
+        maxPoints: Int? = nil,
+        bucketSeconds: Int = 1,
+        smoothingAlpha: Double = 1.0
+    ) -> (user: [MetricHistoryPoint], system: [MetricHistoryPoint]) {
+        let user = sanitize(userHistory, timestamp: \.timestamp)
+        let system = sanitize(systemHistory, timestamp: \.timestamp)
+        var aligned = alignMetricHistoryOnSharedBuckets(
+            user: user,
+            system: system,
+            maxPoints: maxPoints,
+            bucketSeconds: bucketSeconds
+        )
+        aligned.user = lowPass(aligned.user, alpha: smoothingAlpha)
+        aligned.system = lowPass(aligned.system, alpha: smoothingAlpha)
+        return aligned
     }
 
     static func prepareTemperatureHistory(
         _ points: [TemperatureHistoryPoint],
         maxPoints: Int? = nil,
+        bucketSeconds: Int = 1,
         smoothingAlpha: Double = 1.0
     ) -> [TemperatureHistoryPoint] {
         var output = sanitize(points, timestamp: \.timestamp)
         if let maxPoints, maxPoints > 0, output.count > maxPoints {
-            output = downsampleTemperature(output, maxPoints: maxPoints)
+            output = downsampleTemperature(output, maxPoints: maxPoints, bucketSeconds: bucketSeconds)
         }
         return lowPass(output, alpha: smoothingAlpha)
     }
@@ -145,25 +172,20 @@ enum ChartSeriesPipeline {
         Downsampler.downsample(samples, maxPoints: maxPoints)
     }
 
-    static func downsampleHistory(_ points: [MetricHistoryPoint], maxPoints: Int) -> [MetricHistoryPoint] {
-        downsample(points, maxPoints: maxPoints, timestamp: \.timestamp) { bucket in
-            guard let first = bucket.first, let last = bucket.last else { return nil }
-            let average = bucket.reduce(0.0) { $0 + $1.value } / Double(bucket.count)
-            return MetricHistoryPoint(timestamp: last.timestamp, value: average, unit: first.unit)
-        }
+    static func downsampleHistory(
+        _ points: [MetricHistoryPoint],
+        maxPoints: Int,
+        bucketSeconds: Int = 1
+    ) -> [MetricHistoryPoint] {
+        Downsampler.downsampleHistory(points, maxPoints: maxPoints, bucketSeconds: bucketSeconds)
     }
 
-    static func downsampleTemperature(_ points: [TemperatureHistoryPoint], maxPoints: Int) -> [TemperatureHistoryPoint] {
-        downsample(points, maxPoints: maxPoints, timestamp: \.timestamp) { bucket in
-            guard let first = bucket.first, let last = bucket.last else { return nil }
-            let average = bucket.reduce(0.0) { $0 + $1.value } / Double(bucket.count)
-            return TemperatureHistoryPoint(
-                sensorID: last.sensorID,
-                timestamp: last.timestamp,
-                value: average,
-                channelType: first.channelType
-            )
-        }
+    static func downsampleTemperature(
+        _ points: [TemperatureHistoryPoint],
+        maxPoints: Int,
+        bucketSeconds: Int = 1
+    ) -> [TemperatureHistoryPoint] {
+        downsampleTemperatureByTime(points, maxPoints: maxPoints, bucketSeconds: bucketSeconds)
     }
 
     static func targetPointCount(for window: ChartWindow?, budget: ChartSampleBudget) -> Int {
@@ -326,20 +348,49 @@ enum ChartSeriesPipeline {
     ) -> [String] {
         guard !values.isEmpty else { return [] }
 
-        let cadence = inferredCadence(for: values, timestamp: timestamp)
-        let gapThreshold = max(cadence * 1.9, cadence + 1)
+        let segmentIndices = timelineSegmentIndices(
+            for: values.map { $0[keyPath: timestamp] }
+        )
+
+        return segmentIndices.map { "\(seriesKey)#\($0)" }
+    }
+
+    /// Assigns a shared segment index per timestamp so stacked charts break all series at the same gap.
+    static func timelineSegmentIndices(for timestamps: [Date]) -> [Int] {
+        guard !timestamps.isEmpty else { return [] }
+
+        let sortedUnique = Array(Set(timestamps)).sorted()
+        let cadence = inferredCadence(for: sortedUnique)
+        let gapThreshold = gapThreshold(forCadence: cadence)
+
         var segmentIndex = 0
         var previousTimestamp: Date?
+        var indexByTimestamp: [Date: Int] = [:]
 
-        return values.map { value in
-            let currentTimestamp = value[keyPath: timestamp]
+        for timestamp in sortedUnique {
             if let previousTimestamp,
-               currentTimestamp.timeIntervalSince(previousTimestamp) > gapThreshold {
+               timestamp.timeIntervalSince(previousTimestamp) > gapThreshold {
                 segmentIndex += 1
             }
-            previousTimestamp = currentTimestamp
-            return "\(seriesKey)#\(segmentIndex)"
+            indexByTimestamp[timestamp] = segmentIndex
+            previousTimestamp = timestamp
         }
+
+        return timestamps.map { indexByTimestamp[$0] ?? 0 }
+    }
+
+    private static func inferredCadence(for timestamps: [Date]) -> TimeInterval {
+        let deltas = zip(timestamps, timestamps.dropFirst()).compactMap { previous, current -> TimeInterval? in
+            let delta = current.timeIntervalSince(previous)
+            return delta > 0 ? delta : nil
+        }
+        guard !deltas.isEmpty else { return 1 }
+        let sorted = deltas.sorted()
+        return sorted[sorted.count / 2]
+    }
+
+    private static func gapThreshold(forCadence cadence: TimeInterval) -> TimeInterval {
+        max(cadence * 1.9, cadence + 1)
     }
 
     static func scale(
@@ -411,28 +462,126 @@ enum ChartSeriesPipeline {
         }
     }
 
-    private static func downsample<Sample>(
-        _ points: [Sample],
-        maxPoints: Int,
-        timestamp: KeyPath<Sample, Date>,
-        combine: ([Sample]) -> Sample?
-    ) -> [Sample] {
-        guard maxPoints > 0, points.count > maxPoints else { return points }
-
-        let bucketSize = Int(ceil(Double(points.count) / Double(maxPoints)))
-        var output: [Sample] = []
-        output.reserveCapacity(maxPoints)
-
-        var index = 0
-        while index < points.count {
-            let end = min(index + bucketSize, points.count)
-            let bucket = Array(points[index..<end])
-            if let combined = combine(bucket) {
-                output.append(combined)
-            }
-            index = end
+    private static func alignMetricHistoryOnSharedBuckets(
+        user: [MetricHistoryPoint],
+        system: [MetricHistoryPoint],
+        maxPoints: Int?,
+        bucketSeconds: Int
+    ) -> (user: [MetricHistoryPoint], system: [MetricHistoryPoint]) {
+        struct Bucket {
+            var userValues: [Double] = []
+            var systemValues: [Double] = []
+            var unit: MetricUnit = .percent
+            var timestamp: Date = .distantPast
         }
-        return output
+
+        var buckets: [Int64: Bucket] = [:]
+
+        for point in user {
+            let alignedTimestamp = Downsampler.bucketTimestamp(point.timestamp, bucketSeconds: bucketSeconds)
+            let key = Int64(alignedTimestamp.timeIntervalSince1970)
+            var bucket = buckets[key] ?? Bucket(unit: point.unit, timestamp: alignedTimestamp)
+            bucket.userValues.append(point.value)
+            bucket.unit = point.unit
+            buckets[key] = bucket
+        }
+
+        for point in system {
+            let alignedTimestamp = Downsampler.bucketTimestamp(point.timestamp, bucketSeconds: bucketSeconds)
+            let key = Int64(alignedTimestamp.timeIntervalSince1970)
+            var bucket = buckets[key] ?? Bucket(unit: point.unit, timestamp: alignedTimestamp)
+            bucket.systemValues.append(point.value)
+            bucket.unit = point.unit
+            buckets[key] = bucket
+        }
+
+        var userOutput: [MetricHistoryPoint] = []
+        var systemOutput: [MetricHistoryPoint] = []
+        userOutput.reserveCapacity(buckets.count)
+        systemOutput.reserveCapacity(buckets.count)
+
+        for key in buckets.keys.sorted() {
+            let bucket = buckets[key]!
+            let userAverage = bucket.userValues.isEmpty
+                ? 0
+                : bucket.userValues.reduce(0, +) / Double(bucket.userValues.count)
+            let systemAverage = bucket.systemValues.isEmpty
+                ? 0
+                : bucket.systemValues.reduce(0, +) / Double(bucket.systemValues.count)
+            userOutput.append(MetricHistoryPoint(timestamp: bucket.timestamp, value: userAverage, unit: bucket.unit))
+            systemOutput.append(MetricHistoryPoint(timestamp: bucket.timestamp, value: systemAverage, unit: bucket.unit))
+        }
+
+        guard let maxPoints, maxPoints > 0, userOutput.count > maxPoints else {
+            return (userOutput, systemOutput)
+        }
+
+        let effectiveBucketSeconds = Downsampler.widenBucketSeconds(
+            initial: bucketSeconds,
+            maxPoints: maxPoints
+        ) { seconds in
+            alignMetricHistoryOnSharedBuckets(
+                user: user,
+                system: system,
+                maxPoints: nil,
+                bucketSeconds: seconds
+            ).user.count
+        }
+        return alignMetricHistoryOnSharedBuckets(
+            user: user,
+            system: system,
+            maxPoints: nil,
+            bucketSeconds: effectiveBucketSeconds
+        )
+    }
+
+    private static func downsampleTemperatureByTime(
+        _ points: [TemperatureHistoryPoint],
+        maxPoints: Int,
+        bucketSeconds: Int
+    ) -> [TemperatureHistoryPoint] {
+        guard maxPoints > 0, !points.isEmpty else { return points }
+
+        let effectiveBucketSeconds = Downsampler.widenBucketSeconds(
+            initial: bucketSeconds,
+            maxPoints: maxPoints
+        ) { seconds in
+            bucketTemperature(points, bucketSeconds: seconds).count
+        }
+        return bucketTemperature(points, bucketSeconds: effectiveBucketSeconds)
+    }
+
+    private static func bucketTemperature(
+        _ points: [TemperatureHistoryPoint],
+        bucketSeconds: Int
+    ) -> [TemperatureHistoryPoint] {
+        var buckets: [Int64: (sensorID: String, channelType: SensorChannelType, values: [Double], timestamp: Date)] = [:]
+        for point in points {
+            let alignedTimestamp = Downsampler.bucketTimestamp(point.timestamp, bucketSeconds: bucketSeconds)
+            let key = Int64(alignedTimestamp.timeIntervalSince1970)
+            if var existing = buckets[key] {
+                existing.values.append(point.value)
+                buckets[key] = existing
+            } else {
+                buckets[key] = (
+                    sensorID: point.sensorID,
+                    channelType: point.channelType,
+                    values: [point.value],
+                    timestamp: alignedTimestamp
+                )
+            }
+        }
+
+        return buckets.keys.sorted().map { key in
+            let bucket = buckets[key]!
+            let average = bucket.values.reduce(0, +) / Double(bucket.values.count)
+            return TemperatureHistoryPoint(
+                sensorID: bucket.sensorID,
+                timestamp: bucket.timestamp,
+                value: average,
+                channelType: bucket.channelType
+            )
+        }
     }
 
     private static func flatten<Input>(
@@ -520,13 +669,7 @@ enum ChartSeriesPipeline {
         for values: [Sample],
         timestamp: KeyPath<Sample, Date>
     ) -> TimeInterval {
-        let deltas = zip(values, values.dropFirst()).compactMap { previous, current -> TimeInterval? in
-            let delta = current[keyPath: timestamp].timeIntervalSince(previous[keyPath: timestamp])
-            return delta > 0 ? delta : nil
-        }
-        guard !deltas.isEmpty else { return 1 }
-        let sorted = deltas.sorted()
-        return sorted[sorted.count / 2]
+        inferredCadence(for: values.map { $0[keyPath: timestamp] })
     }
 
     private static func normalizedAlpha(_ alpha: Double) -> Double {

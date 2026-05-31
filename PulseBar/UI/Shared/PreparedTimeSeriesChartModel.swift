@@ -51,10 +51,19 @@ struct PreparedTimeSeriesChartModel {
         primaryUnit: MetricUnit? = nil,
         fixedYDomain: ClosedRange<Double>? = nil,
         positiveValues: [Double] = [],
-        negativeValues: [Double] = []
+        negativeValues: [Double] = [],
+        xDomainOverride: ClosedRange<Date>? = nil
     ) {
         self.points = points
-        self.scale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
+        var computedScale = ChartSeriesPipeline.scale(for: points, baseline: baseline)
+        if let xDomainOverride {
+            computedScale = ChartScale(
+                xDomain: xDomainOverride,
+                yDomain: computedScale.yDomain,
+                areaBaseline: computedScale.areaBaseline
+            )
+        }
+        self.scale = computedScale
         self.fallbackXDomain = Self.makeXDomain(from: points.map(\.timestamp))
         self.renderStyle = renderStyle
         self.sampleBudget = sampleBudget
@@ -78,16 +87,16 @@ struct PreparedTimeSeriesChartModel {
         smoothingAlpha: Double = 1.0
     ) -> PreparedTimeSeriesChartModel {
         let maxPoints = ChartSeriesPipeline.targetPointCount(for: window, budget: .fullChart)
-        let user = ChartSeriesPipeline.prepareMetricHistory(
-            ChartSeriesPipeline.sanitize(userHistory, timestamp: \.timestamp),
+        let bucketSeconds = window?.bucketSeconds ?? 1
+        let aligned = ChartSeriesPipeline.prepareCPUUsageHistory(
+            userHistory: userHistory,
+            systemHistory: systemHistory,
             maxPoints: maxPoints,
+            bucketSeconds: bucketSeconds,
             smoothingAlpha: smoothingAlpha
         )
-        let system = ChartSeriesPipeline.prepareMetricHistory(
-            ChartSeriesPipeline.sanitize(systemHistory, timestamp: \.timestamp),
-            maxPoints: maxPoints,
-            smoothingAlpha: smoothingAlpha
-        )
+        let user = aligned.user
+        let system = aligned.system
         let descriptors = [
             ChartMetricSeriesDescriptor(key: "cpu.user", label: "User", color: DashboardPalette.cpuUserAccent, samples: user),
             ChartMetricSeriesDescriptor(key: "cpu.system", label: "System", color: DashboardPalette.cpuSystemAccent, samples: system)
@@ -112,12 +121,18 @@ struct PreparedTimeSeriesChartModel {
         sampleBudget: ChartSampleBudget = .fullChart
     ) -> PreparedTimeSeriesChartModel {
         let maxPoints = ChartSeriesPipeline.targetPointCount(for: window, budget: sampleBudget)
+        let bucketSeconds = window?.bucketSeconds ?? 1
         let smoothed = series.map {
             ChartMetricSeriesDescriptor(
                 key: $0.key,
                 label: $0.label,
                 color: $0.color,
-                samples: ChartSeriesPipeline.prepareMetricHistory($0.samples, maxPoints: maxPoints, smoothingAlpha: smoothingAlpha)
+                samples: ChartSeriesPipeline.prepareMetricHistory(
+                    $0.samples,
+                    maxPoints: maxPoints,
+                    bucketSeconds: bucketSeconds,
+                    smoothingAlpha: smoothingAlpha
+                )
             )
         }
         let points = ChartSeriesPipeline.metricHistory(series: smoothed)
@@ -176,12 +191,18 @@ struct PreparedTimeSeriesChartModel {
         sampleBudget: ChartSampleBudget = .fullChart
     ) -> PreparedTimeSeriesChartModel {
         let maxPoints = ChartSeriesPipeline.targetPointCount(for: window, budget: sampleBudget)
+        let bucketSeconds = window?.bucketSeconds ?? 1
         let smoothed = series.map {
             ChartMetricSeriesDescriptor(
                 key: $0.key,
                 label: $0.label,
                 color: $0.color,
-                samples: ChartSeriesPipeline.prepareTemperatureHistory($0.samples, maxPoints: maxPoints, smoothingAlpha: smoothingAlpha)
+                samples: ChartSeriesPipeline.prepareTemperatureHistory(
+                    $0.samples,
+                    maxPoints: maxPoints,
+                    bucketSeconds: bucketSeconds,
+                    smoothingAlpha: smoothingAlpha
+                )
             )
         }
         let points = ChartSeriesPipeline.temperatureHistory(series: smoothed)
@@ -210,9 +231,14 @@ struct PreparedTimeSeriesChartModel {
     }
 
     static func fromCompactCPUUsage(
-        renderModel: CompactCPUUsageRenderModel
+        renderModel: CompactCPUUsageRenderModel,
+        window: ChartWindow? = nil
     ) -> PreparedTimeSeriesChartModel {
         let points = ChartSeriesPipeline.compactCPUUsagePoints(renderModel: renderModel)
+        let dataDomain = renderModel.xDomain ?? makeXDomain(from: points.map(\.timestamp))
+        let xDomainOverride = window.map {
+            DashboardChartStyle.visibleXDomain(dataDomain: dataDomain, window: $0)
+        }
         return PreparedTimeSeriesChartModel(
             points: points,
             baseline: .fixed(0 ... 100),
@@ -220,7 +246,8 @@ struct PreparedTimeSeriesChartModel {
             sampleBudget: .compactChart,
             miniPresentation: .timeSeries,
             primaryUnit: .percent,
-            fixedYDomain: 0 ... 100
+            fixedYDomain: 0 ... 100,
+            xDomainOverride: xDomainOverride
         )
     }
 
@@ -374,6 +401,7 @@ extension PreparedTimeSeriesChartModel {
     static func fromCPU(
         snapshot: CPUHistorySnapshot,
         chart: CPUPaneChart,
+        window: ChartWindow? = nil,
         smoothingAlpha: Double
     ) -> PreparedTimeSeriesChartModel {
         switch chart {
@@ -381,6 +409,7 @@ extension PreparedTimeSeriesChartModel {
             return fromCPUUsage(
                 userHistory: snapshot.user,
                 systemHistory: snapshot.system,
+                window: window,
                 smoothingAlpha: smoothingAlpha
             )
         case .loadAverage:
@@ -391,6 +420,7 @@ extension PreparedTimeSeriesChartModel {
                     ChartMetricSeriesDescriptor(key: "load.15", label: "15 Minute", color: DashboardPalette.tertiaryText, samples: snapshot.load15)
                 ],
                 baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                window: window,
                 smoothingAlpha: smoothingAlpha
             )
         case .gpu:
@@ -400,6 +430,7 @@ extension PreparedTimeSeriesChartModel {
                     ChartMetricSeriesDescriptor(key: "gpu.memory", label: "Memory", color: DashboardPalette.networkChartAccent, samples: snapshot.gpuMemory)
                 ],
                 baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                window: window,
                 smoothingAlpha: smoothingAlpha
             )
         case .framesPerSecond:
@@ -408,6 +439,7 @@ extension PreparedTimeSeriesChartModel {
                     ChartMetricSeriesDescriptor(key: "fps", label: "FPS", color: DashboardPalette.networkChartAccent, samples: snapshot.framesPerSecond)
                 ],
                 baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
+                window: window,
                 smoothingAlpha: smoothingAlpha
             )
         }

@@ -210,30 +210,147 @@ struct DashboardMiniChart: View {
         context: inout GraphicsContext,
         size: CGSize
     ) {
-        let orderedSegments = segments
+        let timelineSegments = segments
             .filter { $0.count >= 2 }
-            .sorted { ($0.first?.seriesKey ?? "") < ($1.first?.seriesKey ?? "") }
+            .sorted { ($0.first?.timestamp ?? .distantPast) < ($1.first?.timestamp ?? .distantPast) }
 
-        for segment in orderedSegments {
-            let color = segment.first?.color ?? DashboardPalette.cpuChartAccent
-            let area = ChartPlotGeometry.areaPath(
+        for segment in timelineSegments {
+            let systemPoints = segment
+                .filter { $0.seriesKey == "cpu.system" }
+                .sorted { $0.timestamp < $1.timestamp }
+            let userPoints = segment
+                .filter { $0.seriesKey == "cpu.user" }
+                .sorted { $0.timestamp < $1.timestamp }
+
+            if systemPoints.count >= 2, userPoints.count >= 2 {
+                let systemByTimestamp = Dictionary(uniqueKeysWithValues: systemPoints.map { ($0.timestamp, $0.value) })
+
+                drawStackedLayer(
+                    segment: systemPoints,
+                    topValue: { $0.value },
+                    baselineValue: { _ in yDomain.lowerBound },
+                    xDomain: xDomain,
+                    yDomain: yDomain,
+                    context: &context,
+                    size: size
+                )
+
+                drawStackedLayer(
+                    segment: userPoints,
+                    topValue: { point in
+                        (systemByTimestamp[point.timestamp] ?? yDomain.lowerBound) + point.value
+                    },
+                    baselineValue: { point in
+                        systemByTimestamp[point.timestamp] ?? yDomain.lowerBound
+                    },
+                    xDomain: xDomain,
+                    yDomain: yDomain,
+                    context: &context,
+                    size: size
+                )
+                continue
+            }
+
+            for seriesSegment in [systemPoints, userPoints].filter({ $0.count >= 2 }) {
+                drawStackedLayer(
+                    segment: seriesSegment,
+                    topValue: { $0.value },
+                    baselineValue: { _ in yDomain.lowerBound },
+                    xDomain: xDomain,
+                    yDomain: yDomain,
+                    context: &context,
+                    size: size
+                )
+            }
+        }
+    }
+
+    private func drawStackedLayer(
+        segment: [TimeSeriesChartPoint],
+        topValue: (TimeSeriesChartPoint) -> Double,
+        baselineValue: (TimeSeriesChartPoint) -> Double,
+        xDomain: ClosedRange<Date>,
+        yDomain: ClosedRange<Double>,
+        context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        let color = segment.first?.color ?? DashboardPalette.cpuChartAccent
+        let area = stackedAreaPath(
+            points: segment,
+            topValue: topValue,
+            baselineValue: baselineValue,
+            xDomain: xDomain,
+            yDomain: yDomain,
+            size: size
+        )
+        context.fill(area, with: .color(color.opacity(areaOpacity)))
+        context.stroke(
+            stackedLinePath(
                 points: segment,
-                baseline: yDomain.lowerBound,
+                value: topValue,
                 xDomain: xDomain,
                 yDomain: yDomain,
                 size: size
-            )
-            context.fill(area, with: .color(color.opacity(areaOpacity)))
-        }
+            ),
+            with: .color(DashboardChartTheme.seriesLineColor(color)),
+            lineWidth: DashboardChartTheme.compactLineWidth
+        )
+    }
 
-        for segment in orderedSegments {
-            let color = segment.first?.color ?? DashboardPalette.cpuChartAccent
-            context.stroke(
-                ChartPlotGeometry.linePath(for: segment, xDomain: xDomain, yDomain: yDomain, size: size),
-                with: .color(DashboardChartTheme.seriesLineColor(color)),
-                lineWidth: DashboardChartTheme.compactLineWidth
-            )
+    private func stackedAreaPath(
+        points: [TimeSeriesChartPoint],
+        topValue: (TimeSeriesChartPoint) -> Double,
+        baselineValue: (TimeSeriesChartPoint) -> Double,
+        xDomain: ClosedRange<Date>,
+        yDomain: ClosedRange<Double>,
+        size: CGSize
+    ) -> Path {
+        guard let first = points.first, let last = points.last else { return Path() }
+        var path = Path()
+        path.move(to: CGPoint(
+            x: ChartPlotGeometry.xPosition(for: first.timestamp, domain: xDomain, width: size.width),
+            y: ChartPlotGeometry.yPosition(for: topValue(first), domain: yDomain, height: size.height)
+        ))
+        for point in points.dropFirst() {
+            path.addLine(to: CGPoint(
+                x: ChartPlotGeometry.xPosition(for: point.timestamp, domain: xDomain, width: size.width),
+                y: ChartPlotGeometry.yPosition(for: topValue(point), domain: yDomain, height: size.height)
+            ))
         }
+        path.addLine(to: CGPoint(
+            x: ChartPlotGeometry.xPosition(for: last.timestamp, domain: xDomain, width: size.width),
+            y: ChartPlotGeometry.yPosition(for: baselineValue(last), domain: yDomain, height: size.height)
+        ))
+        for point in points.dropLast().reversed() {
+            path.addLine(to: CGPoint(
+                x: ChartPlotGeometry.xPosition(for: point.timestamp, domain: xDomain, width: size.width),
+                y: ChartPlotGeometry.yPosition(for: baselineValue(point), domain: yDomain, height: size.height)
+            ))
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    private func stackedLinePath(
+        points: [TimeSeriesChartPoint],
+        value: (TimeSeriesChartPoint) -> Double,
+        xDomain: ClosedRange<Date>,
+        yDomain: ClosedRange<Double>,
+        size: CGSize
+    ) -> Path {
+        guard let first = points.first else { return Path() }
+        var path = Path()
+        path.move(to: CGPoint(
+            x: ChartPlotGeometry.xPosition(for: first.timestamp, domain: xDomain, width: size.width),
+            y: ChartPlotGeometry.yPosition(for: value(first), domain: yDomain, height: size.height)
+        ))
+        for point in points.dropFirst() {
+            path.addLine(to: CGPoint(
+                x: ChartPlotGeometry.xPosition(for: point.timestamp, domain: xDomain, width: size.width),
+                y: ChartPlotGeometry.yPosition(for: value(point), domain: yDomain, height: size.height)
+            ))
+        }
+        return path
     }
 
     private func drawBaselineSeries(
@@ -244,7 +361,11 @@ struct DashboardMiniChart: View {
         size: CGSize
     ) {
         let baseline = model.scale.areaBaseline
-        for segment in segments where segment.count >= 2 {
+        let orderedSegments = segments
+            .filter { $0.count >= 2 }
+            .sorted(by: ChartRenderSemantics.compareSegmentsForDrawOrder)
+
+        for segment in orderedSegments {
             let color = segment.first?.color ?? DashboardPalette.cpuChartAccent
             let area = ChartPlotGeometry.areaPath(
                 points: segment,
@@ -269,7 +390,11 @@ struct DashboardMiniChart: View {
         context: inout GraphicsContext,
         size: CGSize
     ) {
-        for segment in segments where segment.count >= 2 {
+        let orderedSegments = segments
+            .filter { $0.count >= 2 }
+            .sorted(by: ChartRenderSemantics.compareSegmentsForDrawOrder)
+
+        for segment in orderedSegments {
             let color = segment.first?.color ?? DashboardPalette.cpuChartAccent
             context.stroke(
                 ChartPlotGeometry.linePath(for: segment, xDomain: xDomain, yDomain: yDomain, size: size),

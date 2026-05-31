@@ -110,4 +110,103 @@ final class DetachedMetricsPaneControllerTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 260_000_000)
         XCTAssertNil(controller.hoveredTarget)
     }
+
+    @MainActor
+    func testPinningFromCPUPreviewRestoresSavedHistoryWindow() async throws {
+        let defaults = makeDefaults()
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+            coordinator.selectedCPUHistoryWindow = .oneHour
+            coordinator.compactCPUChartWindow = .sixHours
+            let controller = DetachedMetricsPaneController()
+            let parentWindow = NSWindow(
+                contentRect: NSRect(x: 200, y: 200, width: 400, height: 300),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+
+            controller.preview(.cpu(chart: .usage), coordinator: coordinator, parentWindow: parentWindow)
+            XCTAssertEqual(coordinator.selectedCPUHistoryWindow, .sixHours)
+
+            controller.pin(.cpu(chart: .usage), coordinator: coordinator, parentWindow: parentWindow)
+            XCTAssertEqual(coordinator.selectedCPUHistoryWindow, .sixHours)
+
+            controller.unpin()
+            XCTAssertEqual(coordinator.selectedCPUHistoryWindow, .oneHour)
+
+            await coordinator.shutdown()
+        }
+    }
+
+    @MainActor
+    func testCPUPreviewMirrorsCompactChartWindowAndRestoresOnDismiss() async throws {
+        let defaults = makeDefaults()
+
+        try await withUniqueTemporaryDirectory { temporaryRoot in
+            let coordinator = AppCoordinator(
+                defaults: defaults,
+                metricHistoryDatabaseURL: temporaryRoot.appendingPathComponent("metric-history.sqlite"),
+                memoryHistoryDatabaseURL: temporaryRoot.appendingPathComponent("memory-history.sqlite3"),
+                temperatureHistoryDatabaseURL: temporaryRoot.appendingPathComponent("temperature-history.sqlite3")
+            )
+            coordinator.selectedCPUHistoryWindow = .oneHour
+            coordinator.compactCPUChartWindow = .sixHours
+            let controller = DetachedMetricsPaneController()
+            let parentWindow = NSWindow(
+                contentRect: NSRect(x: 200, y: 200, width: 400, height: 300),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+
+            controller.preview(.cpu(chart: .usage), coordinator: coordinator, parentWindow: parentWindow)
+            XCTAssertEqual(coordinator.selectedCPUHistoryWindow, .sixHours)
+
+            controller.clearPreview(.cpu(chart: .usage))
+            controller.setMainListHovering(false)
+            controller.setPanelHovering(false)
+
+            try await Task.sleep(nanoseconds: 260_000_000)
+            XCTAssertEqual(coordinator.selectedCPUHistoryWindow, .oneHour)
+
+            await coordinator.shutdown()
+        }
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "DetachedMetricsPaneControllerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    private func withUniqueTemporaryDirectory(
+        _ body: (URL) async throws -> Void
+    ) async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+
+        let previousTMPDIR = getenv("TMPDIR").flatMap { pointer in
+            String(validatingUTF8: pointer)
+        }
+        setenv("TMPDIR", temporaryRoot.path + "/", 1)
+        defer {
+            if let previousTMPDIR {
+                setenv("TMPDIR", previousTMPDIR, 1)
+            } else {
+                unsetenv("TMPDIR")
+            }
+            try? fileManager.removeItem(at: temporaryRoot)
+        }
+
+        try await body(temporaryRoot)
+    }
 }

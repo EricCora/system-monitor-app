@@ -143,7 +143,8 @@ private struct CPUUsageSection: View {
             HStack(alignment: .top, spacing: 8) {
                 DashboardMiniChart(
                     model: PreparedTimeSeriesChartModel.fromCompactCPUUsage(
-                        renderModel: snapshot.renderModel
+                        renderModel: snapshot.renderModel,
+                        window: snapshot.chartWindow
                     ),
                     areaOpacity: areaOpacity,
                     showsPlotBackground: true
@@ -192,10 +193,10 @@ private struct CPUGPUSection: View {
             CPUSectionTitle(gpu?.deviceName.uppercased() ?? "APPLE SILICON")
 
             if let gpu, gpu.available {
-                CPUMetricBarRow(title: "Processor", value: gpu.processorPercent ?? 0, color: DashboardPalette.cpuAccent)
+                CPUMetricBarRow(title: "GPU Processor", value: gpu.processorPercent ?? 0, color: DashboardPalette.cpuAccent)
                 CPUMetricBarRow(title: "Memory", value: gpu.memoryPercent ?? 0, color: DashboardPalette.networkAccent)
             } else {
-                CPUMetricBarRow(title: "Processor", value: 0, color: DashboardPalette.cpuAccent)
+                CPUMetricBarRow(title: "GPU Processor", value: 0, color: DashboardPalette.cpuAccent)
                 CPUMetricBarRow(title: "Memory", value: 0, color: DashboardPalette.networkAccent)
                 Text(gpu?.statusMessage ?? "GPU telemetry unavailable")
                     .font(.caption2)
