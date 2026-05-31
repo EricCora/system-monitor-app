@@ -8,17 +8,9 @@ struct TemperatureTabView: View {
     @ObservedObject var featureStore: TemperatureFeatureStore
     @State private var hostWindow: NSWindow?
     @State private var primaryTemperatureSamples: [MetricSample] = []
+    @State private var compactChartModel = PreparedTimeSeriesChartModel.empty
     @State private var compareModeEnabled = false
     @State private var compareSelectionRevision = 0
-
-    private var chartDisplayOptions: ChartDisplayOptions {
-        ChartDisplayOptions(
-            showsMinorGrid: coordinator.chartMinorGridEnabled,
-            smoothingAlpha: coordinator.chartSmoothingAlpha,
-            areaOpacity: coordinator.chartAreaOpacity,
-            plotCornerRadius: DashboardChartTheme.tabPlotCornerRadius
-        )
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DashboardTabMetrics.sectionSpacing) {
@@ -210,14 +202,12 @@ struct TemperatureTabView: View {
                     .foregroundStyle(DashboardPalette.primaryText)
             }
 
-            MetricChartView(
-                title: "Primary Temperature",
-                samples: primaryTemperatureSamples,
-                throughputUnit: coordinator.throughputUnit,
-                seriesColor: DashboardPalette.temperatureChartAccent,
-                displayOptions: chartDisplayOptions,
-                diagnosticsStore: coordinator.performanceDiagnosticsStore
+            DashboardMiniChart(
+                model: compactChartModel,
+                areaOpacity: coordinator.chartAreaOpacity,
+                showsPlotBackground: true
             )
+            .frame(height: 92)
         }
         .dashboardSurface(padding: 16, cornerRadius: DashboardTabMetrics.hoverSectionCornerRadius)
     }
@@ -289,16 +279,15 @@ struct TemperatureTabView: View {
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(comparedRows.isEmpty ? DashboardPalette.secondaryText : DashboardPalette.primaryText)
 
-            HStack(spacing: 5) {
-                ForEach(Array(comparedRows.enumerated()), id: \.element.id) { index, row in
-                    Circle()
-                        .fill(compareColor(for: index))
-                        .frame(width: 8, height: 8)
-                        .help(row.displayName)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(comparedRows.enumerated()), id: \.element.id) { index, row in
+                        compareSelectionChip(row: row, index: index)
+                    }
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Text("Max \(coordinator.maxComparedTemperatureSensors)")
                 .font(.caption)
@@ -323,6 +312,30 @@ struct TemperatureTabView: View {
                         .strokeBorder(DashboardPalette.divider, lineWidth: 1)
                 )
         )
+    }
+
+    private func compareSelectionChip(row: TemperatureAggregateRow, index: Int) -> some View {
+        let color = DashboardChartTheme.compareColor(for: index)
+        return HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(row.displayName)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(DashboardPalette.primaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(color.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(color.opacity(0.55), lineWidth: 1)
+                )
+        )
+        .help(row.displayName)
     }
 
     private var latestPrimaryTemperatureText: String {
@@ -350,10 +363,10 @@ struct TemperatureTabView: View {
     }
 
     private var selectionStatusText: String {
-        if let focusSensor {
-            return "\(focusSensor.category.label) groups collapse to one row when max, average, and minimum would be identical."
+        if focusSensor != nil {
+            return "Focused sensor · Primary overview \(latestPrimaryTemperatureText)"
         }
-        return "Select a group row to inspect its live history."
+        return "Primary overview \(latestPrimaryTemperatureText) · Select a sensor row for detailed history."
     }
 
     private var emptyStateText: String {
@@ -371,12 +384,14 @@ struct TemperatureTabView: View {
     }
 
     private var chartRefreshID: String {
-        "\(coordinator.selectedTemperatureHistoryWindow.rawValue)-\(coordinator.metricHistoryRevision)-\(coordinator.historyStoreStatusMessage ?? "")"
+        "\(coordinator.selectedTemperatureHistoryWindow.rawValue)-\(coordinator.metricHistoryRevision)-\(coordinator.chartSmoothingAlpha)-\(coordinator.historyStoreStatusMessage ?? "")"
     }
 
     private func synchronizeSelectionAndPane() {
         if coordinator.selectedSensorReading() == nil {
-            coordinator.selectedTemperatureSensorID = featureStore.visibleSensors.first?.id ?? ""
+            coordinator.selectedTemperatureSensorID = TemperaturePaneModel.preferredDefaultSensorID(
+                from: featureStore.visibleSensors
+            ) ?? featureStore.visibleSensors.first?.id ?? ""
         }
 
         coordinator.comparedTemperatureSensorIDs = coordinator.comparedTemperatureSensorIDs
@@ -392,6 +407,14 @@ struct TemperatureTabView: View {
             for: .temperaturePrimaryCelsius,
             window: coordinator.selectedTemperatureHistoryWindow,
             maxPoints: 240
+        )
+        compactChartModel = PreparedTimeSeriesChartModel.fromCompactTemperature(
+            samples: primaryTemperatureSamples,
+            key: "primary.temperature",
+            label: "Primary Temperature",
+            color: DashboardPalette.temperatureChartAccent,
+            window: coordinator.selectedTemperatureHistoryWindow,
+            smoothingAlpha: coordinator.chartSmoothingAlpha
         )
     }
 
@@ -456,7 +479,7 @@ struct TemperatureTabView: View {
                         Capsule()
                             .fill(DashboardPalette.insetFill)
                         Capsule()
-                            .fill(DashboardPalette.temperatureAccent)
+                            .fill(compareBarColor(for: row))
                             .frame(width: barWidth(for: row, group: group, totalWidth: proxy.size.width))
                     }
                 }
@@ -554,10 +577,10 @@ struct TemperatureTabView: View {
     private func borderColor(for row: TemperatureAggregateRow) -> Color {
         if compareModeEnabled,
            let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
-            return compareColor(for: comparedIndex).opacity(0.65)
+            return DashboardChartTheme.compareColor(for: comparedIndex).opacity(0.65)
         }
         if paneController.isActive(.temperatureCompare), comparedSensorIDs.contains(row.id) {
-            return DashboardPalette.temperatureAccent.opacity(0.55)
+            return DashboardChartTheme.compareColor(for: comparedSensorIDs.firstIndex(of: row.id) ?? 0).opacity(0.55)
         }
         return DashboardPalette.divider
     }
@@ -575,7 +598,7 @@ struct TemperatureTabView: View {
             if compareModeEnabled {
                 if let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(compareColor(for: comparedIndex))
+                        .foregroundStyle(DashboardChartTheme.compareColor(for: comparedIndex))
                 } else {
                     Image(systemName: "circle")
                         .foregroundStyle(DashboardPalette.secondaryText)
@@ -589,22 +612,16 @@ struct TemperatureTabView: View {
         .frame(width: 12, height: 12)
     }
 
+    private func compareBarColor(for row: TemperatureAggregateRow) -> Color {
+        if compareModeEnabled, let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
+            return DashboardChartTheme.compareColor(for: comparedIndex)
+        }
+        return DashboardPalette.temperatureAccent
+    }
+
     private func presentComparePane() {
         guard !coordinator.comparedTemperatureRows().isEmpty,
               let parentWindow = currentParentWindow else { return }
         paneController.pin(.temperatureCompare, coordinator: coordinator, parentWindow: parentWindow)
     }
-
-    private func compareColor(for index: Int) -> Color {
-        Self.compareColors[index % Self.compareColors.count]
-    }
-
-    private static let compareColors: [Color] = [
-        DashboardPalette.temperatureAccent,
-        DashboardPalette.cpuAccent,
-        DashboardPalette.memoryAccent,
-        DashboardPalette.diskAccent,
-        DashboardPalette.networkAccent,
-        DashboardPalette.success
-    ]
 }

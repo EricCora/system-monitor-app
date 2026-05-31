@@ -92,4 +92,38 @@ enum ChartPlotGeometry {
         }
         return path
     }
+
+    /// Returns x-ranges between contiguous timeline segments (missing-data gaps).
+    static func timelineGapRanges(
+        for timestamps: [Date],
+        paddingFraction: Double = 0.015
+    ) -> [ClosedRange<Date>] {
+        guard timestamps.count >= 2 else { return [] }
+
+        let sortedUnique = Array(Set(timestamps)).sorted()
+        let segmentIndices = ChartSeriesPipeline.timelineSegmentIndices(for: timestamps)
+        var segmentByTimestamp: [Date: Int] = [:]
+        for (timestamp, segmentIndex) in zip(timestamps, segmentIndices) {
+            segmentByTimestamp[timestamp] = segmentIndex
+        }
+
+        var boundaries: [(Date, Int, Int)] = []
+        for index in sortedUnique.indices.dropFirst() {
+            let previous = sortedUnique[index - 1]
+            let current = sortedUnique[index]
+            guard segmentByTimestamp[previous] != segmentByTimestamp[current] else { continue }
+            boundaries.append((previous, segmentByTimestamp[previous] ?? 0, segmentByTimestamp[current] ?? 0))
+        }
+
+        guard !boundaries.isEmpty else { return [] }
+
+        let span = sortedUnique.last!.timeIntervalSince(sortedUnique.first!)
+        let padding = max(span * paddingFraction, 0.5)
+
+        return boundaries.map { boundary in
+            let start = boundary.0.addingTimeInterval(padding * 0.35)
+            let end = start.addingTimeInterval(padding)
+            return start ... end
+        }
+    }
 }

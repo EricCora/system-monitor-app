@@ -120,12 +120,23 @@ struct TemperatureComparePaneContentView: View {
             }
 
             if chartModel.hasRenderableCompareHistory, let hoveredDate {
-                HStack {
+                HStack(spacing: 10) {
                     Text(hoveredDate.formatted(date: .omitted, time: .standard))
                         .foregroundStyle(DashboardPalette.secondaryText)
-                    Spacer()
-                    Text("\(selectedSensors.count) series")
-                        .font(.caption.monospacedDigit())
+
+                    Spacer(minLength: 0)
+
+                    ForEach(Array(selectedSensors.enumerated()), id: \.element.id) { index, row in
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(DashboardChartTheme.compareColor(for: index))
+                                .frame(width: 6, height: 6)
+                            Text(legendValue(for: row))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(DashboardPalette.primaryText)
+                                .lineLimit(1)
+                        }
+                    }
                 }
                 .font(.caption)
                 .frame(height: 18)

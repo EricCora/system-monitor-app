@@ -236,16 +236,12 @@ enum ChartSeriesPipeline {
     ) -> [TimeSeriesChartPoint] {
         let sanitized = sanitize(history, timestamp: \.timestamp)
         let smoothed = lowPass(sanitized, alpha: smoothingAlpha)
-        let continuityKeys = continuityKeys(
-            for: smoothed,
-            seriesKey: "memory.composition",
-            timestamp: \.timestamp
-        )
+        let segmentIndices = timelineSegmentIndices(for: smoothed.map(\.timestamp))
 
         var output: [TimeSeriesChartPoint] = []
         output.reserveCapacity(smoothed.count * 4)
 
-        for (point, continuityKey) in zip(smoothed, continuityKeys) {
+        for (point, segmentIndex) in zip(smoothed, segmentIndices) {
             let total = max(1, point.totalBytes)
             let components: [(String, String, Color, Double)] = [
                 ("memory.wired", "Wired", DashboardPalette.networkChartAccent, point.wiredBytes),
@@ -261,14 +257,19 @@ enum ChartSeriesPipeline {
                         value: percent,
                         seriesKey: key,
                         seriesLabel: label,
-                        continuityKey: continuityKey,
+                        continuityKey: "\(key)#\(segmentIndex)",
                         color: color
                     )
                 )
             }
         }
 
-        return output.sorted { $0.timestamp < $1.timestamp }
+        return output.sorted {
+            if $0.timestamp == $1.timestamp {
+                return ChartRenderSemantics.layerRank(for: $0.seriesKey) < ChartRenderSemantics.layerRank(for: $1.seriesKey)
+            }
+            return $0.timestamp < $1.timestamp
+        }
     }
 
     static func sanitize<T>(_ values: [T], timestamp: KeyPath<T, Date>) -> [T] {

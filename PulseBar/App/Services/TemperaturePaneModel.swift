@@ -77,14 +77,14 @@ final class TemperaturePaneModel: ObservableObject {
         comparedTemperatureSensorIDs.removeAll { $0 == sensorID }
 
         if selectedTemperatureSensorID == sensorID {
-            selectedTemperatureSensorID = visibleSensorChannels(from: allSensors).first?.id ?? ""
+            selectedTemperatureSensorID = Self.preferredDefaultSensorID(from: visibleSensorChannels(from: allSensors)) ?? ""
         }
     }
 
     func resetHiddenSensors(allSensors: [SensorReading]) {
         hiddenTemperatureSensorIDs = []
         if selectedTemperatureSensorID.isEmpty {
-            selectedTemperatureSensorID = visibleSensorChannels(from: allSensors).first?.id ?? ""
+            selectedTemperatureSensorID = Self.preferredDefaultSensorID(from: visibleSensorChannels(from: allSensors)) ?? ""
         }
     }
 
@@ -97,8 +97,48 @@ final class TemperaturePaneModel: ObservableObject {
 
         let visibleSensors = visibleSensorChannels(from: allSensors)
         if selectedTemperatureSensorID.isEmpty || !visibleSensors.contains(where: { $0.id == selectedTemperatureSensorID }) {
-            selectedTemperatureSensorID = visibleSensors.first?.id ?? ""
+            selectedTemperatureSensorID = Self.preferredDefaultSensorID(from: visibleSensors) ?? ""
         }
+    }
+
+    /// Prefers high-signal thermal categories before battery or alphabetically-first sensors.
+    static func preferredDefaultSensorID(from sensors: [SensorReading]) -> String? {
+        guard !sensors.isEmpty else { return nil }
+
+        let temperatureSensors = sensors.filter { $0.channelType == .temperatureCelsius }
+        let preferredCategories: [SensorCategory] = [.cpu, .soc, .gpu, .storage, .battery]
+
+        for category in preferredCategories where category != .battery {
+            if let sensor = temperatureSensors
+                .filter({ $0.category == category })
+                .max(by: { $0.value < $1.value }) {
+                return sensor.id
+            }
+        }
+
+        return temperatureSensors.first(where: { $0.category != .battery })?.id
+            ?? temperatureSensors.first?.id
+            ?? sensors.first?.id
+    }
+
+    static func preferredDefaultAggregateRowID(from aggregateRows: [TemperatureAggregateRow]) -> String? {
+        let preferred: [(SensorCategory, TemperatureAggregateStatistic)] = [
+            (.cpu, .max),
+            (.cpu, .avg),
+            (.soc, .max),
+            (.gpu, .max),
+            (.storage, .max)
+        ]
+
+        for (category, statistic) in preferred {
+            let rowID = TemperatureAggregateRow.id(category: category, statistic: statistic)
+            if aggregateRows.contains(where: { $0.id == rowID }) {
+                return rowID
+            }
+        }
+
+        return aggregateRows.first(where: { $0.category != .battery })?.id
+            ?? aggregateRows.first?.id
     }
 
     func isHidden(sensorID: String) -> Bool {

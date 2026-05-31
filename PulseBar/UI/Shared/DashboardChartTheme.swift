@@ -2,14 +2,15 @@ import AppKit
 import SwiftUI
 
 enum DashboardChartTheme {
-    static let defaultAreaOpacity: Double = 0.32
-    static let defaultLineOpacity: Double = 0.95
+    static let defaultAreaOpacity: Double = 0.72
+    static let stackedAreaOpacity: Double = 0.88
+    static let defaultLineOpacity: Double = 1.0
     static let defaultLineWidth: CGFloat = 2
-    static let compactLineWidth: CGFloat = 1.5
+    static let compactLineWidth: CGFloat = 1.75
     static let defaultPlotCornerRadius: CGFloat = 8
     static let detachedPlotCornerRadius: CGFloat = 14
     static let tabPlotCornerRadius: CGFloat = 12
-    static let gridOpacity: Double = 0.42
+    static let gridOpacity: Double = 0.10
     static let plotBorderOpacity: Double = 0.9
     static let hiddenLegendOpacity: Double = 0.48
 
@@ -29,15 +30,29 @@ enum DashboardChartTheme {
         comparePalette[index % comparePalette.count]
     }
 
+    /// Depth gradient: stays saturated from top to bottom (not fade-to-transparent).
     static func areaFill(_ color: Color, opacity: Double = defaultAreaOpacity) -> LinearGradient {
         LinearGradient(
             colors: [
-                color.opacity(opacity),
-                color.opacity(opacity * 0.55)
+                color.opacity(opacity * 0.92),
+                color.opacity(opacity)
             ],
             startPoint: .top,
             endPoint: .bottom
         )
+    }
+
+    static func areaFillStacked(_ color: Color, opacity: Double = stackedAreaOpacity) -> LinearGradient {
+        areaFill(color, opacity: opacity)
+    }
+
+    /// Flat fill for Canvas mini charts (matches Swift Charts area midpoint).
+    static func areaFillColor(_ color: Color, opacity: Double = defaultAreaOpacity) -> Color {
+        color.opacity(opacity * 0.96)
+    }
+
+    static func areaFillStackedColor(_ color: Color, opacity: Double = stackedAreaOpacity) -> Color {
+        color.opacity(opacity)
     }
 
     static func seriesStroke(_ color: Color, lineWidth: CGFloat = defaultLineWidth) -> StrokeStyle {
@@ -48,8 +63,25 @@ enum DashboardChartTheme {
         color.opacity(opacity)
     }
 
-    static func sparklineFill(_ color: Color, opacity: Double = defaultAreaOpacity * 0.65) -> Color {
-        color.opacity(opacity)
+    static func sparklineFill(_ color: Color, opacity: Double = defaultAreaOpacity) -> Color {
+        areaFillColor(color, opacity: opacity)
+    }
+
+    static func resolvedAreaOpacity(for renderStyle: DashboardTimeSeriesRenderStyle, baseOpacity: Double) -> Double {
+        switch renderStyle {
+        case .stackedArea:
+            return stackedAreaOpacity
+        case .baselineAreaLine, .lineOnly:
+            return baseOpacity
+        }
+    }
+
+    static func gapStripColor(opacity: Double = 0.22) -> Color {
+        plotWellBottom.opacity(opacity)
+    }
+
+    static func gapDividerColor(opacity: Double = 0.35) -> Color {
+        DashboardPalette.chartGrid.opacity(gridOpacity * opacity)
     }
 
     static func miniPlotBackground(cornerRadius: CGFloat = 8) -> some View {

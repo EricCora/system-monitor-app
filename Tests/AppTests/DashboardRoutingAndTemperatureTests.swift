@@ -458,6 +458,55 @@ final class DashboardRoutingAndTemperatureTests: XCTestCase {
         XCTAssertEqual(model.visibleSensorChannels(from: sensors).map(\.id), ["gpu-real", "fan"])
     }
 
+    func testPreferredDefaultTemperatureSensorPrefersCPUOverBattery() {
+        let now = Date(timeIntervalSince1970: 1_700_030_000)
+        let sensors = [
+            makeSensor(id: "battery", displayName: "Battery", category: .battery, value: 29, timestamp: now),
+            makeSensor(id: "cpu-die", displayName: "CPU Die", category: .cpu, value: 62, timestamp: now),
+            makeSensor(id: "soc-die", displayName: "SoC Die", category: .soc, value: 58, timestamp: now)
+        ]
+
+        XCTAssertEqual(TemperaturePaneModel.preferredDefaultSensorID(from: sensors), "cpu-die")
+
+        let aggregateRows = [
+            TemperatureAggregateRow(
+                id: TemperatureAggregateRow.id(category: .cpu, statistic: .max),
+                category: .cpu,
+                statistic: .max,
+                displayName: "CPU Max",
+                value: 62,
+                sensorIDs: ["cpu-die"],
+                timestamp: now,
+                sourceSensorCount: 1
+            ),
+            TemperatureAggregateRow(
+                id: TemperatureAggregateRow.id(category: .battery, statistic: .avg),
+                category: .battery,
+                statistic: .avg,
+                displayName: "Battery",
+                value: 29,
+                sensorIDs: ["battery"],
+                timestamp: now,
+                sourceSensorCount: 1
+            )
+        ]
+        XCTAssertEqual(
+            TemperaturePaneModel.preferredDefaultAggregateRowID(from: aggregateRows),
+            TemperatureAggregateRow.id(category: .cpu, statistic: .max)
+        )
+    }
+
+    func testTimelineGapRangesDetectMissingIntervals() {
+        let timestamps = [
+            Date(timeIntervalSince1970: 0),
+            Date(timeIntervalSince1970: 10),
+            Date(timeIntervalSince1970: 20),
+            Date(timeIntervalSince1970: 120)
+        ]
+        let ranges = ChartPlotGeometry.timelineGapRanges(for: timestamps)
+        XCTAssertEqual(ranges.count, 1)
+    }
+
     func testTemperatureAggregateHistoryReadsStoredAggregateSeries() async throws {
         let defaults = makeDefaults()
         let reading = makeGroupedTemperatureReading()

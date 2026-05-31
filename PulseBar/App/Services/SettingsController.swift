@@ -203,7 +203,7 @@ final class SettingsController: ObservableObject {
 
     @Published var chartAreaOpacity: Double {
         didSet {
-            let clamped = chartAreaOpacity.clamped(to: 0.05...0.5)
+            let clamped = chartAreaOpacity.clamped(to: 0.05...0.95)
             if clamped != chartAreaOpacity {
                 chartAreaOpacity = clamped
                 return
@@ -912,7 +912,7 @@ final class SettingsController: ObservableObject {
             showDiskInMenu: showDiskInMenu,
             showTemperatureInMenu: showTemperatureInMenu,
             throughputUnit: throughputUnit,
-            chartAreaOpacity: 0.32,
+            chartAreaOpacity: 0.72,
             selectedWindow: selectedWindow,
             cpuAlertEnabled: cpuAlertEnabled,
             cpuAlertThreshold: cpuAlertThreshold,

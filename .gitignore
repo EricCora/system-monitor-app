@@ -3,8 +3,8 @@
 .swiftpm/
 DerivedData/
 .derivedData/
+build/
 .codex/
-dist/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/

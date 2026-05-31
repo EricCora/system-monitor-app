@@ -53,7 +53,8 @@ struct DashboardView: View {
             \.dashboardChartDisplayOptions,
             ChartDisplayOptions(
                 showsMinorGrid: coordinator.chartMinorGridEnabled,
-                smoothingAlpha: coordinator.chartSmoothingAlpha
+                smoothingAlpha: coordinator.chartSmoothingAlpha,
+                areaOpacity: coordinator.chartAreaOpacity
             )
         )
         .onAppear {
@@ -670,6 +671,7 @@ private struct CPUDashboardCard: View {
     @ObservedObject var gpuStore: CPUGPUSurfaceStore
     @ObservedObject var fpsStore: CPUFPSSurfaceStore
     @ObservedObject var processesStore: CPUProcessesSurfaceStore
+    @Environment(\.dashboardChartDisplayOptions) private var chartDisplayOptions
 
     var body: some View {
         DashboardCard(
@@ -706,11 +708,15 @@ private struct CPUDashboardCard: View {
                 }
             }
 
-            DashboardSparklineView(
-                values: usageStore.snapshot.renderModel.segments.flatMap(\.points).map(\.totalValue),
-                lineColor: DashboardPalette.cpuUserAccent,
-                fillColor: DashboardChartTheme.sparklineFill(DashboardPalette.cpuUserAccent)
+            DashboardMiniChart(
+                model: PreparedTimeSeriesChartModel.fromCompactCPUUsage(
+                    renderModel: usageStore.snapshot.renderModel,
+                    window: usageStore.snapshot.chartWindow
+                ),
+                areaOpacity: chartDisplayOptions.resolvedAreaOpacity,
+                showsPlotBackground: true
             )
+            .frame(height: 80)
 
             HStack(spacing: 10) {
                 metricPill(label: "User", value: usageStore.snapshot.summary.userPercent, tint: DashboardPalette.cpuUserAccent)
@@ -817,8 +823,7 @@ private struct MemoryDashboardCard: View {
 
             DashboardSparklineView(
                 values: featureStore.usedSamples.map(\.value),
-                lineColor: DashboardPalette.networkAccent,
-                fillColor: DashboardPalette.networkAccent.opacity(0.18)
+                lineColor: DashboardPalette.networkAccent
             )
 
             VStack(alignment: .leading, spacing: 6) {
@@ -882,8 +887,7 @@ private struct BatteryDashboardCard: View {
 
             DashboardSparklineView(
                 values: featureStore.chargeSamples.map(\.value),
-                lineColor: featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent,
-                fillColor: (featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent).opacity(0.18)
+                lineColor: featureStore.isCharging ? DashboardPalette.batteryAccent : DashboardPalette.cpuAccent
             )
 
             VStack(alignment: .leading, spacing: 6) {

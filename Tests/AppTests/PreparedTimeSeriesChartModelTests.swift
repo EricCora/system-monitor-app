@@ -147,6 +147,28 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
         XCTAssertEqual(model.fixedYDomain, 0 ... 100)
     }
 
+    func testFromCompactTemperatureUsesBaselineAreaLineAndDataMin() {
+        let now = Date(timeIntervalSince1970: 5_000)
+        let samples = [
+            MetricSample(metricID: .temperaturePrimaryCelsius, timestamp: now, value: 48, unit: .celsius),
+            MetricSample(metricID: .temperaturePrimaryCelsius, timestamp: now.addingTimeInterval(60), value: 52, unit: .celsius)
+        ]
+
+        let model = PreparedTimeSeriesChartModel.fromCompactTemperature(
+            samples: samples,
+            key: "primary.temperature",
+            label: "Primary Temperature",
+            color: DashboardPalette.temperatureChartAccent,
+            window: .oneHour
+        )
+
+        XCTAssertEqual(model.renderStyle, .baselineAreaLine)
+        XCTAssertEqual(model.sampleBudget, .compactChart)
+        XCTAssertEqual(model.miniPresentation, .timeSeries)
+        XCTAssertEqual(model.primaryUnit, .celsius)
+        XCTAssertGreaterThan(model.scale.areaBaseline, 0)
+    }
+
     func testFromTemperatureCompareRequiresMultiplePointsPerSeries() {
         let early = Date(timeIntervalSince1970: 100)
         let late = Date(timeIntervalSince1970: 200)
@@ -184,7 +206,93 @@ final class PreparedTimeSeriesChartModelTests: XCTestCase {
         )
         XCTAssertTrue(dense.hasRenderableCompareHistory)
         XCTAssertEqual(dense.sampleBudget, .compareLine)
-        XCTAssertEqual(dense.renderStyle, .lineOnly)
+        XCTAssertEqual(dense.renderStyle, .baselineAreaLine)
+        XCTAssertGreaterThan(dense.scale.areaBaseline, 0)
+
+        let multi = PreparedTimeSeriesChartModel.fromTemperatureCompare(
+            series: [
+                ChartMetricSeriesDescriptor(
+                    key: "a",
+                    label: "A",
+                    color: .red,
+                    samples: [
+                        TemperatureHistoryPoint(sensorID: "a", timestamp: early, value: 50, channelType: .temperatureCelsius),
+                        TemperatureHistoryPoint(sensorID: "a", timestamp: late, value: 52, channelType: .temperatureCelsius)
+                    ]
+                ),
+                ChartMetricSeriesDescriptor(
+                    key: "b",
+                    label: "B",
+                    color: .blue,
+                    samples: [
+                        TemperatureHistoryPoint(sensorID: "b", timestamp: early, value: 55, channelType: .temperatureCelsius),
+                        TemperatureHistoryPoint(sensorID: "b", timestamp: late, value: 57, channelType: .temperatureCelsius)
+                    ]
+                )
+            ]
+        )
+        XCTAssertTrue(multi.hasRenderableCompareHistory)
+        XCTAssertEqual(multi.renderStyle, .lineOnly)
+    }
+
+    func testMemoryCompositionUsesDistinctContinuityKeysAndIDs() {
+        let history = [
+            makeMemoryPoint(
+                timestamp: Date(timeIntervalSince1970: 100),
+                wired: 2_000,
+                active: 3_000,
+                compressed: 1_000,
+                free: 4_000,
+                total: 10_000
+            ),
+            makeMemoryPoint(
+                timestamp: Date(timeIntervalSince1970: 200),
+                wired: 1_000,
+                active: 2_000,
+                compressed: 500,
+                free: 6_500,
+                total: 10_000
+            )
+        ]
+
+        let points = ChartSeriesPipeline.memoryCompositionPoints(history: history, smoothingAlpha: 1.0)
+        let ids = Set(points.map(\.id))
+        XCTAssertEqual(ids.count, points.count)
+
+        let continuityKeys = Set(points.map(\.continuityKey))
+        XCTAssertEqual(continuityKeys, Set([
+            "memory.wired#0",
+            "memory.active#0",
+            "memory.compressed#0",
+            "memory.free#0"
+        ]))
+
+        let groups = ChartRenderSemantics.renderGroups(for: .stackedArea, points: points)
+        XCTAssertEqual(groups.count, 1)
+        let firstTimestamp = history[0].timestamp
+        let orderedKeys = groups[0].segments[0]
+            .filter { $0.timestamp == firstTimestamp }
+            .map(\.seriesKey)
+        XCTAssertEqual(orderedKeys, ["memory.wired", "memory.active", "memory.compressed", "memory.free"])
+    }
+
+    func testFromCompactMemoryCompositionUsesStackedAreaBudget() {
+        let history = [
+            makeMemoryPoint(
+                timestamp: Date(timeIntervalSince1970: 100),
+                wired: 1_000,
+                active: 2_000,
+                compressed: 500,
+                free: 6_500,
+                total: 10_000
+            )
+        ]
+
+        let model = PreparedTimeSeriesChartModel.fromCompactMemoryComposition(history: history, window: .oneHour)
+        XCTAssertEqual(model.renderStyle, .stackedArea)
+        XCTAssertEqual(model.sampleBudget, .compactChart)
+        XCTAssertEqual(model.miniPresentation, .timeSeries)
+        XCTAssertEqual(model.fixedYDomain, 0 ... 100)
     }
 
     func testBidirectionalSparklineCarriesSeparateValueArrays() {

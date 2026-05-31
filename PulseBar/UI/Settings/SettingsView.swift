@@ -213,7 +213,7 @@ struct SettingsView: View {
             settingsCard("Appearance") {
                 HStack {
                     Text("Area Opacity")
-                    Slider(value: $coordinator.chartAreaOpacity, in: 0.05...0.5, step: 0.01)
+                    Slider(value: $coordinator.chartAreaOpacity, in: 0.05...0.95, step: 0.01)
                     Text(String(format: "%.2f", coordinator.chartAreaOpacity))
                         .monospacedDigit()
                         .foregroundStyle(DashboardPalette.secondaryText)

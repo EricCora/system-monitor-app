@@ -24,6 +24,10 @@ struct DashboardTimeSeriesChart: View {
         displayOptions.resolvedAreaOpacity
     }
 
+    private func fillOpacity(for renderStyle: DashboardTimeSeriesRenderStyle) -> Double {
+        DashboardChartTheme.resolvedAreaOpacity(for: renderStyle, baseOpacity: resolvedAreaOpacity)
+    }
+
     private var resolvedPlotCornerRadius: CGFloat {
         displayOptions.plotCornerRadius ?? plotCornerRadius
     }
@@ -114,6 +118,12 @@ struct DashboardTimeSeriesChart: View {
                         plotFrame: plotFrame,
                         cornerRadius: resolvedPlotCornerRadius
                     )
+
+                    ChartGapStripOverlay(
+                        timestamps: visiblePoints.map(\.timestamp),
+                        xDomain: resolvedXDomain,
+                        plotFrame: plotFrame
+                    )
                 }
             }
         }
@@ -131,7 +141,7 @@ struct DashboardTimeSeriesChart: View {
                 series: .value("Series", seriesIdentity),
                 stacking: .standard
             )
-            .foregroundStyle(DashboardChartTheme.areaFill(point.color, opacity: resolvedAreaOpacity))
+            .foregroundStyle(DashboardChartTheme.areaFillStacked(point.color, opacity: fillOpacity(for: .stackedArea)))
             .interpolationMethod(.linear)
 
         case .baselineAreaLine:
@@ -141,7 +151,7 @@ struct DashboardTimeSeriesChart: View {
                 yEnd: .value("Value", point.value),
                 series: .value("Series", seriesIdentity)
             )
-            .foregroundStyle(DashboardChartTheme.areaFill(point.color, opacity: resolvedAreaOpacity))
+            .foregroundStyle(DashboardChartTheme.areaFill(point.color, opacity: fillOpacity(for: .baselineAreaLine)))
             .interpolationMethod(.linear)
 
             LineMark(
@@ -202,5 +212,38 @@ struct DashboardTimeSeriesChart: View {
             unit: model.primaryUnit,
             throughputUnit: throughputUnit
         )
+    }
+}
+
+private struct ChartGapStripOverlay: View {
+    let timestamps: [Date]
+    let xDomain: ClosedRange<Date>
+    let plotFrame: CGRect
+
+    var body: some View {
+        Canvas(rendersAsynchronously: true) { context, size in
+            for gapRange in ChartPlotGeometry.timelineGapRanges(for: timestamps) {
+                let startX = ChartPlotGeometry.xPosition(for: gapRange.lowerBound, domain: xDomain, width: size.width)
+                let endX = ChartPlotGeometry.xPosition(for: gapRange.upperBound, domain: xDomain, width: size.width)
+                let rect = CGRect(
+                    x: min(startX, endX),
+                    y: 0,
+                    width: max(abs(endX - startX), 1),
+                    height: size.height
+                )
+                context.fill(Path(rect), with: .color(DashboardChartTheme.gapStripColor()))
+                context.stroke(
+                    Path { path in
+                        path.move(to: CGPoint(x: rect.maxX, y: 0))
+                        path.addLine(to: CGPoint(x: rect.maxX, y: size.height))
+                    },
+                    with: .color(DashboardChartTheme.gapDividerColor()),
+                    lineWidth: 0.75
+                )
+            }
+        }
+        .frame(width: plotFrame.width, height: plotFrame.height)
+        .position(x: plotFrame.midX, y: plotFrame.midY)
+        .allowsHitTesting(false)
     }
 }

@@ -11,7 +11,7 @@ struct TimeSeriesChartPoint: Identifiable {
     let color: Color
 
     var id: String {
-        "\(continuityKey)-\(timestamp.timeIntervalSince1970)"
+        "\(seriesKey)-\(continuityKey)-\(timestamp.timeIntervalSince1970)"
     }
 }
 
@@ -112,7 +112,7 @@ enum DashboardChartStyle {
     static func timeXAxis(showsMinorGrid: Bool = false) -> some AxisContent {
         AxisMarks(values: .automatic(desiredCount: 3)) { value in
             AxisGridLine()
-                .foregroundStyle(DashboardPalette.chartGrid.opacity(0.42))
+                .foregroundStyle(DashboardPalette.chartGrid.opacity(DashboardChartTheme.gridOpacity))
             AxisTick()
                 .foregroundStyle(DashboardPalette.chartAxisText)
             AxisValueLabel {
@@ -133,7 +133,7 @@ enum DashboardChartStyle {
         if let values {
             AxisMarks(preset: .aligned, position: .leading, values: values) { value in
                 AxisGridLine()
-                    .foregroundStyle(DashboardPalette.chartGrid)
+                    .foregroundStyle(DashboardPalette.chartGrid.opacity(DashboardChartTheme.gridOpacity))
                 AxisTick()
                     .foregroundStyle(DashboardPalette.chartAxisText)
                 AxisValueLabel {
@@ -146,7 +146,7 @@ enum DashboardChartStyle {
         } else {
             AxisMarks(preset: .aligned, position: .leading) { value in
                 AxisGridLine()
-                    .foregroundStyle(DashboardPalette.chartGrid)
+                    .foregroundStyle(DashboardPalette.chartGrid.opacity(DashboardChartTheme.gridOpacity))
                 AxisTick()
                     .foregroundStyle(DashboardPalette.chartAxisText)
                 AxisValueLabel {

@@ -6,6 +6,7 @@ struct MemoryTabView: View {
     @ObservedObject var paneController: DetachedMetricsPaneController
     @ObservedObject var featureStore: MemoryFeatureStore
     @State private var hostWindow: NSWindow?
+    @State private var compactCompositionModel = PreparedTimeSeriesChartModel.empty
 
     var body: some View {
         VStack(alignment: .leading, spacing: DashboardTabMetrics.sectionSpacing) {
@@ -67,6 +68,25 @@ struct MemoryTabView: View {
         .onDisappear {
             paneController.closeIfActive(family: .memory)
         }
+        .task(id: compositionChartRefreshID) {
+            await refreshCompositionChart()
+        }
+    }
+
+    private var compositionChartRefreshID: String {
+        "\(coordinator.selectedMemoryHistoryWindow.rawValue)-\(coordinator.memoryHistoryRevision)-\(coordinator.chartSmoothingAlpha)"
+    }
+
+    private func refreshCompositionChart() async {
+        let history = await coordinator.memoryHistorySeries(
+            window: coordinator.selectedMemoryHistoryWindow,
+            maxPoints: ChartSeriesPipeline.targetPointCount(for: coordinator.selectedMemoryHistoryWindow, budget: .compactChart)
+        )
+        compactCompositionModel = PreparedTimeSeriesChartModel.fromCompactMemoryComposition(
+            history: history,
+            window: coordinator.selectedMemoryHistoryWindow,
+            smoothingAlpha: coordinator.chartSmoothingAlpha
+        )
     }
 
     private func hoverableSection<Content: View>(
@@ -124,8 +144,15 @@ struct MemoryTabView: View {
     }
 
     private var memorySection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             sectionTitle("MEMORY")
+
+            DashboardMiniChart(
+                model: compactCompositionModel,
+                areaOpacity: coordinator.chartAreaOpacity,
+                showsPlotBackground: true
+            )
+            .frame(height: 92)
 
             GeometryReader { proxy in
                 HStack(spacing: 0) {

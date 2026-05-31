@@ -113,16 +113,18 @@ Current roadmap status is a safety-gated feasibility track only; no fan control 
 
 Unsigned local builds may trigger Gatekeeper warnings.
 If needed for personal usage:
-- Build a local app bundle:
+- Build and install the app (single copy in `/Applications`):
   ```bash
   ./scripts/package_app.sh
   ```
-- The finished bundle lands at `/Users/Eric/Documents/system_monitor_app/dist/PulseBar.app`
-- To install it into `/Applications` in one step:
+- Relaunch after changes:
   ```bash
-  ./scripts/package_app.sh --install
+  ./scripts/relaunch_app.sh
   ```
-- Move app to `/Applications` before enabling launch at login for the best `SMAppService` success rate
+- Keep a dist-only bundle without installing (not recommended for daily use):
+  ```bash
+  ./scripts/package_app.sh --dist-only
+  ```
 - Use Finder > Open on first launch if macOS warns about the unsigned local build
 
 ## Documentation Index

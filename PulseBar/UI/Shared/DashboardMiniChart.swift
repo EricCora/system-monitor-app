@@ -35,7 +35,7 @@ struct DashboardMiniChart: View {
             placeholder(in: size)
         } else {
             let accent = lineColor ?? model.points.first?.color ?? DashboardPalette.cpuChartAccent
-            let fill = fillColor ?? DashboardChartTheme.sparklineFill(accent)
+            let fill = fillColor ?? DashboardChartTheme.areaFillColor(accent, opacity: areaOpacity)
 
             ZStack {
                 if showsPlotBackground {
@@ -84,6 +84,13 @@ struct DashboardMiniChart: View {
                 }
 
                 Canvas(rendersAsynchronously: true) { context, canvasSize in
+                    drawGapStrips(
+                        timestamps: model.points.map(\.timestamp),
+                        xDomain: xDomain,
+                        context: &context,
+                        size: canvasSize
+                    )
+
                     switch model.renderStyle {
                     case .stackedArea:
                         drawStackedArea(segments: segments, xDomain: xDomain, yDomain: yDomain, context: &context, size: canvasSize)
@@ -203,6 +210,33 @@ struct DashboardMiniChart: View {
         return []
     }
 
+    private func drawGapStrips(
+        timestamps: [Date],
+        xDomain: ClosedRange<Date>,
+        context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        for gapRange in ChartPlotGeometry.timelineGapRanges(for: timestamps) {
+            let startX = ChartPlotGeometry.xPosition(for: gapRange.lowerBound, domain: xDomain, width: size.width)
+            let endX = ChartPlotGeometry.xPosition(for: gapRange.upperBound, domain: xDomain, width: size.width)
+            let rect = CGRect(
+                x: min(startX, endX),
+                y: 0,
+                width: max(abs(endX - startX), 1),
+                height: size.height
+            )
+            context.fill(Path(rect), with: .color(DashboardChartTheme.gapStripColor()))
+            context.stroke(
+                Path { path in
+                    path.move(to: CGPoint(x: rect.maxX, y: 0))
+                    path.addLine(to: CGPoint(x: rect.maxX, y: size.height))
+                },
+                with: .color(DashboardChartTheme.gapDividerColor()),
+                lineWidth: 0.75
+            )
+        }
+    }
+
     private func drawStackedArea(
         segments: [[TimeSeriesChartPoint]],
         xDomain: ClosedRange<Date>,
@@ -215,52 +249,34 @@ struct DashboardMiniChart: View {
             .sorted { ($0.first?.timestamp ?? .distantPast) < ($1.first?.timestamp ?? .distantPast) }
 
         for segment in timelineSegments {
-            let systemPoints = segment
-                .filter { $0.seriesKey == "cpu.system" }
-                .sorted { $0.timestamp < $1.timestamp }
-            let userPoints = segment
-                .filter { $0.seriesKey == "cpu.user" }
-                .sorted { $0.timestamp < $1.timestamp }
+            let seriesKeys = Array(Set(segment.map(\.seriesKey)))
+                .sorted { ChartRenderSemantics.layerRank(for: $0) < ChartRenderSemantics.layerRank(for: $1) }
 
-            if systemPoints.count >= 2, userPoints.count >= 2 {
-                let systemByTimestamp = Dictionary(uniqueKeysWithValues: systemPoints.map { ($0.timestamp, $0.value) })
-
-                drawStackedLayer(
-                    segment: systemPoints,
-                    topValue: { $0.value },
-                    baselineValue: { _ in yDomain.lowerBound },
-                    xDomain: xDomain,
-                    yDomain: yDomain,
-                    context: &context,
-                    size: size
-                )
+            var cumulativeByTimestamp: [Date: Double] = [:]
+            for seriesKey in seriesKeys {
+                let seriesPoints = segment
+                    .filter { $0.seriesKey == seriesKey }
+                    .sorted { $0.timestamp < $1.timestamp }
+                guard seriesPoints.count >= 2 else { continue }
 
                 drawStackedLayer(
-                    segment: userPoints,
+                    segment: seriesPoints,
                     topValue: { point in
-                        (systemByTimestamp[point.timestamp] ?? yDomain.lowerBound) + point.value
+                        (cumulativeByTimestamp[point.timestamp] ?? yDomain.lowerBound) + point.value
                     },
                     baselineValue: { point in
-                        systemByTimestamp[point.timestamp] ?? yDomain.lowerBound
+                        cumulativeByTimestamp[point.timestamp] ?? yDomain.lowerBound
                     },
                     xDomain: xDomain,
                     yDomain: yDomain,
                     context: &context,
                     size: size
                 )
-                continue
-            }
 
-            for seriesSegment in [systemPoints, userPoints].filter({ $0.count >= 2 }) {
-                drawStackedLayer(
-                    segment: seriesSegment,
-                    topValue: { $0.value },
-                    baselineValue: { _ in yDomain.lowerBound },
-                    xDomain: xDomain,
-                    yDomain: yDomain,
-                    context: &context,
-                    size: size
-                )
+                for point in seriesPoints {
+                    let baseline = cumulativeByTimestamp[point.timestamp] ?? yDomain.lowerBound
+                    cumulativeByTimestamp[point.timestamp] = baseline + point.value
+                }
             }
         }
     }
@@ -283,7 +299,7 @@ struct DashboardMiniChart: View {
             yDomain: yDomain,
             size: size
         )
-        context.fill(area, with: .color(color.opacity(areaOpacity)))
+        context.fill(area, with: .color(DashboardChartTheme.areaFillStackedColor(color, opacity: DashboardChartTheme.stackedAreaOpacity)))
         context.stroke(
             stackedLinePath(
                 points: segment,
@@ -374,7 +390,7 @@ struct DashboardMiniChart: View {
                 yDomain: yDomain,
                 size: size
             )
-            context.fill(area, with: .color((fillColor ?? DashboardChartTheme.sparklineFill(color, opacity: areaOpacity))))
+            context.fill(area, with: .color((fillColor ?? DashboardChartTheme.areaFillColor(color, opacity: areaOpacity))))
             context.stroke(
                 ChartPlotGeometry.linePath(for: segment, xDomain: xDomain, yDomain: yDomain, size: size),
                 with: .color(lineColor ?? DashboardChartTheme.seriesLineColor(color)),

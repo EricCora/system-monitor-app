@@ -36,12 +36,12 @@ enum DashboardPalette {
     static var insetFill: Color { .pulseBarAdaptive(light: (0.92, 0.94, 0.965, 1), dark: (0.18, 0.195, 0.23, 1)) }
     static var hoverFill: Color { .pulseBarAdaptive(light: (0.90, 0.94, 0.98, 1), dark: (0.21, 0.24, 0.285, 1)) }
     static var selectionFill: Color { .pulseBarAdaptive(light: (0.86, 0.91, 0.98, 1), dark: (0.16, 0.22, 0.31, 1)) }
-    static var chartGrid: Color { .pulseBarAdaptive(light: (0.67, 0.73, 0.81, 1), dark: (0.30, 0.35, 0.43, 1)) }
+    static var chartGrid: Color { .pulseBarAdaptive(light: (0.67, 0.73, 0.81, 1), dark: (0.55, 0.58, 0.62, 1)) }
     static var chartRule: Color { .pulseBarAdaptive(light: (0.29, 0.35, 0.44, 1), dark: (0.58, 0.65, 0.74, 1)) }
     static var chartAxisText: Color { .pulseBarAdaptive(light: (0.35, 0.40, 0.48, 1), dark: (0.62, 0.67, 0.74, 1)) }
     static var chartAxisStrong: Color { .pulseBarAdaptive(light: (0.24, 0.29, 0.37, 1), dark: (0.76, 0.80, 0.86, 1)) }
-    static var chartPlotTop: Color { .pulseBarAdaptive(light: (0.92, 0.945, 0.975, 1), dark: (0.16, 0.18, 0.22, 1)) }
-    static var chartPlotBottom: Color { .pulseBarAdaptive(light: (0.87, 0.91, 0.955, 1), dark: (0.12, 0.14, 0.175, 1)) }
+    static var chartPlotTop: Color { .pulseBarAdaptive(light: (0.92, 0.945, 0.975, 1), dark: (0.10, 0.11, 0.13, 1)) }
+    static var chartPlotBottom: Color { .pulseBarAdaptive(light: (0.87, 0.91, 0.955, 1), dark: (0.06, 0.07, 0.09, 1)) }
     static var chartPlotBorder: Color { .pulseBarAdaptive(light: (0.73, 0.79, 0.87, 1), dark: (0.28, 0.32, 0.39, 1)) }
     static var shellHighlight: Color { .pulseBarAdaptive(light: (1, 1, 1, 0.88), dark: (1, 1, 1, 0.10)) }
     static var shadow: Color { .pulseBarAdaptive(light: (0.11, 0.14, 0.20, 0.10), dark: (0, 0, 0, 0.28)) }
@@ -459,14 +459,17 @@ struct DashboardCard<Content: View>: View {
 struct DashboardSparklineView: View {
     let values: [Double]
     var lineColor: Color = DashboardPalette.cpuChartAccent
-    var fillColor: Color = DashboardChartTheme.sparklineFill(DashboardPalette.cpuChartAccent)
+    var fillColor: Color?
+
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
 
     var body: some View {
+        let opacity = displayOptions.resolvedAreaOpacity
         DashboardMiniChart(
             model: PreparedTimeSeriesChartModel.fromSparklineValues(values, color: lineColor),
-            areaOpacity: DashboardChartTheme.defaultAreaOpacity,
+            areaOpacity: opacity,
             lineColor: lineColor,
-            fillColor: fillColor,
+            fillColor: fillColor ?? DashboardChartTheme.areaFillColor(lineColor, opacity: opacity),
             showsPlotBackground: true
         )
         .frame(height: 80)

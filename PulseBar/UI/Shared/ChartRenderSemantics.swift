@@ -84,6 +84,14 @@ enum ChartRenderSemantics {
             return 20
         case "memory.pageOuts":
             return 30
+        case "memory.wired":
+            return 10
+        case "memory.active":
+            return 20
+        case "memory.compressed":
+            return 30
+        case "memory.free":
+            return 40
         case "gpu.processor":
             return 10
         case "gpu.memory":

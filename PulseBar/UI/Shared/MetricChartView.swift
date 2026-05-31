@@ -43,7 +43,7 @@ struct MetricChartView: View {
                     viewport: .constant(ChartViewport()),
                     zoomSelectionRect: .constant(nil)
                 )
-                .environment(\.dashboardChartDisplayOptions, displayOptions)
+                .environment(\.dashboardChartDisplayOptions, effectiveDisplayOptions)
 
                 ChartLegendStrip(items: legendItems, hiddenItemIDs: hiddenLegendIDs) { item in
                     ChartInteractionSupport.toggleLegendItem(item.id, hiddenLegendIDs: &hiddenLegendIDs)
@@ -57,6 +57,24 @@ struct MetricChartView: View {
         }
     }
 
+    @Environment(\.dashboardChartDisplayOptions) private var environmentDisplayOptions
+
+    private var effectiveDisplayOptions: ChartDisplayOptions {
+        var options = displayOptions
+        if isBatteryChargeChart && isNearConstantSeries {
+            let base = options.areaOpacity ?? environmentDisplayOptions.resolvedAreaOpacity
+            options.areaOpacity = base * 0.32
+        }
+        return options
+    }
+
+    private var isNearConstantSeries: Bool {
+        guard samples.count >= 2 else { return samples.count <= 1 }
+        let values = samples.map(\.value)
+        guard let minValue = values.min(), let maxValue = values.max() else { return true }
+        return (maxValue - minValue) < 1.0
+    }
+
     private var isThermalStateChart: Bool {
         samples.first?.metricID == .thermalStateLevel
     }
@@ -65,12 +83,21 @@ struct MetricChartView: View {
         samples.first?.metricID == .batteryChargePercent
     }
 
+    private var isTemperatureChart: Bool {
+        samples.first?.metricID == .temperaturePrimaryCelsius
+            || samples.first?.metricID == .temperatureMaxCelsius
+            || samples.first?.unit == .celsius
+    }
+
     private var baselinePolicy: ChartBaselinePolicy {
         if isThermalStateChart {
             return .fixed(0 ... 3)
         }
         if isBatteryChargeChart {
             return .fixed(0 ... 100)
+        }
+        if isTemperatureChart {
+            return .dataMin(minimumSpan: 1, paddingFraction: 0.1)
         }
         return .zero(minimumSpan: 1, paddingFraction: 0.1)
     }
@@ -138,5 +165,4 @@ struct MetricChartView: View {
         let elapsed = start.duration(to: ContinuousClock.now)
         diagnosticsStore?.recordChartPreparation(milliseconds: durationMilliseconds(elapsed))
     }
-
 }

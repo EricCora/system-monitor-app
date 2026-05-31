@@ -220,13 +220,61 @@ struct PreparedTimeSeriesChartModel {
         window: ChartWindow? = nil,
         smoothingAlpha: Double = 1.0
     ) -> PreparedTimeSeriesChartModel {
-        fromTemperatureHistory(
+        let renderStyle: DashboardTimeSeriesRenderStyle = series.count <= 1 ? .baselineAreaLine : .lineOnly
+        return fromTemperatureHistory(
             series: series,
             baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12),
-            renderStyle: .lineOnly,
+            renderStyle: renderStyle,
             window: window,
             smoothingAlpha: smoothingAlpha,
             sampleBudget: .compareLine
+        )
+    }
+
+    static func fromCompactMemoryComposition(
+        history: [MemoryHistoryPoint],
+        window: ChartWindow? = nil,
+        smoothingAlpha: Double = 1.0
+    ) -> PreparedTimeSeriesChartModel {
+        let points = ChartSeriesPipeline.memoryCompositionPoints(history: history, smoothingAlpha: smoothingAlpha)
+        let dataDomain = makeXDomain(from: points.map(\.timestamp))
+        let xDomainOverride = window.map {
+            DashboardChartStyle.visibleXDomain(dataDomain: dataDomain, window: $0)
+        }
+        return PreparedTimeSeriesChartModel(
+            points: points,
+            baseline: .fixed(0 ... 100),
+            renderStyle: .stackedArea,
+            sampleBudget: .compactChart,
+            miniPresentation: .timeSeries,
+            fixedYDomain: 0 ... 100,
+            xDomainOverride: xDomainOverride
+        )
+    }
+
+    static func fromCompactTemperature(
+        samples: [MetricSample],
+        key: String,
+        label: String,
+        color: Color,
+        window: ChartWindow? = nil,
+        smoothingAlpha: Double = 1.0
+    ) -> PreparedTimeSeriesChartModel {
+        let maxPoints = ChartSeriesPipeline.targetPointCount(for: window, budget: .compactChart)
+        let smoothed = ChartSeriesPipeline.prepareMetricSamples(samples, maxPoints: maxPoints, smoothingAlpha: smoothingAlpha)
+        let points = ChartSeriesPipeline.metricSamples(smoothed, key: key, label: label, color: color)
+        let dataDomain = makeXDomain(from: points.map(\.timestamp))
+        let xDomainOverride = window.map {
+            DashboardChartStyle.visibleXDomain(dataDomain: dataDomain, window: $0)
+        }
+        return PreparedTimeSeriesChartModel(
+            points: points,
+            baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12),
+            renderStyle: .baselineAreaLine,
+            sampleBudget: .compactChart,
+            miniPresentation: .timeSeries,
+            primaryUnit: .celsius,
+            xDomainOverride: xDomainOverride
         )
     }
 
