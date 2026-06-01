@@ -3,13 +3,19 @@ import SwiftUI
 
 struct DashboardMiniChart: View {
     let model: PreparedTimeSeriesChartModel
-    var areaOpacity: Double = DashboardChartTheme.defaultAreaOpacity
+    var areaOpacity: Double? = nil
     var lineColor: Color?
     var fillColor: Color?
     var positiveColor: Color = DashboardPalette.networkChartAccent
     var negativeColor: Color = DashboardPalette.diskChartAccent
     var showsPlotBackground: Bool = true
     var plotCornerRadius: CGFloat = 8
+
+    @Environment(\.dashboardChartDisplayOptions) private var displayOptions
+
+    private var resolvedChartAreaOpacity: Double {
+        areaOpacity ?? displayOptions.resolvedAreaOpacity
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -35,7 +41,7 @@ struct DashboardMiniChart: View {
             placeholder(in: size)
         } else {
             let accent = lineColor ?? model.points.first?.color ?? DashboardPalette.cpuChartAccent
-            let fill = fillColor ?? DashboardChartTheme.areaFillColor(accent, opacity: areaOpacity)
+            let fill = fillColor ?? DashboardChartTheme.areaFillColor(accent, opacity: resolvedChartAreaOpacity)
 
             ZStack {
                 if showsPlotBackground {
@@ -208,7 +214,7 @@ struct DashboardMiniChart: View {
     }
 
     private var resolvedStackedAreaOpacity: Double {
-        DashboardChartTheme.resolvedAreaOpacity(for: .stackedArea, baseOpacity: areaOpacity)
+        DashboardChartTheme.resolvedAreaOpacity(for: .stackedArea, baseOpacity: resolvedChartAreaOpacity)
     }
 
     private func drawStackedArea(
@@ -364,7 +370,7 @@ struct DashboardMiniChart: View {
                 yDomain: yDomain,
                 size: size
             )
-            context.fill(area, with: .color((fillColor ?? DashboardChartTheme.areaFillColor(color, opacity: areaOpacity))))
+            context.fill(area, with: .color((fillColor ?? DashboardChartTheme.areaFillColor(color, opacity: resolvedChartAreaOpacity))))
             context.stroke(
                 ChartPlotGeometry.linePath(for: segment, xDomain: xDomain, yDomain: yDomain, size: size),
                 with: .color(lineColor ?? DashboardChartTheme.seriesLineColor(color)),

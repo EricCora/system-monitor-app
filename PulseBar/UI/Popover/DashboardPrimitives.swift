@@ -457,22 +457,47 @@ struct DashboardCard<Content: View>: View {
 }
 
 struct DashboardSparklineView: View {
-    let values: [Double]
-    var lineColor: Color = DashboardPalette.cpuChartAccent
-    var fillColor: Color?
+    private let model: PreparedTimeSeriesChartModel
+    private var lineColorOverride: Color?
+    private var fillColorOverride: Color?
+    var height: CGFloat = 80
 
     @Environment(\.dashboardChartDisplayOptions) private var displayOptions
 
+    init(
+        model: PreparedTimeSeriesChartModel,
+        lineColor: Color? = nil,
+        fillColor: Color? = nil,
+        height: CGFloat = 80
+    ) {
+        self.model = model
+        self.lineColorOverride = lineColor
+        self.fillColorOverride = fillColor
+        self.height = height
+    }
+
+    init(
+        values: [Double],
+        lineColor: Color = DashboardPalette.cpuChartAccent,
+        fillColor: Color? = nil,
+        height: CGFloat = 80
+    ) {
+        self.model = PreparedTimeSeriesChartModel.fromSparklineValues(values, color: lineColor)
+        self.lineColorOverride = lineColor
+        self.fillColorOverride = fillColor
+        self.height = height
+    }
+
     var body: some View {
+        let accent = lineColorOverride ?? model.points.first?.color ?? DashboardPalette.cpuChartAccent
         let opacity = displayOptions.resolvedAreaOpacity
         DashboardMiniChart(
-            model: PreparedTimeSeriesChartModel.fromSparklineValues(values, color: lineColor),
-            areaOpacity: opacity,
-            lineColor: lineColor,
-            fillColor: fillColor ?? DashboardChartTheme.areaFillColor(lineColor, opacity: opacity),
+            model: model,
+            lineColor: accent,
+            fillColor: fillColorOverride ?? DashboardChartTheme.areaFillColor(accent, opacity: opacity),
             showsPlotBackground: true
         )
-        .frame(height: 80)
+        .frame(height: height)
     }
 }
 

@@ -13,6 +13,8 @@ struct MetricChartView: View {
     @State private var hiddenLegendIDs: Set<String> = []
     @State private var hoveredDate: Date?
 
+    @Environment(\.dashboardChartDisplayOptions) private var environmentDisplayOptions
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -37,8 +39,8 @@ struct MetricChartView: View {
                     height: 180,
                     throughputUnit: throughputUnit,
                     hiddenLegendIDs: hiddenLegendIDs,
-                    yAxisValues: isThermalStateChart ? [0, 1, 2, 3] : nil,
-                    yAxisLabel: isThermalStateChart ? thermalAxisLabel : nil,
+                    yAxisValues: presentation.usesThermalYAxis ? [0, 1, 2, 3] : nil,
+                    yAxisLabel: presentation.usesThermalYAxis ? thermalAxisLabel : nil,
                     hoveredDate: $hoveredDate,
                     viewport: .constant(ChartViewport()),
                     zoomSelectionRect: .constant(nil)
@@ -57,49 +59,16 @@ struct MetricChartView: View {
         }
     }
 
-    @Environment(\.dashboardChartDisplayOptions) private var environmentDisplayOptions
+    private var presentation: ChartPresentationPolicy.Resolved {
+        ChartPresentationPolicy.resolve(for: samples)
+    }
 
     private var effectiveDisplayOptions: ChartDisplayOptions {
-        var options = displayOptions
-        if isBatteryChargeChart && isNearConstantSeries {
-            let base = options.areaOpacity ?? environmentDisplayOptions.resolvedAreaOpacity
-            options.areaOpacity = base * 0.32
-        }
-        return options
-    }
-
-    private var isNearConstantSeries: Bool {
-        guard samples.count >= 2 else { return samples.count <= 1 }
-        let values = samples.map(\.value)
-        guard let minValue = values.min(), let maxValue = values.max() else { return true }
-        return (maxValue - minValue) < 1.0
-    }
-
-    private var isThermalStateChart: Bool {
-        samples.first?.metricID == .thermalStateLevel
-    }
-
-    private var isBatteryChargeChart: Bool {
-        samples.first?.metricID == .batteryChargePercent
-    }
-
-    private var isTemperatureChart: Bool {
-        samples.first?.metricID == .temperaturePrimaryCelsius
-            || samples.first?.metricID == .temperatureMaxCelsius
-            || samples.first?.unit == .celsius
-    }
-
-    private var baselinePolicy: ChartBaselinePolicy {
-        if isThermalStateChart {
-            return .fixed(0 ... 3)
-        }
-        if isBatteryChargeChart {
-            return .fixed(0 ... 100)
-        }
-        if isTemperatureChart {
-            return .dataMin(minimumSpan: 1, paddingFraction: 0.1)
-        }
-        return .zero(minimumSpan: 1, paddingFraction: 0.1)
+        ChartPresentationPolicy.displayOptions(
+            base: displayOptions,
+            environment: environmentDisplayOptions,
+            for: samples
+        )
     }
 
     private var summarySample: MetricSample? {
@@ -159,7 +128,7 @@ struct MetricChartView: View {
             key: title,
             label: title,
             color: seriesColor,
-            baseline: baselinePolicy,
+            baseline: presentation.baseline,
             smoothingAlpha: displayOptions.normalizedSmoothingAlpha
         )
         let elapsed = start.duration(to: ContinuousClock.now)

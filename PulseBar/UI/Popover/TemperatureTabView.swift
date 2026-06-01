@@ -7,8 +7,6 @@ struct TemperatureTabView: View {
     @ObservedObject var paneController: DetachedMetricsPaneController
     @ObservedObject var featureStore: TemperatureFeatureStore
     @State private var hostWindow: NSWindow?
-    @State private var primaryTemperatureSamples: [MetricSample] = []
-    @State private var compactChartModel = PreparedTimeSeriesChartModel.empty
     @State private var compareModeEnabled = false
     @State private var compareSelectionRevision = 0
 
@@ -61,14 +59,8 @@ struct TemperatureTabView: View {
                 }
             }
         )
-        .task {
-            synchronizeSelectionAndPane()
-        }
         .task(id: featureStore.visibleSensors.map(\.id).joined(separator: ",")) {
             synchronizeSelectionAndPane()
-        }
-        .task(id: chartRefreshID) {
-            await refreshCharts()
         }
         .onDisappear {
             paneController.closeIfActive(family: .temperature)
@@ -202,12 +194,21 @@ struct TemperatureTabView: View {
                     .foregroundStyle(DashboardPalette.primaryText)
             }
 
-            DashboardMiniChart(
-                model: compactChartModel,
-                areaOpacity: coordinator.chartAreaOpacity,
-                showsPlotBackground: true
-            )
-            .frame(height: 92)
+            CompactChartSection(refreshID: chartRefreshID) {
+                let samples = await coordinator.series(
+                    for: .temperaturePrimaryCelsius,
+                    window: coordinator.selectedTemperatureHistoryWindow,
+                    maxPoints: 240
+                )
+                return PreparedTimeSeriesChartModel.fromCompactTemperature(
+                    samples: samples,
+                    key: "primary.temperature",
+                    label: "Primary Temperature",
+                    color: DashboardPalette.temperatureChartAccent,
+                    window: coordinator.selectedTemperatureHistoryWindow,
+                    smoothingAlpha: coordinator.chartSmoothingAlpha
+                )
+            }
         }
         .dashboardSurface(padding: 16, cornerRadius: DashboardTabMetrics.hoverSectionCornerRadius)
     }
@@ -407,22 +408,6 @@ struct TemperatureTabView: View {
         if featureStore.visibleSensors.isEmpty {
             paneController.closePanel(clearSelection: false)
         }
-    }
-
-    private func refreshCharts() async {
-        primaryTemperatureSamples = await coordinator.series(
-            for: .temperaturePrimaryCelsius,
-            window: coordinator.selectedTemperatureHistoryWindow,
-            maxPoints: 240
-        )
-        compactChartModel = PreparedTimeSeriesChartModel.fromCompactTemperature(
-            samples: primaryTemperatureSamples,
-            key: "primary.temperature",
-            label: "Primary Temperature",
-            color: DashboardPalette.temperatureChartAccent,
-            window: coordinator.selectedTemperatureHistoryWindow,
-            smoothingAlpha: coordinator.chartSmoothingAlpha
-        )
     }
 
     private func summaryMetric(title: String, value: String) -> some View {

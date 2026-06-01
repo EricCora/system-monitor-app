@@ -176,10 +176,13 @@ struct PreparedTimeSeriesChartModel {
         miniPresentation: DashboardMiniChartPresentation? = nil
     ) -> PreparedTimeSeriesChartModel {
         let points = ChartSeriesPipeline.memoryCompositionPoints(history: history, smoothingAlpha: smoothingAlpha)
-        let xDomainOverride = window.map {
-            DashboardChartStyle.visibleXDomain(
-                dataDomain: makeXDomain(from: points.map(\.timestamp)),
-                window: $0
+        if sampleBudget == .compactChart || miniPresentation != nil {
+            return compactTimeSeries(
+                points: points,
+                baseline: .fixed(0 ... 100),
+                renderStyle: .stackedArea,
+                window: window,
+                fixedYDomain: 0 ... 100
             )
         }
         return PreparedTimeSeriesChartModel(
@@ -188,8 +191,7 @@ struct PreparedTimeSeriesChartModel {
             renderStyle: .stackedArea,
             sampleBudget: sampleBudget,
             miniPresentation: miniPresentation,
-            fixedYDomain: 0 ... 100,
-            xDomainOverride: xDomainOverride
+            fixedYDomain: 0 ... 100
         )
     }
 
@@ -267,18 +269,12 @@ struct PreparedTimeSeriesChartModel {
         let maxPoints = ChartSeriesPipeline.targetPointCount(for: window, budget: .compactChart)
         let smoothed = ChartSeriesPipeline.prepareMetricSamples(samples, maxPoints: maxPoints, smoothingAlpha: smoothingAlpha)
         let points = ChartSeriesPipeline.metricSamples(smoothed, key: key, label: label, color: color)
-        let dataDomain = makeXDomain(from: points.map(\.timestamp))
-        let xDomainOverride = window.map {
-            DashboardChartStyle.visibleXDomain(dataDomain: dataDomain, window: $0)
-        }
-        return PreparedTimeSeriesChartModel(
+        return compactTimeSeries(
             points: points,
             baseline: .dataMin(minimumSpan: 1, paddingFraction: 0.12),
             renderStyle: .baselineAreaLine,
-            sampleBudget: .compactChart,
-            miniPresentation: .timeSeries,
-            primaryUnit: .celsius,
-            xDomainOverride: xDomainOverride
+            window: window,
+            primaryUnit: .celsius
         )
     }
 
@@ -287,19 +283,14 @@ struct PreparedTimeSeriesChartModel {
         window: ChartWindow? = nil
     ) -> PreparedTimeSeriesChartModel {
         let points = ChartSeriesPipeline.compactCPUUsagePoints(renderModel: renderModel)
-        let dataDomain = renderModel.xDomain ?? makeXDomain(from: points.map(\.timestamp))
-        let xDomainOverride = window.map {
-            DashboardChartStyle.visibleXDomain(dataDomain: dataDomain, window: $0)
-        }
-        return PreparedTimeSeriesChartModel(
+        return compactTimeSeries(
             points: points,
             baseline: .fixed(0 ... 100),
             renderStyle: .stackedArea,
-            sampleBudget: .compactChart,
-            miniPresentation: .timeSeries,
+            window: window,
             primaryUnit: .percent,
             fixedYDomain: 0 ... 100,
-            xDomainOverride: xDomainOverride
+            dataDomain: renderModel.xDomain
         )
     }
 
@@ -336,12 +327,11 @@ struct PreparedTimeSeriesChartModel {
             }
             return $0.timestamp < $1.timestamp
         }
-        return PreparedTimeSeriesChartModel(
+        return compactTimeSeries(
             points: points,
             baseline: .zero(minimumSpan: 1, paddingFraction: 0.12),
             renderStyle: .baselineAreaLine,
-            sampleBudget: .compactChart,
-            miniPresentation: .timeSeries,
+            window: nil,
             primaryUnit: .scalar,
             fixedYDomain: renderModel.yDomain
         )
@@ -437,6 +427,31 @@ struct PreparedTimeSeriesChartModel {
         guard sampleBudget == .compareLine else { return !points.isEmpty }
         let grouped = Dictionary(grouping: points, by: \.seriesKey)
         return grouped.values.contains { $0.count > 1 }
+    }
+
+    private static func compactTimeSeries(
+        points: [TimeSeriesChartPoint],
+        baseline: ChartBaselinePolicy,
+        renderStyle: DashboardTimeSeriesRenderStyle,
+        window: ChartWindow?,
+        primaryUnit: MetricUnit? = nil,
+        fixedYDomain: ClosedRange<Double>? = nil,
+        dataDomain: ClosedRange<Date>? = nil
+    ) -> PreparedTimeSeriesChartModel {
+        let resolvedDataDomain = dataDomain ?? makeXDomain(from: points.map(\.timestamp))
+        let xDomainOverride = window.map {
+            DashboardChartStyle.visibleXDomain(dataDomain: resolvedDataDomain, window: $0)
+        }
+        return PreparedTimeSeriesChartModel(
+            points: points,
+            baseline: baseline,
+            renderStyle: renderStyle,
+            sampleBudget: .compactChart,
+            miniPresentation: .timeSeries,
+            primaryUnit: primaryUnit,
+            fixedYDomain: fixedYDomain,
+            xDomainOverride: xDomainOverride
+        )
     }
 
     private static func makeXDomain(from dates: [Date]) -> ClosedRange<Date> {

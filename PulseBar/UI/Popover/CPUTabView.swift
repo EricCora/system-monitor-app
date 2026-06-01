@@ -28,7 +28,7 @@ struct CPUTabView: View {
                 switch section {
                 case .usage:
                     hoverableSection(chart: .usage) {
-                        CPUUsageSection(store: usageStore, areaOpacity: coordinator.chartAreaOpacity)
+                        CPUUsageSection(store: usageStore)
                     }
                 case .processes:
                     CPUProcessesSection(store: processesStore, processCount: coordinator.cpuProcessCount)
@@ -42,7 +42,7 @@ struct CPUTabView: View {
                     }
                 case .loadAverage:
                     hoverableSection(chart: .loadAverage) {
-                        CPULoadSection(store: loadStore, areaOpacity: coordinator.chartAreaOpacity)
+                        CPULoadSection(store: loadStore)
                     }
                 case .uptime:
                     CPUUptimeSection(store: usageStore)
@@ -133,7 +133,6 @@ struct CPUTabView: View {
 
 private struct CPUUsageSection: View {
     @ObservedObject var store: CPUUsageSurfaceStore
-    let areaOpacity: Double
 
     var body: some View {
         let snapshot = store.snapshot
@@ -146,7 +145,6 @@ private struct CPUUsageSection: View {
                         renderModel: snapshot.renderModel,
                         window: snapshot.chartWindow
                     ),
-                    areaOpacity: areaOpacity,
                     showsPlotBackground: true
                 )
                 .frame(height: 92)
@@ -231,7 +229,6 @@ private struct CPUFPSSection: View {
 
 private struct CPULoadSection: View {
     @ObservedObject var store: CPULoadSurfaceStore
-    let areaOpacity: Double
 
     var body: some View {
         let snapshot = store.snapshot
@@ -240,7 +237,6 @@ private struct CPULoadSection: View {
 
             DashboardMiniChart(
                 model: PreparedTimeSeriesChartModel.fromCompactCPULoad(renderModel: snapshot.renderModel),
-                areaOpacity: areaOpacity,
                 showsPlotBackground: true
             )
             .frame(height: 92)

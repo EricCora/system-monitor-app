@@ -69,6 +69,9 @@ final class DetachedMetricsPaneController: ObservableObject {
 
     func clearPreview(_ target: DetachedMetricsPaneTarget) {
         guard hoveredTarget == target else { return }
+        if case .cpu = target {
+            restoreCPUHistoryWindowIfNeeded(using: coordinator)
+        }
         scheduleHideIfNeeded()
     }
 
