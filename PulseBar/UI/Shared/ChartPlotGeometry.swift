@@ -107,23 +107,50 @@ enum ChartPlotGeometry {
             segmentByTimestamp[timestamp] = segmentIndex
         }
 
-        var boundaries: [(Date, Int, Int)] = []
+        var boundaryTimestamps: [Date] = []
         for index in sortedUnique.indices.dropFirst() {
             let previous = sortedUnique[index - 1]
             let current = sortedUnique[index]
             guard segmentByTimestamp[previous] != segmentByTimestamp[current] else { continue }
-            boundaries.append((previous, segmentByTimestamp[previous] ?? 0, segmentByTimestamp[current] ?? 0))
+            boundaryTimestamps.append(previous)
         }
 
-        guard !boundaries.isEmpty else { return [] }
+        guard !boundaryTimestamps.isEmpty else { return [] }
 
         let span = sortedUnique.last!.timeIntervalSince(sortedUnique.first!)
         let padding = max(span * paddingFraction, 0.5)
 
-        return boundaries.map { boundary in
-            let start = boundary.0.addingTimeInterval(padding * 0.35)
+        return boundaryTimestamps.map { boundary in
+            let start = boundary.addingTimeInterval(padding * 0.35)
             let end = start.addingTimeInterval(padding)
             return start ... end
+        }
+    }
+
+    static func drawGapStrips(
+        timestamps: [Date],
+        xDomain: ClosedRange<Date>,
+        in context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        for gapRange in timelineGapRanges(for: timestamps) {
+            let startX = xPosition(for: gapRange.lowerBound, domain: xDomain, width: size.width)
+            let endX = xPosition(for: gapRange.upperBound, domain: xDomain, width: size.width)
+            let rect = CGRect(
+                x: min(startX, endX),
+                y: 0,
+                width: max(abs(endX - startX), 1),
+                height: size.height
+            )
+            context.fill(Path(rect), with: .color(DashboardChartTheme.gapStripColor()))
+            context.stroke(
+                Path { path in
+                    path.move(to: CGPoint(x: rect.maxX, y: 0))
+                    path.addLine(to: CGPoint(x: rect.maxX, y: size.height))
+                },
+                with: .color(DashboardChartTheme.gapDividerColor()),
+                lineWidth: 0.75
+            )
         }
     }
 }

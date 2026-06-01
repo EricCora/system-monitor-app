@@ -63,10 +63,6 @@ enum DashboardChartTheme {
         color.opacity(opacity)
     }
 
-    static func sparklineFill(_ color: Color, opacity: Double = defaultAreaOpacity) -> Color {
-        areaFillColor(color, opacity: opacity)
-    }
-
     static func resolvedAreaOpacity(for renderStyle: DashboardTimeSeriesRenderStyle, baseOpacity: Double) -> Double {
         switch renderStyle {
         case .stackedArea:

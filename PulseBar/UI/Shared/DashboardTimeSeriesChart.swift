@@ -222,25 +222,12 @@ private struct ChartGapStripOverlay: View {
 
     var body: some View {
         Canvas(rendersAsynchronously: true) { context, size in
-            for gapRange in ChartPlotGeometry.timelineGapRanges(for: timestamps) {
-                let startX = ChartPlotGeometry.xPosition(for: gapRange.lowerBound, domain: xDomain, width: size.width)
-                let endX = ChartPlotGeometry.xPosition(for: gapRange.upperBound, domain: xDomain, width: size.width)
-                let rect = CGRect(
-                    x: min(startX, endX),
-                    y: 0,
-                    width: max(abs(endX - startX), 1),
-                    height: size.height
-                )
-                context.fill(Path(rect), with: .color(DashboardChartTheme.gapStripColor()))
-                context.stroke(
-                    Path { path in
-                        path.move(to: CGPoint(x: rect.maxX, y: 0))
-                        path.addLine(to: CGPoint(x: rect.maxX, y: size.height))
-                    },
-                    with: .color(DashboardChartTheme.gapDividerColor()),
-                    lineWidth: 0.75
-                )
-            }
+            ChartPlotGeometry.drawGapStrips(
+                timestamps: timestamps,
+                xDomain: xDomain,
+                in: &context,
+                size: size
+            )
         }
         .frame(width: plotFrame.width, height: plotFrame.height)
         .position(x: plotFrame.midX, y: plotFrame.midY)

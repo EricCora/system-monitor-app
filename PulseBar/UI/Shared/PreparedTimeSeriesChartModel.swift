@@ -170,15 +170,26 @@ struct PreparedTimeSeriesChartModel {
 
     static func fromMemoryComposition(
         history: [MemoryHistoryPoint],
-        smoothingAlpha: Double = 1.0
+        window: ChartWindow? = nil,
+        smoothingAlpha: Double = 1.0,
+        sampleBudget: ChartSampleBudget = .fullChart,
+        miniPresentation: DashboardMiniChartPresentation? = nil
     ) -> PreparedTimeSeriesChartModel {
         let points = ChartSeriesPipeline.memoryCompositionPoints(history: history, smoothingAlpha: smoothingAlpha)
+        let xDomainOverride = window.map {
+            DashboardChartStyle.visibleXDomain(
+                dataDomain: makeXDomain(from: points.map(\.timestamp)),
+                window: $0
+            )
+        }
         return PreparedTimeSeriesChartModel(
             points: points,
             baseline: .fixed(0 ... 100),
             renderStyle: .stackedArea,
-            sampleBudget: .fullChart,
-            fixedYDomain: 0 ... 100
+            sampleBudget: sampleBudget,
+            miniPresentation: miniPresentation,
+            fixedYDomain: 0 ... 100,
+            xDomainOverride: xDomainOverride
         )
     }
 
@@ -236,19 +247,12 @@ struct PreparedTimeSeriesChartModel {
         window: ChartWindow? = nil,
         smoothingAlpha: Double = 1.0
     ) -> PreparedTimeSeriesChartModel {
-        let points = ChartSeriesPipeline.memoryCompositionPoints(history: history, smoothingAlpha: smoothingAlpha)
-        let dataDomain = makeXDomain(from: points.map(\.timestamp))
-        let xDomainOverride = window.map {
-            DashboardChartStyle.visibleXDomain(dataDomain: dataDomain, window: $0)
-        }
-        return PreparedTimeSeriesChartModel(
-            points: points,
-            baseline: .fixed(0 ... 100),
-            renderStyle: .stackedArea,
+        fromMemoryComposition(
+            history: history,
+            window: window,
+            smoothingAlpha: smoothingAlpha,
             sampleBudget: .compactChart,
-            miniPresentation: .timeSeries,
-            fixedYDomain: 0 ... 100,
-            xDomainOverride: xDomainOverride
+            miniPresentation: .timeSeries
         )
     }
 

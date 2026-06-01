@@ -106,9 +106,9 @@ final class TemperaturePaneModel: ObservableObject {
         guard !sensors.isEmpty else { return nil }
 
         let temperatureSensors = sensors.filter { $0.channelType == .temperatureCelsius }
-        let preferredCategories: [SensorCategory] = [.cpu, .soc, .gpu, .storage, .battery]
+        let preferredCategories: [SensorCategory] = [.cpu, .soc, .gpu, .storage]
 
-        for category in preferredCategories where category != .battery {
+        for category in preferredCategories {
             if let sensor = temperatureSensors
                 .filter({ $0.category == category })
                 .max(by: { $0.value < $1.value }) {

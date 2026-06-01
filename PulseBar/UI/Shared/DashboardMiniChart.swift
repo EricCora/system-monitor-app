@@ -84,10 +84,10 @@ struct DashboardMiniChart: View {
                 }
 
                 Canvas(rendersAsynchronously: true) { context, canvasSize in
-                    drawGapStrips(
+                    ChartPlotGeometry.drawGapStrips(
                         timestamps: model.points.map(\.timestamp),
                         xDomain: xDomain,
-                        context: &context,
+                        in: &context,
                         size: canvasSize
                     )
 
@@ -204,37 +204,11 @@ struct DashboardMiniChart: View {
     }
 
     private var barValues: [Double] {
-        if !model.points.isEmpty {
-            return model.points.map(\.value)
-        }
-        return []
+        model.points.map(\.value)
     }
 
-    private func drawGapStrips(
-        timestamps: [Date],
-        xDomain: ClosedRange<Date>,
-        context: inout GraphicsContext,
-        size: CGSize
-    ) {
-        for gapRange in ChartPlotGeometry.timelineGapRanges(for: timestamps) {
-            let startX = ChartPlotGeometry.xPosition(for: gapRange.lowerBound, domain: xDomain, width: size.width)
-            let endX = ChartPlotGeometry.xPosition(for: gapRange.upperBound, domain: xDomain, width: size.width)
-            let rect = CGRect(
-                x: min(startX, endX),
-                y: 0,
-                width: max(abs(endX - startX), 1),
-                height: size.height
-            )
-            context.fill(Path(rect), with: .color(DashboardChartTheme.gapStripColor()))
-            context.stroke(
-                Path { path in
-                    path.move(to: CGPoint(x: rect.maxX, y: 0))
-                    path.addLine(to: CGPoint(x: rect.maxX, y: size.height))
-                },
-                with: .color(DashboardChartTheme.gapDividerColor()),
-                lineWidth: 0.75
-            )
-        }
+    private var resolvedStackedAreaOpacity: Double {
+        DashboardChartTheme.resolvedAreaOpacity(for: .stackedArea, baseOpacity: areaOpacity)
     }
 
     private func drawStackedArea(
@@ -249,14 +223,14 @@ struct DashboardMiniChart: View {
             .sorted { ($0.first?.timestamp ?? .distantPast) < ($1.first?.timestamp ?? .distantPast) }
 
         for segment in timelineSegments {
-            let seriesKeys = Array(Set(segment.map(\.seriesKey)))
-                .sorted { ChartRenderSemantics.layerRank(for: $0) < ChartRenderSemantics.layerRank(for: $1) }
+            let grouped = Dictionary(grouping: segment, by: \.seriesKey)
+            let seriesKeys = grouped.keys.sorted {
+                ChartRenderSemantics.layerRank(for: $0) < ChartRenderSemantics.layerRank(for: $1)
+            }
 
             var cumulativeByTimestamp: [Date: Double] = [:]
             for seriesKey in seriesKeys {
-                let seriesPoints = segment
-                    .filter { $0.seriesKey == seriesKey }
-                    .sorted { $0.timestamp < $1.timestamp }
+                let seriesPoints = (grouped[seriesKey] ?? []).sorted { $0.timestamp < $1.timestamp }
                 guard seriesPoints.count >= 2 else { continue }
 
                 drawStackedLayer(
@@ -299,7 +273,7 @@ struct DashboardMiniChart: View {
             yDomain: yDomain,
             size: size
         )
-        context.fill(area, with: .color(DashboardChartTheme.areaFillStackedColor(color, opacity: DashboardChartTheme.stackedAreaOpacity)))
+        context.fill(area, with: .color(DashboardChartTheme.areaFillStackedColor(color, opacity: resolvedStackedAreaOpacity)))
         context.stroke(
             stackedLinePath(
                 points: segment,

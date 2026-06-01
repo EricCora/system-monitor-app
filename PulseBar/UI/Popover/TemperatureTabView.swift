@@ -389,9 +389,16 @@ struct TemperatureTabView: View {
 
     private func synchronizeSelectionAndPane() {
         if coordinator.selectedSensorReading() == nil {
-            coordinator.selectedTemperatureSensorID = TemperaturePaneModel.preferredDefaultSensorID(
-                from: featureStore.visibleSensors
-            ) ?? featureStore.visibleSensors.first?.id ?? ""
+            let aggregateRows = featureStore.groupedSensors.flatMap(\.aggregateRows)
+            if let preferredRowID = TemperaturePaneModel.preferredDefaultAggregateRowID(from: aggregateRows),
+               let preferredRow = aggregateRows.first(where: { $0.id == preferredRowID }),
+               let sensorID = preferredRow.sensorIDs.first {
+                coordinator.selectedTemperatureSensorID = sensorID
+            } else {
+                coordinator.selectedTemperatureSensorID = TemperaturePaneModel.preferredDefaultSensorID(
+                    from: featureStore.visibleSensors
+                ) ?? featureStore.visibleSensors.first?.id ?? ""
+            }
         }
 
         coordinator.comparedTemperatureSensorIDs = coordinator.comparedTemperatureSensorIDs
@@ -574,13 +581,16 @@ struct TemperatureTabView: View {
         return DashboardPalette.insetFill
     }
 
+    private func compareColorIndex(for row: TemperatureAggregateRow) -> Int? {
+        comparedSensorIDs.firstIndex(of: row.id)
+    }
+
     private func borderColor(for row: TemperatureAggregateRow) -> Color {
-        if compareModeEnabled,
-           let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
-            return DashboardChartTheme.compareColor(for: comparedIndex).opacity(0.65)
+        if compareModeEnabled, let index = compareColorIndex(for: row) {
+            return DashboardChartTheme.compareColor(for: index).opacity(0.65)
         }
-        if paneController.isActive(.temperatureCompare), comparedSensorIDs.contains(row.id) {
-            return DashboardChartTheme.compareColor(for: comparedSensorIDs.firstIndex(of: row.id) ?? 0).opacity(0.55)
+        if paneController.isActive(.temperatureCompare), let index = compareColorIndex(for: row) {
+            return DashboardChartTheme.compareColor(for: index).opacity(0.55)
         }
         return DashboardPalette.divider
     }
@@ -596,9 +606,9 @@ struct TemperatureTabView: View {
     private func aggregateRowMarker(for row: TemperatureAggregateRow) -> some View {
         Group {
             if compareModeEnabled {
-                if let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
+                if let index = compareColorIndex(for: row) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(DashboardChartTheme.compareColor(for: comparedIndex))
+                        .foregroundStyle(DashboardChartTheme.compareColor(for: index))
                 } else {
                     Image(systemName: "circle")
                         .foregroundStyle(DashboardPalette.secondaryText)
@@ -613,8 +623,8 @@ struct TemperatureTabView: View {
     }
 
     private func compareBarColor(for row: TemperatureAggregateRow) -> Color {
-        if compareModeEnabled, let comparedIndex = comparedSensorIDs.firstIndex(of: row.id) {
-            return DashboardChartTheme.compareColor(for: comparedIndex)
+        if compareModeEnabled, let index = compareColorIndex(for: row) {
+            return DashboardChartTheme.compareColor(for: index)
         }
         return DashboardPalette.temperatureAccent
     }
