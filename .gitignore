@@ -3,7 +3,9 @@
 .swiftpm/
 DerivedData/
 .derivedData/
+.video_analysis/
 build/
+dist/
 .codex/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
